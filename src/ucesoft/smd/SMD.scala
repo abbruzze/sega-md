@@ -72,7 +72,7 @@ object SMD:
 
     f.setVisible(true)
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog (USA, Europe).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\GenTestV3.1.bin""")
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)

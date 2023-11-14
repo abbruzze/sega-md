@@ -241,7 +241,6 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     private var readAddress = 0
     private var readBuffer = 0
     private var readCount = 0
-    private var readIncrement = 0
     private var swapNibbles = false
 
     final def count: Int = readCount
@@ -250,13 +249,12 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     final def buffer: Int = readBuffer
     final def reset(): Unit =
       readCount = 0
-      readBuffer = 0
+      //readBuffer = 0
     final def incCount(): Unit =
       readCount += 1
 
-    final def set(address:Int,increment:Int = 1,swap:Boolean = false): Unit =
+    final def set(address:Int,swap:Boolean = false): Unit =
       readAddress = address
-      readIncrement = increment
       swapNibbles = swap
       readCount = 0
 
@@ -265,9 +263,13 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       if swapNibbles then byte = (byte & 0xF) << 4 | (byte >> 4) & 0xF
       readBuffer = readBuffer << 8 | byte
 
-      readAddress += readIncrement
+      if swapNibbles then
+        readAddress -= 1
+      else
+        readAddress += 1
       readCount += 1
       readCount == 4
+  end VDP4ReadAddress
 
   private val vdp4read = new VDP4ReadAddress
   private var vdpAccessSlot = 0
@@ -418,6 +420,8 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   private var vcounterInc = 0
   private var hInterruptCounter = 0 // horizontal interrupt counter
 
+  private val layerPixels = Array(0,0,0) // pixels from A, B and S
+
   private var vInterruptPending = false
   private var hInterruptPending = false
 
@@ -460,6 +464,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       height = hsvs & 3
       next = VRAM(address + 3) & 0x7F
       log.info(s"SpriteCache $index cache updated: y=$_y width=$width height=$height next=$next")
+      //println(s"SpriteCache $index cache updated: y=$_y width=$width height=$height next=$next")
   end SpriteCache
 
   private class SpriteInfo:
@@ -468,32 +473,52 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     private var horizontalPosition = 0
     private var cellReadCount = 0
     private var spriteCacheIndex = 0
-    private var pixels = 0
+    private var address = 0
 
+    final def index: Int = spriteCacheIndex
     final def yLine: Int = y
     final def xpos: Int = horizontalPosition
-    final def patternAddress: Int = thirdByte & 0x7FF
+    final def patternAddress: Int = address
     final def priorityAndPalette: Int = (thirdByte >> 13) & 7
     final def verticalFlipped: Boolean = (thirdByte & 0x1000) > 0
     final def horizontalFlipped: Boolean = (thirdByte & 0x0800) > 0
 
     final def isFirstHorizontalCell: Boolean = cellReadCount == 0
-    final def spriteIndex: Int = spriteCacheIndex
-    final def incXPos(): Unit =
-      horizontalPosition += 1
-      pixels += 1
-      if (pixels & 7) == 0 then
-        cellReadCount += 1
+    //final def spriteIndex: Int = spriteCacheIndex
 
-    final def cellsCompleted: Boolean = cellReadCount >= spriteCache(spriteCacheIndex).h + 1
+    final def incCell(): Boolean =
+      cellReadCount += 1
+      horizontalPosition += 8
+      val cellDelta = (spriteCache(spriteCacheIndex).h + 1) << 5
+      if horizontalFlipped then
+        address -= cellDelta
+      else
+        address += cellDelta
+      cellReadCount >= spriteCache(spriteCacheIndex).h + 1
 
+    /*
+      048C
+      159D
+      26AE
+      37BF
+     */
     final def set(spriteCacheIndex:Int,thirdByte:Int,hpos:Int,ypos:Int): Unit =
       this.spriteCacheIndex = spriteCacheIndex
       this.thirdByte = thirdByte
-      horizontalPosition = hpos
+      horizontalPosition = hpos - 128
       y = ypos
       cellReadCount = 0
-      pixels = 0
+      address = (thirdByte & 0x7FF) << 5
+      val h = spriteCache(spriteCacheIndex).h
+      val vf = (thirdByte & 0x1000) > 0
+      val ycell = if vf then h - (y >> 3) else y >> 3
+      val yline = if vf then 7 - y & 7 else y & 7
+      address += (ycell << 5) | yline << 2
+      val hflipped = horizontalFlipped
+      if hflipped then
+        address += spriteCache(spriteCacheIndex).w << 7 // 2 + 5
+  end SpriteInfo
+
 
   private final val MAX_SPRITES_PER_ROW = math.max(HMode.H32.maxSpritePerLine,HMode.H40.maxSpritePerLine)
   private val MAX_SPRITE_PER_FRAME = math.max(HMode.H32.maxSpritePerFrame,HMode.H40.maxSpritePerFrame)
@@ -1151,7 +1176,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       val hflip = (map & PATTERN_H_MASK) != 0
       var address = (map & 0x7FF) << 5 | line << 2
       if hflip then address = (address + 3) & 0xFFFF
-      vdp4read.set(address,if hflip then -1 else 1,hflip)
+      vdp4read.set(address,hflip)
 
     if vdp4read.readVRAMByte() then
       var bit = 0
@@ -1174,8 +1199,8 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       vdp4read.set(REG_SPRITE_ATTR_ADDRESS + (spriteIndex << 3) + 4) // ignores first 4 bytes
 
     if vdp4read.readVRAMByte() && spriteIndex != -1 then
-      val ypos = rasterLine - spriteCache(sprite1VisibleCurrentIndex).y
-      sprite2Info(sprite1VisibleCurrentIndex).set(spriteIndex,vdp4read.buffer >>> 16,vdp4read.buffer & 0x100,ypos)
+      val ypos = (rasterLine - spriteCache(sprite1VisibleCurrentIndex).y) & 0x1F
+      sprite2Info(sprite1VisibleCurrentIndex).set(spriteIndex,vdp4read.buffer >>> 16,vdp4read.buffer & 0x1FF,ypos)
       // go to next sprite
       sprite1VisibleCurrentIndex += 1
   end doAccessSlotSpriteMapping
@@ -1188,35 +1213,31 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
    */
   private def doAccessSlotSpritePattern(): Unit =
     val spriteInfo = sprite2Info(if sprite2CurrentIndex < sprite1VisibleSize then sprite2CurrentIndex else 0)
-    if vdp4read.count == 0 then
-      if spriteInfo.isFirstHorizontalCell then
-        var address = spriteInfo.patternAddress
-        val h = spriteCache(spriteInfo.spriteIndex).h
-        val ycell = if spriteInfo.verticalFlipped then h - (spriteInfo.yLine >> 3) else spriteInfo.yLine >> 3
-        val yline = if spriteInfo.verticalFlipped then 7 - spriteInfo.yLine & 7 else spriteInfo.yLine & 7
-        address += (ycell << 5) | yline << 2
-        val hflipped = spriteInfo.horizontalFlipped
-        if hflipped then
-          address += spriteCache(spriteInfo.spriteIndex).w << 7 // 2 + 5
-        vdp4read.set(address,if hflipped then -((h + 1) << 5) else (h + 1) << 5,hflipped)
 
-    if vdp4read.readVRAMByte() then
-      val xpos = spriteInfo.xpos
+    if vdp4read.count == 0 && spriteInfo.isFirstHorizontalCell then
+      vdp4read.set(spriteInfo.patternAddress,spriteInfo.horizontalFlipped)
+
+    if vdp4read.readVRAMByte() && sprite2CurrentIndex < sprite1VisibleSize then
+      var xpos = spriteInfo.xpos
       var buffer = vdp4read.buffer
       var bit = 0
+      val activeWidth = hmode.activePixels
+      val prpl = spriteInfo.priorityAndPalette << 4
       while bit < 8 do
         val patternBit = (buffer >>> 28) & 0x0F
         buffer <<= 4
-        if xpos >= 0 && xpos < hmode.activePixels then // ok sprite is visible
+        if xpos >= 0 && xpos < activeWidth then // ok sprite is visible
           val pattern = vdpLayerPatternBuffer(S).get(xpos)
           if (pattern & 0xF) == 0 then
-            vdpLayerPatternBuffer(S).put(xpos,spriteInfo.priorityAndPalette | patternBit)
-        spriteInfo.incXPos()
+            vdpLayerPatternBuffer(S).put(xpos,prpl | patternBit)
         bit += 1
+        xpos += 1
       end while
-      if spriteInfo.cellsCompleted then
+      if spriteInfo.incCell() then
         sprite2CurrentIndex += 1
-
+      else
+        vdp4read.set(spriteInfo.patternAddress,spriteInfo.horizontalFlipped)
+    end if
   end doAccessSlotSpritePattern
 
   inline private def doAccessSlotRead(): Boolean =
@@ -1292,6 +1313,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
 
     vdpLayerPatternBuffer(A).reset()
     vdpLayerPatternBuffer(B).reset()
+    vdpLayerPatternBuffer(S).reset()
 
     xpos = 0
     hcounter = hmode.hCounterInitialValue
@@ -1363,10 +1385,51 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
 
         //if REG_DE then
         val bitA = vdpLayerPatternBuffer(A).dequeueBit()
+        val bitB = vdpLayerPatternBuffer(B).dequeueBit()
+        val bitS = vdpLayerPatternBuffer(S).dequeueBitAndClear()
+        val priorities = (bitS & 0x40) >> 4 | (bitA & 0x40) >> 5 | (bitB & 0x40) >> 6 // SAB
+
+        priorities match
+          case 0|4|6|7 => // S > A > B > G
+            layerPixels(0) = bitS
+            layerPixels(1) = bitA
+            layerPixels(2) = bitB
+          case 2 => // A > S > B > G
+            layerPixels(0) = bitA
+            layerPixels(1) = bitS
+            layerPixels(2) = bitB
+          case 1 => // B > S > A > G
+            layerPixels(0) = bitB
+            layerPixels(1) = bitS
+            layerPixels(2) = bitA
+          case 5 => // S > B > A > G
+            layerPixels(0) = bitS
+            layerPixels(1) = bitB
+            layerPixels(2) = bitA
+          case 3 => // A > B > S > G
+            layerPixels(0) = bitA
+            layerPixels(1) = bitB
+            layerPixels(2) = bitS
+
+        var pixelColor = layerPixels(0) & 0xF
+        if pixelColor != 0 then
+          color = pixelColor
+          palette = (layerPixels(0) >> 4) & 3
+        else
+          pixelColor = layerPixels(1) & 0xF
+          if pixelColor != 0 then
+            color = pixelColor
+            palette = (layerPixels(1) >> 4) & 3
+          else
+            pixelColor = layerPixels(2) & 0xF
+            if pixelColor != 0 then
+              color = pixelColor
+              palette = (layerPixels(2) >> 4) & 3
+        /*
         val colorA = bitA & 0xF
         val paletteA = (bitA >> 4) & 3
         val prioA = (bitA & 0x40) > 0
-        val bitB = vdpLayerPatternBuffer(B).dequeueBit()
+
         val colorB = bitB & 0xF
         val paletteB = (bitB >> 4) & 3
         val prioB = (bitA & 0x40) > 0
@@ -1377,11 +1440,9 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
           color = colorB
           palette = paletteB
         //end if
+         */
 
-        //setPixel(xpos, rasterLine, Palette.getColor(getColor(color, palette),(if REG_SHADOW_HIGHLIGHT_ENABLED then Palette.PaletteType.HIGHLIGHT else Palette.PaletteType.NORMAL)))
         setPixel(xpos, rasterLine, CRAM_COLORS(palette)(color))
-
-        //println(s"Active $xpos $rasterLine ${hcounter.toHexString} ${vcounter.toHexString}")
       end if
       // epilogue
       xpos += 1
@@ -1488,6 +1549,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         else
           sprite1VisibleIndexes(sprite1VisibleCurrentIndex) = spriteIndex
           sprite1VisibleCurrentIndex += 1
+          //println(s"Sprite $spriteIndex visible at line $line: sy=$sy height=$height")
 
       c += 1
     end while
