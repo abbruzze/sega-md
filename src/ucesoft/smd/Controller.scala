@@ -29,7 +29,7 @@ abstract class PadController(override val index:Int,val ctype:ControllerType,val
 
   protected var controllerType : ControllerType = ctype
   protected var control = 0
-  protected var lastWrite = 0
+  protected var lastWrite = 0x40
   protected var counter6Button = 0
   protected var timeoutID : EventID = _
 
@@ -51,7 +51,7 @@ abstract class PadController(override val index:Int,val ctype:ControllerType,val
     java.util.Arrays.fill(buttons,1)
     counter6Button = 0
     control = 0
-    lastWrite = 0
+    lastWrite = 0x40
 
   override def setControllerType(ct:ControllerType): Unit =
     controllerType = ct
@@ -82,15 +82,15 @@ abstract class PadController(override val index:Int,val ctype:ControllerType,val
     if (control & 0x40) > 0 then // TH as output
       if ((lastWrite ^ value) & 0x40) > 0 then
         //log.info(s"lastWrite=${lastWrite.toHexString} value=${value.toHexString} counter6Button=$counter6Button")
-        counter6Button += 1
-        if counter6Button == controllerType.counterMask + 1 then
-          counter6Button = 0
-          lastWrite = 0x40
+        counter6Button = (counter6Button + 1) & controllerType.counterMask
 
         if controllerType == ControllerType.PAD6Buttons then
           if timeoutID != null then
             timeoutID.cancel()
-          timeoutID = clock.scheduleMillis(RESET_COUNTER_TIMEOUT_MILLIS,(cycles,skip) => counter6Button = 0 )
+          timeoutID = clock.scheduleMillis(RESET_COUNTER_TIMEOUT_MILLIS,(cycles,skip) => {
+            counter6Button = 0
+            lastWrite = 0x40
+          } )
 
     lastWrite = value
     performDataWrite(value)
@@ -98,7 +98,6 @@ abstract class PadController(override val index:Int,val ctype:ControllerType,val
   override def readControl: Int = control
   override def writeControl(value:Int): Unit =
     control = value
-    lastWrite = 0x40
 
   protected def performDataWrite(data:Int): Unit = {}
 
