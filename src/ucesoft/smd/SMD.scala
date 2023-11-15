@@ -61,7 +61,6 @@ object SMD:
     f.addKeyListener(c1)
 
     val deb = new M68kDebugger(m68k,mmu,mmu.get68KRAM,vdp,new Default68KDisassembleAnnotator)
-    vdp.debugger = deb
     deb.enableTracing(true)
     val logger = Logger.setLogger(deb.log)
     logger.setLevel(java.util.logging.Level.INFO)
@@ -72,7 +71,7 @@ object SMD:
 
     f.setVisible(true)
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\GenTestV3.1.bin""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\Graphics & Joystick Sampler by Charles Doty (PD).bin""")
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)

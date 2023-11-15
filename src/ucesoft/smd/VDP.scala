@@ -1,7 +1,6 @@
 package ucesoft.smd
 
 import ucesoft.smd.cpu.m68k.{M6800X0, Memory, Size}
-import ucesoft.smd.debugger.M68kDebugger
 
 import scala.collection.mutable.ListBuffer
 
@@ -468,7 +467,6 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   end SpriteCache
 
   private class SpriteInfo:
-    private var y = 0
     private var thirdByte = 0
     private var horizontalPosition = 0
     private var cellReadCount = 0
@@ -476,11 +474,9 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     private var address = 0
 
     final def index: Int = spriteCacheIndex
-    final def yLine: Int = y
     final def xpos: Int = horizontalPosition
     final def patternAddress: Int = address
     final def priorityAndPalette: Int = (thirdByte >> 13) & 7
-    final def verticalFlipped: Boolean = (thirdByte & 0x1000) > 0
     final def horizontalFlipped: Boolean = (thirdByte & 0x0800) > 0
 
     final def isFirstHorizontalCell: Boolean = cellReadCount == 0
@@ -494,29 +490,29 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         address -= cellDelta
       else
         address += cellDelta
-      cellReadCount >= spriteCache(spriteCacheIndex).h + 1
+      cellReadCount > spriteCache(spriteCacheIndex).w
 
     /*
-      048C
-      159D
+      048C  0
+      159D  1 01
       26AE
       37BF
      */
-    final def set(spriteCacheIndex:Int,thirdByte:Int,hpos:Int,ypos:Int): Unit =
+    final def set(spriteCacheIndex:Int,thirdByte:Int,hpos:Int): Unit =
       this.spriteCacheIndex = spriteCacheIndex
       this.thirdByte = thirdByte
       horizontalPosition = hpos - 128
-      y = ypos
+      val deltaY = (activeDisplayLine - (spriteCache(spriteCacheIndex).y - 128)) & 0x1F
       cellReadCount = 0
       address = (thirdByte & 0x7FF) << 5
       val h = spriteCache(spriteCacheIndex).h
       val vf = (thirdByte & 0x1000) > 0
-      val ycell = if vf then h - (y >> 3) else y >> 3
-      val yline = if vf then 7 - y & 7 else y & 7
+      val ycell = if vf then h - (deltaY >> 3) else deltaY >> 3
+      val yline = if vf then 7 - (deltaY & 7) else deltaY & 7
       address += (ycell << 5) | yline << 2
-      val hflipped = horizontalFlipped
-      if hflipped then
-        address += spriteCache(spriteCacheIndex).w << 7 // 2 + 5
+      val hf = (thirdByte & 0x0800) > 0
+      if hf then
+        address += ((h + 1) << 5) * spriteCache(spriteCacheIndex).w + 3
   end SpriteInfo
 
 
@@ -546,7 +542,6 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   private var m68KMemory : Memory = _
   private var m68KBUSRequsted = false
   private var masterClock : Clock = _
-  var debugger : M68kDebugger = _ // TODO remove it
   // ===================================================================================
   def getMemoryDump: VDPMemoryDump =
     VDPMemoryDump(VRAM,CRAM,VSRAM)
@@ -1199,8 +1194,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       vdp4read.set(REG_SPRITE_ATTR_ADDRESS + (spriteIndex << 3) + 4) // ignores first 4 bytes
 
     if vdp4read.readVRAMByte() && spriteIndex != -1 then
-      val ypos = (rasterLine - spriteCache(sprite1VisibleCurrentIndex).y) & 0x1F
-      sprite2Info(sprite1VisibleCurrentIndex).set(spriteIndex,vdp4read.buffer >>> 16,vdp4read.buffer & 0x1FF,ypos)
+      sprite2Info(sprite1VisibleCurrentIndex).set(spriteIndex,vdp4read.buffer >>> 16,vdp4read.buffer & 0x1FF)
       // go to next sprite
       sprite1VisibleCurrentIndex += 1
   end doAccessSlotSpriteMapping
@@ -1542,7 +1536,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       spriteEvaluationIndex = spriteCache(spriteIndex).link
       spriteEvaluationInProgress = spriteEvaluationIndex != 0 && spriteEvaluationIndex < spriteCache.length && spriteEvaluationCycles < 40
 
-      if line >= sy && line < sy + height then
+      if line >= sy && line <= sy + height then
         if sprite1VisibleCurrentIndex == hmode.maxSpritePerLine then
           statusRegister |= STATUS_SOVR_MASK
           spriteEvaluationInProgress = false
