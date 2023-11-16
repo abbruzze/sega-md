@@ -168,6 +168,8 @@ class Display(width: Int, height: Int, title: String, frame: JFrame, clk:Clock) 
   
   def getClipArea: (Point, Point) = clipArea
 
+  def setClipArea(clip:(Int,Int,Int,Int)): Unit =
+    setClipArea(clip._1,clip._2,clip._3,clip._4)
   def setClipArea(x1: Int, y1: Int, x2: Int, y2: Int) : Unit = {
     clipArea = (new Point(x1, y1), new Point(x2, y2))
   }

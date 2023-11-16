@@ -1,5 +1,7 @@
 package ucesoft.smd
 
+import java.awt.Dimension
+
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 30/08/2023 16:41  
@@ -106,7 +108,15 @@ enum ModelType:
 //|              |set to 0x0E0 in  |                 |set to 0x0F0 in  |                 |
 //|              |[1].             |                 |[1].             |                 |
 //----------------------------------------------------------------------------------------
-enum VideoType(val topBlankingPixels:Int,val topBorderPixels:Int,val bottomBorderPixels:Int,val bottomBlankingPixels:Int,val totalLines:Int):
+case class DisplayClipArea(x1:Int,y1:Int,x2:Int,y2:Int):
+  def getTuple: (Int,Int,Int,Int) = (x1,y1,x2,y2)
+  def getPreferredSize(zoomFactor:Int): Dimension = new Dimension((x2 - x1) * zoomFactor,(y2 - y1) * zoomFactor)
+enum VideoType(val topBlankingPixels:Int,
+               val topBorderPixels:Int,
+               val bottomBorderPixels:Int,
+               val bottomBlankingPixels:Int,
+               val totalLines:Int,
+               val maxActiveLines:Int):
   val vBlankClearedAt = 0x1FE
 
   final def topBlankingInitialVCounter(v30:Boolean): Int = this match
@@ -124,16 +134,26 @@ enum VideoType(val topBlankingPixels:Int,val topBorderPixels:Int,val bottomBorde
   final def bottomBorderPos(v30:Boolean): Int =
     topBlankingPixels + topBorderPixels + (if v30 then 240 else 224)
 
+  final def getClipArea(h40:Boolean): DisplayClipArea =
+    if h40 then
+      // remaining hsync = 4, left black = 32, left border = 13, display = 320, right border = 14
+      DisplayClipArea(32 + 4,topBlankingPixels,379 + 4,topBlankingPixels + topBorderPixels + maxActiveLines + bottomBorderPixels)
+    else
+      // remaining hsync = 10, left black = 24, left border = 13, display = 256, right border = 14
+      DisplayClipArea(24 + 10,topBlankingPixels,307 + 10,topBlankingPixels + topBorderPixels + maxActiveLines + bottomBorderPixels)
+
   case NTSC extends VideoType(topBlankingPixels = 13,
                               topBorderPixels = 11,
                               bottomBorderPixels = 8,
                               bottomBlankingPixels = 3,
-                              totalLines = 262)
+                              totalLines = 262,
+                              maxActiveLines = 8 * 28)
   case PAL extends VideoType(topBlankingPixels = 13,
                              topBorderPixels = 38,
                              bottomBorderPixels = 32,
                              bottomBlankingPixels = 3,
-                             totalLines = 312)
+                             totalLines = 312,
+                             maxActiveLines = 8 * 30)
 
 enum VRAMAccess:
   case
@@ -162,6 +182,8 @@ private val H32_VRAM_ACCESS_PATTERN = "Hssss AsaaBsbb" + (("A~aaBSbb" * 3) + "Ar
 private val H40_VRAM_ACCESS_PATTERN = "Hssss AsaaBsbb" + (("A~aaBSbb" * 3) + "AraaBSbb") * 5 + "~~" + "s" * 23 + "~" + "s" * 11
 
 import VRAMAccess.*
+
+import java.awt.Dimension
 private def string2VRAMAccessPattern(s:String): Array[VRAMAccess] =
   s.filterNot(_.isSpaceChar).map {
     case 'H' => H__

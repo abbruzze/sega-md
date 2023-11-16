@@ -22,10 +22,14 @@ object SMD:
 
     val f = new JFrame("Test SMD")
     val display = new Display(SCREEN_WIDTH, vmodel.totalLines, "Test SMD", f, masterClock)
+    //java.util.Arrays.fill(display.displayMem, java.awt.Color.RED.getRGB)
     vdp.setDisplay(display)
-    java.util.Arrays.fill(display.displayMem, java.awt.Color.RED.getRGB)
 
-    display.setPreferredSize(new java.awt.Dimension(SCREEN_WIDTH * 2, vmodel.totalLines * 2))
+    //display.setClipArea(32,13,379,256)
+    display.setClipArea(model.videoType.getClipArea(h40 = true).getTuple)
+    //display.setPreferredSize(new java.awt.Dimension(SCREEN_WIDTH * 2, vmodel.totalLines * 2))
+    //display.setPreferredSize(new java.awt.Dimension((13 + 320 + 14) * 2,(11 + 224 + 8) * 2))
+    display.setPreferredSize(model.videoType.getClipArea(h40 = true).getPreferredSize(2))
     f.getContentPane.add("Center", display)
     f.pack()
 
@@ -71,7 +75,7 @@ object SMD:
 
     f.setVisible(true)
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\Graphics & Joystick Sampler by Charles Doty (PD).bin""")
+      val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog 2 (World).md""")
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)
