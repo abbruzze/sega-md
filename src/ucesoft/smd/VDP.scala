@@ -396,7 +396,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
 
   private val vdpLayerPatternBuffer = Array(new PatternBitCache(40 + 2), new PatternBitCache(40 + 2), new PatternBitCache(40)) // A, B, S
 
-  private var hmode : HMode = HMode.H40
+  private var hmode : HMode = HMode.H32
   private val xscroll = Array(0,0)  // xscroll for layer A and B
   private val yscroll = Array(0,0)  // yscroll for layer A and B
   private val firstCellToXScroll = 0
@@ -614,6 +614,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     fifo.reset()
     vdpLayerPatternBuffer(A).reset()
     vdpLayerPatternBuffer(B).reset()
+    vdpLayerPatternBuffer(S).reset()
     //sprite1VisibleCurrentIndex = 0
     //java.util.Arrays.fill(sprite1VisibleIndexes,-1)
     changeVDPClockDivider(hmode.initialClockDiv)
@@ -1209,7 +1210,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       vdp4read.modifyAddress(vdpLayerMappingAddress(layer).address)
   end doAccessSlotLayerMapping
 
-  private def doAccessSlotLayerPattern(layer:Int): Unit =
+  inline private def doAccessSlotLayerPattern(layer:Int): Unit =
     val map = vdpLayer2CellMappingBuffer(layer) >>> 16
 
     if vdp4read.count == 0 then
@@ -1233,7 +1234,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       vdpLayer2CellMappingBuffer(layer) <<= 16 // next entry
   end doAccessSlotLayerPattern
 
-  private def doAccessSlotSpriteMapping(): Unit =
+  inline private def doAccessSlotSpriteMapping(): Unit =
     val spriteIndex = if sprite1VisibleSR.getSize > 0 then sprite1VisibleSR.peekIndex() else -1
     if vdp4read.count == 0 then
       // For unused sprite slots sprite 0 is accessed but the data read is discarded
@@ -1260,7 +1261,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     26AE
     37BF
    */
-  private def doAccessSlotSpritePattern(): Unit =
+  inline private def doAccessSlotSpritePattern(): Unit =
     val spriteInfo = sprite2Info(if sprite2CurrentIndex < sprite2Size then sprite2CurrentIndex else 0)
 
     if vdp4read.count == 0 && spriteInfo.isFirstHorizontalCell then
