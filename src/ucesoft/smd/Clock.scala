@@ -60,7 +60,7 @@ class Clock private (val name:String,val clocksPerSecond:Int,private var masterC
   private var throttleStartedAt = 0L
   private var skipThrottle = false
   private inline val PERFORMANCE_MEASUREMENT_INTERVAL_SECONDS = 1 * 1000
-  private var freqDiv1000, freqInvBy1000 = 0
+  private var freqDiv1000, freqInvBy1000 = 0.0
 
   private var skipCycles = 0
 
@@ -70,8 +70,8 @@ class Clock private (val name:String,val clocksPerSecond:Int,private var masterC
 
   private def initFreq(): Unit =
     if isMasterClock then
-      freqDiv1000 = clocksPerSecond / 1000
-      freqInvBy1000 = 1000 / clocksPerSecond
+      freqDiv1000 = clocksPerSecond / 1000.0
+      freqInvBy1000 = 1000.0 / clocksPerSecond
 
   final def setWarpMode(enabled:Boolean): Unit = warpMode = enabled
 
@@ -222,8 +222,11 @@ class Clock private (val name:String,val clocksPerSecond:Int,private var masterC
       val cyclesDiff = cycles - lastCorrectionCycles
       val expectedCycles = timeDiff * freqDiv1000
       if cyclesDiff > expectedCycles then
-        val waitTime = (freqInvBy1000 * (cyclesDiff - expectedCycles)).asInstanceOf[Int]
-        Thread.sleep(if (waitTime == 0) 1 else waitTime)
+        val waitTime = freqInvBy1000 * (cyclesDiff - expectedCycles)
+        val millis = math.floor(waitTime).asInstanceOf[Int]
+        val nanos = ((waitTime - millis) * 1000).toInt
+        //Thread.sleep(if (waitTime == 0) 1 else waitTime)
+        Thread.sleep(millis,nanos)
 
     if skipThrottle || System.currentTimeMillis > nextPerformanceMeasurementTime then
       skipThrottle = false
