@@ -122,7 +122,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   private var model : Model = _
   private val VRAM = Array.ofDim[Int](0x10000)
   private val CRAM = Array.ofDim[Int](128)      // 128 bytes,  64 word entries: |----bbb-|ggg-rrr-|
-  private val CRAM_COLORS = Array.fill[Int](4,16)(Palette.getColor(0))  // 16 colors x 4 palette
+  private val CRAM_COLORS = Array.fill[Int](4,3,16)(Palette.getColor(0))  // 16 colors x 4 palette
   private val VSRAM = Array.ofDim[Int](80)
   private val regs = Array.ofDim[Int](0x20)
 
@@ -515,8 +515,36 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       val hf = (thirdByte & 0x0800) > 0
       if hf then
         address += ((h + 1) << 5) * spriteCache(spriteCacheIndex).w + 3
+
+      //println(s"Sprite $spriteCacheIndex X=${(horizontalPosition + 128).toHexString} Y=${spriteCache(spriteCacheIndex).y.toHexString} line=$activeDisplayLine deltaY=$deltaY address=${address.toHexString}")
   end SpriteInfo
 
+  private class SpriteVisibleSR:
+    private val cache = Array.ofDim[Int](MAX_SPRITES_PER_ROW)
+    private var readIndex, writeIndex = 0
+    private var size = 0
+
+    def reset(): Unit =
+      readIndex = 0
+      writeIndex = 0
+      size = 0
+
+    final def enqueueIndex(v: Int): Unit =
+      cache(writeIndex) = v
+      size += 1
+      writeIndex = (writeIndex + 1) % cache.length
+
+    final def empty: Boolean = size == 0
+    final def getSize: Int = size
+
+    final def peekIndex(): Int = cache(readIndex)
+
+    final def dequeueIndex(): Int =
+      val bit = cache(readIndex)
+      size -= 1
+      readIndex = (readIndex + 1) % cache.length
+      bit
+  end SpriteVisibleSR
 
   private final val MAX_SPRITES_PER_ROW = math.max(HMode.H32.maxSpritePerLine,HMode.H40.maxSpritePerLine)
   private val MAX_SPRITE_PER_FRAME = math.max(HMode.H32.maxSpritePerFrame,HMode.H40.maxSpritePerFrame)
@@ -528,18 +556,22 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     sp
   }
   // for sprite phase 1
-  private final val sprite1VisibleIndexes = Array.ofDim[Int](MAX_SPRITES_PER_ROW + 1)
+  private var sprite1VisibleSR,sprite1VisibleNextLineSR = new SpriteVisibleSR
   private var sprite1VisibleCurrentIndex = 0
-  private var sprite1VisibleSize = 0
+  private var sprite1FirstFetch = true
   // for sprite phase 2
   private final val sprite2Info = Array.fill[SpriteInfo](MAX_SPRITES_PER_ROW)(new SpriteInfo)
-  private var sprite2CurrentIndex = 0
+  private var sprite2CurrentIndex,sprite2Size = 0
   // for sprite evaluation
   private inline val SPRITE_PHASE1_ACCESS_SLOT = 1
   // for sprite bug
   private var lastSpriteXPosZero = false
+  // sprite evaluation
+  private inline val SPRITE_EVAL_IDLE = 0
+  private inline val SPRITE_EVAL_IN_PROGRESS = 1
+  private inline val SPRITE_EVAL_TERMINATED = 2
   private var spriteLineRenderingEnabled = true
-  private var spriteEvaluationInProgress = false
+  private var spriteEvaluationPhaseInProgress = SPRITE_EVAL_IDLE
   private var spriteEvaluationIndex = 0
   private var spriteEvaluationCycles = 0
 
@@ -566,8 +598,8 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     hcounter = hmode.hCounterInitialValue
 
   override def reset(): Unit =
-    for pal <- 0 to 15 do
-      java.util.Arrays.fill(CRAM_COLORS(pal),Palette.getColor(0))
+    for pal <- 0 to 3; mode <- 0 to 2 do
+      java.util.Arrays.fill(CRAM_COLORS(pal)(mode),Palette.getColor(0))
 
     m68KBUSRequsted = false
     statusRegister = STATUS_FIFO_EMPTY_MASK | (statusRegister & 1) // preserve PAL/NTSC flag
@@ -582,8 +614,8 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     fifo.reset()
     vdpLayerPatternBuffer(A).reset()
     vdpLayerPatternBuffer(B).reset()
-    sprite1VisibleCurrentIndex = 0
-    java.util.Arrays.fill(sprite1VisibleIndexes,-1)
+    //sprite1VisibleCurrentIndex = 0
+    //java.util.Arrays.fill(sprite1VisibleIndexes,-1)
     changeVDPClockDivider(hmode.initialClockDiv)
     verticalBlanking = true
     pixelClockCycles = 0
@@ -1021,7 +1053,9 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     val cramColorIndex = (address & 0x1F) >> 1
     val adr = address & 0x7E
     val color = CRAM(adr) << 8 | CRAM(adr + 1)
-    CRAM_COLORS(cramColorPalette)(cramColorIndex) = Palette.getColor(color)
+    CRAM_COLORS(cramColorPalette)(0)(cramColorIndex) = Palette.getColor(color)
+    CRAM_COLORS(cramColorPalette)(1)(cramColorIndex) = Palette.getColor(color,Palette.PaletteType.SHADOW)
+    CRAM_COLORS(cramColorPalette)(2)(cramColorIndex) = Palette.getColor(color,Palette.PaletteType.HIGHLIGHT)
 
   end writeByteCRAM
 
@@ -1200,13 +1234,18 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   end doAccessSlotLayerPattern
 
   private def doAccessSlotSpriteMapping(): Unit =
-    val spriteIndex = if sprite1VisibleCurrentIndex < sprite1VisibleSize then sprite1VisibleIndexes(sprite1VisibleCurrentIndex) else -1
+    val spriteIndex = if sprite1VisibleSR.getSize > 0 then sprite1VisibleSR.peekIndex() else -1
     if vdp4read.count == 0 then
       // For unused sprite slots sprite 0 is accessed but the data read is discarded
       val si = if spriteIndex == -1 then 0 else spriteIndex
       vdp4read.set(REG_SPRITE_ATTR_ADDRESS + (spriteIndex << 3) + 4) // ignores first 4 bytes
+      if sprite1FirstFetch then
+        sprite2CurrentIndex = 0
+        sprite2Size = sprite1VisibleSR.getSize
+        sprite1FirstFetch = false
 
     if vdp4read.readVRAMByte() && spriteIndex != -1 then
+      sprite1VisibleSR.dequeueIndex()
       sprite2Info(sprite1VisibleCurrentIndex).set(spriteIndex,vdp4read.buffer >>> 16,vdp4read.buffer & 0x1FF)
       val spriteZeroXPos = sprite2Info(sprite1VisibleCurrentIndex).isZeroPos
       spriteLineRenderingEnabled &= !(!lastSpriteXPosZero && spriteZeroXPos)
@@ -1222,12 +1261,12 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     37BF
    */
   private def doAccessSlotSpritePattern(): Unit =
-    val spriteInfo = sprite2Info(if sprite2CurrentIndex < sprite1VisibleSize then sprite2CurrentIndex else 0)
+    val spriteInfo = sprite2Info(if sprite2CurrentIndex < sprite2Size then sprite2CurrentIndex else 0)
 
     if vdp4read.count == 0 && spriteInfo.isFirstHorizontalCell then
       vdp4read.set(spriteInfo.patternAddress,spriteInfo.horizontalFlipped)
 
-    if vdp4read.readVRAMByte() && sprite2CurrentIndex < sprite1VisibleSize then
+    if vdp4read.readVRAMByte() && sprite2CurrentIndex < sprite2Size then
       if spriteLineRenderingEnabled then
         var xpos = spriteInfo.xpos
         var buffer = vdp4read.buffer
@@ -1321,7 +1360,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
 
     vdp4read.reset()
 
-    sprite1VisibleCurrentIndex = 0
+    //sprite1VisibleCurrentIndex = 0
     statusRegister &= ~STATUS_SOVR_MASK // TODO check if it's correct
     statusRegister &= ~STATUS_C_MASK    // TODO check if it's correct
 
@@ -1351,6 +1390,12 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
 
     vdpAccessSlot = 0
     spriteLineRenderingEnabled = true
+    spriteEvaluationPhaseInProgress = SPRITE_EVAL_IDLE
+
+    val tmp = sprite1VisibleNextLineSR
+    sprite1VisibleNextLineSR = sprite1VisibleSR
+    sprite1VisibleSR = tmp
+    sprite1FirstFetch = true
   end endOfLine
 
   inline private def isSpriteFirstEvaluationLine: Boolean = vcounter == 0x1FF
@@ -1397,6 +1442,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
 
         var color = REG_BACKGROUND_COLOR
         var palette = REG_BACKGROUND_PALETTE
+        var colorMode = Palette.PaletteType.NORMAL
 
         //if REG_DE then
         val bitA = vdpLayerPatternBuffer(A).dequeueBit()
@@ -1444,7 +1490,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
                 palette = (layerPixels(2) >> 4) & 3
         end if
 
-        setPixel(xpos, rasterLine, CRAM_COLORS(palette)(color))
+        setPixel(xpos, rasterLine, CRAM_COLORS(palette)(colorMode.ordinal)(color)) // TODO
       end if
       // epilogue
       xpos += 1
@@ -1537,20 +1583,20 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     var c = 0
     val line = activeDisplayLine + 1 // check if some sprite is visible on next line
     // 2 sprites per cycle
-    while c < 2 && spriteEvaluationInProgress do
+    while c < 2 && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS do
       val spriteIndex = spriteEvaluationIndex
       val sy = spriteCache(spriteIndex).y - 128
       val height = (spriteCache(spriteIndex).h + 1) << 3 // 8 * sprite height pixels
       spriteEvaluationIndex = spriteCache(spriteIndex).link
-      spriteEvaluationInProgress = spriteEvaluationIndex != 0 && spriteEvaluationIndex < spriteCache.length && spriteEvaluationCycles < 40
+      if !(spriteEvaluationIndex != 0 && spriteEvaluationIndex < spriteCache.length && spriteEvaluationCycles < 40) then
+        spriteEvaluationPhaseInProgress = SPRITE_EVAL_TERMINATED
 
       if line >= sy && line < sy + height then
-        if sprite1VisibleCurrentIndex == hmode.maxSpritePerLine then
+        if sprite1VisibleNextLineSR.getSize == hmode.maxSpritePerLine then
           statusRegister |= STATUS_SOVR_MASK
-          spriteEvaluationInProgress = false
+          spriteEvaluationPhaseInProgress = SPRITE_EVAL_TERMINATED
         else
-          sprite1VisibleIndexes(sprite1VisibleCurrentIndex) = spriteIndex
-          sprite1VisibleCurrentIndex += 1
+          sprite1VisibleNextLineSR.enqueueIndex(spriteIndex)
           //println(s"Sprite $spriteIndex visible at line $line: sy=$sy height=$height")
 
       c += 1
@@ -1569,20 +1615,14 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       else
         processPendingControlPortCommand()
     // check if it's time to do sprite evaluation
-    if vdpAccessSlot == SPRITE_PHASE1_ACCESS_SLOT && !spriteEvaluationInProgress && isSpriteEvaluationEnabled then
-      spriteEvaluationInProgress = true
+    if vdpAccessSlot == SPRITE_PHASE1_ACCESS_SLOT && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IDLE && isSpriteEvaluationEnabled then
+      spriteEvaluationPhaseInProgress = SPRITE_EVAL_IN_PROGRESS
       spriteEvaluationIndex = 0 // start with sprite #0
-      sprite1VisibleCurrentIndex = 0
       spriteEvaluationCycles = 0
-    if spriteEvaluationInProgress then
+    if spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS then
       spriteEvaluation()
-      if !spriteEvaluationInProgress then
-        sprite1VisibleSize = sprite1VisibleCurrentIndex
+      if spriteEvaluationPhaseInProgress == SPRITE_EVAL_TERMINATED then
         sprite1VisibleCurrentIndex = 0
-        sprite2CurrentIndex = 0
-        log.info(s"Sprite evaluation phase finished: found $sprite1VisibleSize sprites on $activeDisplayLine + 1 line")
-        //if sprite1VisibleSize > 0 then
-        //  println(s"Sprite evaluation phase finished: found $sprite1VisibleSize sprites on $activeDisplayLine + 1 line")
 
     if doAccessSlotRead() then // 4 bytes read
       vdpAccessSlot += 1
