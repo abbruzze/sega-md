@@ -111,7 +111,8 @@ enum ModelType:
 case class DisplayClipArea(x1:Int,y1:Int,x2:Int,y2:Int):
   def getTuple: (Int,Int,Int,Int) = (x1,y1,x2,y2)
   def getPreferredSize(zoomFactor:Int): Dimension = new Dimension((x2 - x1) * zoomFactor,(y2 - y1) * zoomFactor)
-enum VideoType(val topBlankingPixels:Int,
+enum VideoType(val clockFrequency:Int,
+               val topBlankingPixels:Int,
                val topBorderPixels:Int,
                val bottomBorderPixels:Int,
                val bottomBlankingPixels:Int,
@@ -142,13 +143,15 @@ enum VideoType(val topBlankingPixels:Int,
       // remaining hsync = 10, left black = 24, left border = 13, display = 256, right border = 14
       DisplayClipArea(24 + 10,topBlankingPixels,307 + 10,topBlankingPixels + topBorderPixels + maxActiveLines + bottomBorderPixels)
 
-  case NTSC extends VideoType(topBlankingPixels = 13,
+  case NTSC extends VideoType(clockFrequency = 53_693_175,
+                              topBlankingPixels = 13,
                               topBorderPixels = 11,
                               bottomBorderPixels = 8,
                               bottomBlankingPixels = 3,
                               totalLines = 262,
                               maxActiveLines = 8 * 28)
-  case PAL extends VideoType(topBlankingPixels = 13,
+  case PAL extends VideoType(clockFrequency = 53_203_424,
+                             topBlankingPixels = 13,
                              topBorderPixels = 38,
                              bottomBorderPixels = 32,
                              bottomBlankingPixels = 3,

@@ -171,7 +171,10 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
     else if address < 0x8000 then 0xFF // TODO: ??
     else read_z80_bank(address)
 
-  override final def write(address:Int,value:Int): Unit = ???
+  override final def write(address:Int,value:Int): Unit =
+    if address < 0x4000 then writeZ80Memory(address,value,Byte)
+    else
+      {/*TODO*/}
   // ========================== WRITES ============================================
   private def writeVDP(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
     log.info(s"Writing VDP register ${address.toHexString} value = $value size = $size writeOptions=$writeOptions")

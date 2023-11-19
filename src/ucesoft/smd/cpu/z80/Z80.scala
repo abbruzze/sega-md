@@ -2679,7 +2679,7 @@ object Z80 {
   // ====================================== Reflection =======================================================
   private def addOp(op:Opcode) : Unit = OPCODES += op
 
-  private def initOpcodes  : Unit = {
+  private def initOpcodes()  : Unit = {
     if (opcodes_1(0) != null) return
 
     for(o <- OPCODES) {
@@ -2852,12 +2852,12 @@ class Z80(_mem:Memory,
     }
   }
 
-  def disassemble(mem:Memory,address:Int) : (String,Int) = {
+  def disassemble(address:Int) : (String,Int) = {
     try {
       dummyRead = true
       val adr = Array(address)
       val opcode = fetch(adr)
-      (opcode.disassemble(mem, adr(0)), opcode.size)
+      (opcode.disassemble(_mem, adr(0)), opcode.size)
     }
     finally {
       dummyRead = false
@@ -2890,7 +2890,7 @@ class Z80(_mem:Memory,
   def pins : Int = (if (M1Fetch) M1FETCH_PIN else 0) | (if (refresh) REFRESH_PIN else 0) | (if (dummyRead) DUMMY_READ_PIN else 0)
 
   override protected def init(): Unit = {
-    Z80.initOpcodes
+    Z80.initOpcodes()
   }
 
   override protected def reset(): Unit = {

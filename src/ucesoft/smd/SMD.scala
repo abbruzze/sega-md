@@ -2,6 +2,7 @@ package ucesoft.smd
 
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.cpu.m68k.M68000
+import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.{Default68KDisassembleAnnotator, M68kDebugger}
 
 import javax.swing.JFrame
@@ -12,7 +13,11 @@ import javax.swing.JFrame
  */
 object SMD:
   def main(args:Array[String]): Unit =
-    val masterClock = Clock.makeMasterClock("master",53_693_175)
+    val masterClock = new Clock("master",53_693_175)
+    //masterClock.setWarpMode(true)
+    masterClock.setM68KClockDivider(7)
+    masterClock.setZ80ClockDivider(15)
+    masterClock.setVDPClockDivider(5)
 
     val vdp = new VDP
     val vmodel = VideoType.NTSC
@@ -26,7 +31,7 @@ object SMD:
     vdp.setDisplay(display)
 
     //display.setClipArea(32,13,379,256)
-    display.setClipArea(model.videoType.getClipArea(h40 = true).getTuple)
+    display.setClipArea(model.videoType.getClipArea(h40 = false).getTuple)
     //display.setPreferredSize(new java.awt.Dimension(SCREEN_WIDTH * 2, vmodel.totalLines * 2))
     //display.setPreferredSize(new java.awt.Dimension((13 + 320 + 14) * 2,(11 + 224 + 8) * 2))
     display.setPreferredSize(model.videoType.getClipArea(h40 = true).getPreferredSize(2))
@@ -37,23 +42,13 @@ object SMD:
 
     val mmu = new MMU
     val m68k = new M68000(mmu)
+    val z80 = new Z80(mmu,Z80.EmptyIOMemory)
+    z80.initComponent()
     vdp.set68KMemory(mmu)
     vdp.setM68K(m68k)
     mmu.setVDP(vdp)
-    val m68kAction = new Clock.Clockable:
-      //private var remainingCycles = 0
-      override def clock(cycles: Long,skipCycles:Int => Unit): Unit =
-        skipCycles(m68k.execute() - 1)
-        /*
-        if remainingCycles == 0 then
-          remainingCycles = m68k.execute() - 1
-        else
-          remainingCycles -= 1
 
-         */
-
-    val vdpClock = masterClock.deriveDivClock("VDP", 5, vdp)
-    val m68kClock = masterClock.deriveDivClock("68K", 7, m68kAction)
+    masterClock.setComponents(m68k,z80,vdp)
 
     val c1 = new KeyboardPADController(0,ControllerType.PAD6Buttons,masterClock)
     val c2 = new KeyboardPADController(1,ControllerType.PAD6Buttons,masterClock)
@@ -75,11 +70,11 @@ object SMD:
 
     f.setVisible(true)
 
-      val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog 2 (World).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\TEST_COLOR_1536.bin""")
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)
-    mmu.setCPUs(m68k,null)
+    mmu.setCPUs(m68k,z80)
 
     m68k.reset()
 

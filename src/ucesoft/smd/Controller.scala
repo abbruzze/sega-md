@@ -87,7 +87,7 @@ abstract class PadController(override val index:Int,val ctype:ControllerType,val
         if controllerType == ControllerType.PAD6Buttons then
           if timeoutID != null then
             timeoutID.cancel()
-          timeoutID = clock.scheduleMillis(RESET_COUNTER_TIMEOUT_MILLIS,(cycles,skip) => {
+          timeoutID = clock.scheduleMillis(RESET_COUNTER_TIMEOUT_MILLIS,_ => {
             counter6Button = 0
             lastWrite = 0x40
           } )

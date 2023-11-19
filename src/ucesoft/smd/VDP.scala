@@ -420,6 +420,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   private var hInterruptCounter = 0 // horizontal interrupt counter
 
   private val layerPixels = Array(0,0,0) // pixels from A, B and S
+  private var colorMode = Palette.PaletteType.NORMAL
 
   private var vInterruptPending = false
   private var hInterruptPending = false
@@ -1419,6 +1420,25 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       maxModY = rasterLine
       pixelMod = true
 
+  inline private def checkSpriteHS(pixelIndex:Int,palette:Int,color:Int,priorities:Int): Boolean =
+    val spriteColor = palette << 4 | color
+    var recheckPixels = false
+    // Sprite color 63: S is not drawn and the A/B/G color becomes shadowed if it isn't already
+    if spriteColor == 63 then
+      colorMode = colorMode.darker()
+      layerPixels(pixelIndex) = 0 // sprite pixel is not drawn
+      recheckPixels = true
+    // Sprite color 62: S is not drawn and the A/B/G color becomes highlighted if it was normal and normal if it was shadowed
+    else if spriteColor == 62 then
+      colorMode = colorMode.brighter()
+      layerPixels(pixelIndex) = 0 // sprite pixel is not drawn
+      recheckPixels = true
+    // Otherwise S is drawn normally, or dark when all 3 S+A+B are low prio and S is not of either of the colors 14,30,46
+    else if priorities == 0 && (spriteColor != 14 && spriteColor != 30 && spriteColor != 46) then
+      colorMode = colorMode.darker()
+
+    recheckPixels
+
   inline private def pixelClock(pixels:Int): Unit =
     var pixelToDraw = pixels
     while pixelToDraw > 0 do
@@ -1441,9 +1461,13 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         //if vdpLayerPatternBuffer(A).isFirstBit then
         //  vdpLayerPatternBuffer(A).scroll(xscroll(A))
 
-        var color = REG_BACKGROUND_COLOR
-        var palette = REG_BACKGROUND_PALETTE
-        var colorMode = Palette.PaletteType.NORMAL
+        val backgroundColor = REG_BACKGROUND_COLOR
+        val backgroundPalette = REG_BACKGROUND_PALETTE
+        var color = 0
+        var palette = 0
+        val hsEnabled = REG_SHADOW_HIGHLIGHT_ENABLED
+        colorMode = Palette.PaletteType.NORMAL
+        var spritePixelIndex = 0
 
         //if REG_DE then
         val bitA = vdpLayerPatternBuffer(A).dequeueBit()
@@ -1452,6 +1476,9 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
 
         if !(REG_L && activeDisplayXPos < 8) then
           val priorities = (bitS & 0x40) >> 4 | (bitA & 0x40) >> 5 | (bitB & 0x40) >> 6 // SAB
+
+          if hsEnabled && (priorities & 3) == 0 then
+            colorMode = Palette.PaletteType.SHADOW
 
           priorities match
             case 0|4|6|7 => // S > A > B > G
@@ -1462,10 +1489,12 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
               layerPixels(0) = bitA
               layerPixels(1) = bitS
               layerPixels(2) = bitB
+              spritePixelIndex = 1
             case 1 => // B > S > A > G
               layerPixels(0) = bitB
               layerPixels(1) = bitS
               layerPixels(2) = bitA
+              spritePixelIndex = 1
             case 5 => // S > B > A > G
               layerPixels(0) = bitS
               layerPixels(1) = bitB
@@ -1474,21 +1503,35 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
               layerPixels(0) = bitA
               layerPixels(1) = bitB
               layerPixels(2) = bitS
+              spritePixelIndex = 2
 
-          var pixelColor = layerPixels(0) & 0xF
-          if pixelColor != 0 then
-            color = pixelColor
-            palette = (layerPixels(0) >> 4) & 3
-          else
-            pixelColor = layerPixels(1) & 0xF
+          var checkAgain = true
+          while checkAgain do
+            checkAgain = false
+            var pixelColor = layerPixels(0) & 0xF
             if pixelColor != 0 then
               color = pixelColor
-              palette = (layerPixels(1) >> 4) & 3
+              palette = (layerPixels(0) >> 4) & 3
+              if hsEnabled && spritePixelIndex == 0 then
+                checkAgain = checkSpriteHS(0,palette, color, priorities)
             else
-              pixelColor = layerPixels(2) & 0xF
+              pixelColor = layerPixels(1) & 0xF
               if pixelColor != 0 then
                 color = pixelColor
-                palette = (layerPixels(2) >> 4) & 3
+                palette = (layerPixels(1) >> 4) & 3
+                if hsEnabled && spritePixelIndex == 1 then
+                  checkAgain = checkSpriteHS(1,palette, color, priorities)
+              else
+                pixelColor = layerPixels(2) & 0xF
+                if pixelColor != 0 then
+                  color = pixelColor
+                  palette = (layerPixels(2) >> 4) & 3
+                  if hsEnabled && spritePixelIndex == 2 then
+                    checkAgain = checkSpriteHS(2,palette, color, priorities)
+                else
+                  color = backgroundColor
+                  palette = backgroundPalette
+          end while
         end if
 
         setPixel(xpos, rasterLine, CRAM_COLORS(palette)(colorMode.ordinal)(color)) // TODO
@@ -1574,7 +1617,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       statusRegister &= ~STATUS_VB_MASK
 
   inline private def changeVDPClockDivider(clockDiv:Int): Unit =
-    masterClock.changeDivClock("VDP",clockDiv)
+    masterClock.setVDPClockDivider(clockDiv)
 
   /*
    Every VDP cycle 2 sprites are checked, that means one sprite every pixel.
@@ -1604,40 +1647,37 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     end while
     spriteEvaluationCycles += 1
 
-  override final def clock(cycles: Long,skipCycles:Int => Unit): Unit =
-    if pendingControlPortRequest then
-      if pendingControlPortRequestLong then
-        pendingControlPortRequestLong = false
-        val next = pendingControlPortCommand >>> 16
-        pendingControlPortCommand &= 0xFFFF
-        processPendingControlPortCommand()
-        pendingControlPortCommand = next
-        processPendingControlPortCommand()
-      else
-        processPendingControlPortCommand()
-    // check if it's time to do sprite evaluation
-    if vdpAccessSlot == SPRITE_PHASE1_ACCESS_SLOT && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IDLE && isSpriteEvaluationEnabled then
-      spriteEvaluationPhaseInProgress = SPRITE_EVAL_IN_PROGRESS
-      spriteEvaluationIndex = 0 // start with sprite #0
-      spriteEvaluationCycles = 0
-    if spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS then
-      spriteEvaluation()
-      if spriteEvaluationPhaseInProgress == SPRITE_EVAL_TERMINATED then
-        sprite1VisibleCurrentIndex = 0
+  override final def clock(cycles: Long): Unit =
+      if pendingControlPortRequest then
+        if pendingControlPortRequestLong then
+          pendingControlPortRequestLong = false
+          val next = pendingControlPortCommand >>> 16
+          pendingControlPortCommand &= 0xFFFF
+          processPendingControlPortCommand()
+          pendingControlPortCommand = next
+          processPendingControlPortCommand()
+        else
+          processPendingControlPortCommand()
+      // check if it's time to do sprite evaluation
+      if vdpAccessSlot == SPRITE_PHASE1_ACCESS_SLOT && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IDLE && isSpriteEvaluationEnabled then
+        spriteEvaluationPhaseInProgress = SPRITE_EVAL_IN_PROGRESS
+        spriteEvaluationIndex = 0 // start with sprite #0
+        spriteEvaluationCycles = 0
+      if spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS then
+        spriteEvaluation()
+        if spriteEvaluationPhaseInProgress == SPRITE_EVAL_TERMINATED then
+          sprite1VisibleCurrentIndex = 0
 
-    if doAccessSlotRead() then // 4 bytes read
-      vdpAccessSlot += 1
-      if vdpAccessSlot >= hmode.vramAccessMatrix.length then
-        vdpAccessSlot = 0
-      //println(s"raster=$rasterLine vdpAccessSlot=$vdpAccessSlot")
+      if doAccessSlotRead() then // 4 bytes read
+        vdpAccessSlot += 1
+        if vdpAccessSlot >= hmode.vramAccessMatrix.length then
+          vdpAccessSlot = 0
+        //println(s"raster=$rasterLine vdpAccessSlot=$vdpAccessSlot")
 
 
-    if (cycles & 1) == 1 then
-      pixelClock(1)
+      if (cycles & 1) == 1 then
+        pixelClock(1)
 
-    /*pixelClockCycles = (pixelClockCycles + 1) & 0xF
-    if pixelClockCycles == 0 then
-      pixelClock(8)*/
   end clock
 
   // interrupt ack from M68000
