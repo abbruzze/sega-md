@@ -28,7 +28,7 @@ class Cart(val file:String):
   private def checksum(): Int =
     var cs = 0
     for a <- 0x200 until rom.length by 2 do
-      cs += rom(a) << 8 | rom(a + 1)
+      cs += rom(a) << 8 | (if a + 1 < rom.length then rom(a + 1) else 0)
     cs & 0xFFFF
 
   def getROM: Array[Int] = rom
