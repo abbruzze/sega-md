@@ -113,7 +113,7 @@ class M68000(override val mem:Memory) extends M68KCore(mem):
       throw new AddressBusException(address,busAccessMode,instructionInProgress = instructionInProgress,isCodeAccess)
 
   override def execute(): Int =
-    if !dtackEnabled then // on last read/write dtack was not asserted, must wait
+    if !dtackEnabled || !busAvailable then // on last read/write dtack was not asserted, must wait
       return 1
 
     lastInstructionElapsedCycles = instructionElapsedCycles

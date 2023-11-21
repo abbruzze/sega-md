@@ -84,15 +84,15 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
     override def getEA(mode: Int, reg: Int, size: Size, disassemblingAddress: Option[Int],includeIdleBusCycles:Boolean): Operand =
       val index = if mode < 7 then mode else mode + reg
       val op = if disassemblingAddress.isEmpty then addressingModes(index) else disassemblingAddressingModes(index)
-      if !busAvailable && disassemblingAddress.isEmpty && op.requiresBUS then
-        throw new BUSNotAvailable
+      /*if !busAvailable && disassemblingAddress.isEmpty && op.requiresBUS then
+        throw new BUSNotAvailable*/
       op.init(reg, size, disassemblingAddress,includeIdleBusCycles)
       op
 
     override def getEA(addressingMode: AddressingMode, reg: Int, size: Size, disassemblingAddress: Option[Int]): Operand =
       val op = if disassemblingAddress.isEmpty then addressingModes(addressingMode.ordinal) else disassemblingAddressingModes(addressingMode.ordinal)
-      if !busAvailable && disassemblingAddress.isEmpty && op.requiresBUS then
-        throw new BUSNotAvailable
+      /*if !busAvailable && disassemblingAddress.isEmpty && op.requiresBUS then
+        throw new BUSNotAvailable*/
       op.init(reg, size, disassemblingAddress)
       op
 
