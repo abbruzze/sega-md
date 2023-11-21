@@ -50,49 +50,22 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends Runnable
 
   private var errorHandler : Throwable => Unit = _
 
-  private var m68k : M68000 = _
-  private var z80 : Z80 = _
-  private var vdp : VDP = _
+  private var clockables : Array[Clockable] = _
 
-  private var m68KRemainingCycles, z80RemainingCycles = 0
-
-  private var m68kClockDivider = 1
-  private var z80ClockDivider = 1
-  private var vdpClockDivider = 1
-
-  private var m68kClockSteps = 0
-  private var z80ClockSteps = 0
-  private var vdpClockSteps = 0
-
-  private var m68kClockCycles = 0L
-  private var z80ClockCycles = 0L
-  private var vdpClockCycles = 0L
-
-  private var m68kClockCount = 0
-  private var z80ClockCount = 0
-  private var vdpClockCount = 0
+  private var counts : Array[Int] = _
+  private var steps : Array[Int] = _
+  private var clocks : Array[Int] = _
 
   setFrequency(clocksPerSecond)
 
-  final def setM68KClockDivider(div:Int): Unit =
-    m68kClockDivider = div
-    m68kClockSteps = div
-    m68kClockCount = 0
-
-  final def setZ80ClockDivider(div: Int): Unit =
-    z80ClockDivider = div
-    z80ClockSteps = div
-    z80ClockCount = 0
-
-  final def setVDPClockDivider(div: Int): Unit =
-    vdpClockDivider = div
-    vdpClockSteps = div
-    vdpClockCount = 0
-
-  final def setComponents(m68k:M68000,z80:Z80,vdp:VDP): Unit =
-    this.m68k = m68k
-    this.z80 = z80
-    this.vdp = vdp
+  final def setClockables(clocks:Clockable*): Unit =
+    this.clockables = clocks.toArray
+    steps = Array.ofDim[Int](clocks.length)
+    counts = Array.ofDim[Int](clocks.length)
+    this.clocks = Array.ofDim[Int](clocks.length)
+  final def setClockDivider(clockIndex:Int,divider:Int): Unit =
+    steps(clockIndex) = divider
+    //counts(clockIndex) = 0
 
   final def setErrorHandler(eh:Throwable => Unit): Unit =
     this.errorHandler = errorHandler
@@ -103,7 +76,6 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends Runnable
     freqInvBy1000 = 1000.0 / clocksPerSecond
 
   final def setWarpMode(enabled:Boolean): Unit = warpMode = enabled
-
 
   final def cycles: Long = clockCycles
 
@@ -171,37 +143,15 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends Runnable
 
   private inline def doAction(): Unit =
     clockCycles += 1
-    // m68k
-    m68kClockCount += 1
-    if m68kClockCount == m68kClockSteps then
-      m68kClockCount = 0
-      m68kClockCycles += 1
-      emulateM68KCycle()
-    // z80
-    z80ClockCount += 1
-    if z80ClockCount == z80ClockSteps then
-      z80ClockCount = 0
-      z80ClockCycles += 1
-      emulateZ80Cycle()
-    // VDP
-    vdpClockCount += 1
-    if vdpClockCount >= vdpClockSteps then
-      vdpClockCount = 0
-      vdpClockCycles += 1
-      vdp.clock(vdpClockCycles)
-
-  private inline def emulateM68KCycle(): Unit =
-    if m68KRemainingCycles == 0 then
-      m68KRemainingCycles = m68k.execute() - 1
-    else
-      m68KRemainingCycles -= 1
-
-  private inline def emulateZ80Cycle(): Unit =
-    if z80RemainingCycles == 0 then
-      //println(z80.disassemble(z80.ctx.PC)._1)
-      z80RemainingCycles = z80.clock() - 1
-    else
-      z80RemainingCycles -= 1
+    var c = 0
+    val size = clocks.length
+    while c < size do
+      counts(c) += 1
+      if counts(c) >= steps(c) then
+        counts(c) = 0
+        clocks(c) += 1
+        clockables(c).clock(clocks(c))
+      c += 1
 
   private inline def checkEvents(): Unit =
     while events != null && clockCycles >= events.e.when do
