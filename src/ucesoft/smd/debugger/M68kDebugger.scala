@@ -5,7 +5,7 @@ import org.fife.ui.rtextarea.RTextScrollPane
 import ucesoft.smd.{Cart, Logger, VDP}
 import ucesoft.smd.cpu.m68k.*
 
-import java.awt.event.{MouseAdapter, MouseEvent}
+import java.awt.event.{FocusEvent, FocusListener, MouseAdapter, MouseEvent}
 import java.awt.{BorderLayout, Color, Component, Dimension, FlowLayout, GridLayout}
 import java.util.concurrent.{Executors, Semaphore}
 import javax.swing.*
@@ -289,8 +289,7 @@ class M68kDebugger(m68k:M6800X0,memory:Memory,m68kRAM:Array[Int],vdp:VDP,annotat
       fireTableDataChanged()
 
   private class DisassemblerPanel(override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame,"Disassembler",windowCloseOperation):
-    private val romModel = new DisassembledTableModel(EmptyAnnotator,true)
-    private val ramModel = new DisassembledTableModel(EmptyAnnotator,true)
+    private val model = new DisassembledTableModel(EmptyAnnotator,true)
 
     init()
 
@@ -319,51 +318,65 @@ class M68kDebugger(m68k:M6800X0,memory:Memory,m68kRAM:Array[Int],vdp:VDP,annotat
             model.update()
       })
 
+    private def disassemble(fromS:String,toS:String): Unit =
+      try
+        val from = java.lang.Integer.parseInt(fromS,16) & 0xFF_FFFF
+        val to = java.lang.Integer.parseInt(toS,16) & 0xFF_FFFF
+        if to < from then
+          throw new IllegalArgumentException
+        model.clear()
+        new Thread(() => {
+          var a = from
+          while a <= to do
+            val dis = m68k.disassemble(a)
+            a += dis.size
+            model.add(dis,false)
+          model.update()
+        }).start()
+      catch
+        case _:Exception =>
+          JOptionPane.showMessageDialog(dialog, s"Invalid range of addresses", "Address error", JOptionPane.ERROR_MESSAGE)
+
     override protected def init(): Unit =
       val mainPanel = new JPanel(new BorderLayout())
       dialog.getContentPane.add("Center",mainPanel)
-      val romButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      val buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
       val copyClip = new JButton(new ImageIcon(getClass.getResource("/resources/trace/copy.png")))
-      copyClip.addActionListener(_ => romModel.copyToClipboard())
+      val disButton = new JButton(new ImageIcon(getClass.getResource("/resources/trace/bug.png")))
+      val fromTF = new JTextField("000000",10)
+      val toTF = new JTextField("000000",10)
+
+      copyClip.addActionListener(_ => model.copyToClipboard())
       copyClip.setToolTipText("Copy to clipboard")
-      romButtonPanel.add(copyClip)
+      buttonPanel.add(copyClip)
+      buttonPanel.add(new JLabel("From:",SwingConstants.RIGHT))
+      buttonPanel.add(fromTF)
+      buttonPanel.add(new JLabel("To:", SwingConstants.RIGHT))
+      buttonPanel.add(toTF)
+      fromTF.addFocusListener(new FocusListener:
+        override def focusGained(e: FocusEvent): Unit = {}
+        override def focusLost(e: FocusEvent): Unit =
+          try
+            val from = java.lang.Integer.parseInt(fromTF.getText,16)
+            val to = (from + 1024) & 0xFF_FFFF
+            toTF.setText(to.toHexString)
+          catch
+            case _:NumberFormatException =>
+      )
+      disButton.addActionListener(_ => disassemble(fromTF.getText,toTF.getText))
+      buttonPanel.add(disButton)
 
-      val romPanel = new JPanel(new BorderLayout())
-      romPanel.add("North",romButtonPanel)
-      val romTable = new JTable(romModel)
-      var sp = new JScrollPane(romTable)
-      sp.setBorder(BorderFactory.createTitledBorder("ROM Disassembler"))
-      initTable(romTable,romModel)
-      romPanel.add("Center",sp)
-      val ramPanel = new JPanel(new BorderLayout())
-      val ramTable = new JTable(ramModel)
-      sp = new JScrollPane(ramTable)
-      sp.setBorder(BorderFactory.createTitledBorder("RAM Disassembler"))
-      initTable(ramTable,ramModel)
-      ramPanel.add("Center",sp)
+      val disPanel = new JPanel(new BorderLayout())
+      disPanel.add("North",buttonPanel)
+      val disTable = new JTable(model)
+      val sp = new JScrollPane(disTable)
+      sp.setBorder(BorderFactory.createTitledBorder("Disassembler"))
+      initTable(disTable,model)
+      disPanel.add("Center",sp)
 
-      val splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, romPanel, ramPanel)
-      splitPane.setContinuousLayout(true)
-      splitPane.setOneTouchExpandable(true)
-
-      mainPanel.add("Center",splitPane)
+      mainPanel.add("Center",disPanel)
 
       dialog.pack()
-
-    override protected def updateModel(): Unit =
-      ramModel.update()
-
-    def updateROM(): Unit =
-      if cart != null then
-        romModel.clear()
-        val rom = cart.getROM
-        var address = rom(4) << 24 | rom(5) << 16 | rom(6) << 8 | rom(7)
-        while address < rom.length do
-          val dis = m68k.disassemble(address)
-          romModel.add(dis,false)
-          address += dis.size
-
-        romModel.update()
 
   // =============================================================================================
 
@@ -419,7 +432,9 @@ class M68kDebugger(m68k:M6800X0,memory:Memory,m68kRAM:Array[Int],vdp:VDP,annotat
       romDumpItem.setEnabled(true)
       romDialog = new MemoryDumper(cart.getROM,0,"ROM",frame,() => romDumpItem.setSelected(false),canUpdate = false,setPreferredScrollableViewportSize = false, showASCII = true).dialog
       romDisaUpdater.submit(new Runnable:
-        override def run(): Unit = disassemblerPanel.updateROM()
+        override def run(): Unit = {}
+          // TODO
+          //disassemblerPanel.updateROM()
       )
 
   swing {
