@@ -14,7 +14,7 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
   private var breakOnStop = false
   private var breakOnExceptionNumber = -1
 
-  protected val addressBreaks = new collection.mutable.HashMap[Int,AddressBreak]
+  protected val m68kAddressBreaks = new collection.mutable.HashMap[Int,AddressBreak]
 
   private var stepByStep = false
   private var stepAlways = false
@@ -22,10 +22,10 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
   private var lastSnap : Snapshot = _
 
   def addAddressBreak(address:Int,breakType:BreakType): Unit =
-    addressBreaks += address -> AddressBreak(breakType, address)
+    m68kAddressBreaks += address -> AddressBreak(breakType, address)
 
   def clearAllBreaks(): Unit =
-    addressBreaks.clear()
+    m68kAddressBreaks.clear()
     breakOnInterruptLevel = -1
     breakOnReset = false
     breakOnHalt = false
@@ -42,7 +42,7 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
     clearAllBreaks()
 
   protected def existsBreakPending : Boolean =
-    addressBreaks.nonEmpty ||
+    m68kAddressBreaks.nonEmpty ||
       breakOnHalt ||
       breakOnStop ||
       breakOnReset ||
@@ -52,10 +52,10 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
   protected def isStepAlways: Boolean = stepAlways
   protected def isStepByStep: Boolean = stepByStep
     
-  protected def setStepAlways(enabled:Boolean): Unit =
+  def setStepAlways(enabled:Boolean): Unit =
     stepAlways = enabled
 
-  protected def setStepByStep(enabled:Boolean): Unit =
+  def setStepByStep(enabled:Boolean): Unit =
     if stepByStep != enabled then
       stepByStep = enabled
       onStepByStepChange(stepByStep)
@@ -63,7 +63,7 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
   protected def onStepByStepChange(stepByStepEnabled:Boolean): Unit = {}
 
   override def rw(cpu: M6800X0, address: Int, size: Size, read: Boolean, value: Int): Unit =
-    addressBreaks.get(address) match
+    m68kAddressBreaks.get(address) match
       case None =>
       case Some(break) =>
         if (read && break.breakType == BreakType.READ) || (!read && break.breakType == BreakType.WRITE) then
@@ -71,7 +71,7 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
           onRw(cpu,address,size,read,value)
 
   override def fetch(cpu: M6800X0, address: Int, opcode: Int, i: Instruction, busNotAvailable: Boolean): Unit =
-    val wasBreak = addressBreaks.get(address) match
+    val wasBreak = m68kAddressBreaks.get(address) match
       case None =>
         false
       case Some(break) =>
@@ -110,12 +110,12 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
       onException(cpu,number)
 
   protected def onRw(cpu: M6800X0, address: Int, size: Size, read: Boolean, value: Int): Unit =
-    val break = addressBreaks(address)
+    val break = m68kAddressBreaks(address)
     output(break.toString)
     breakEpilogue(cpu)
   protected def onFetch(cpu: M6800X0, address: Int, opcode: Int, i: Instruction, busNotAvailable: Boolean, wasBreak:Boolean): Unit =
     if wasBreak then
-      val break = addressBreaks(address)
+      val break = m68kAddressBreaks(address)
       output(break.toString)
 
     checkSnapshot(cpu.getSnapshot)

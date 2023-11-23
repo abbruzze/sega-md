@@ -13,6 +13,10 @@ object Z80 {
   inline private def hex4(data: Int) = "%04X".format(data & 0xffff)
   inline private def WORD(h:Int,l:Int) = ((h << 8) | l) & 0xFFFF
 
+  case class DisassembledInfo(address:Int,opcodes:Array[Int],mnemonic:String) {
+    val size : Int = opcodes.length
+  }
+
   trait EventListener {
     def rw(z80:Z80,address:Int,isRead:Boolean,value:Int = 0): Unit
     def fetch(z80:Z80,address:Int,opcode:Int): Unit
@@ -1180,6 +1184,11 @@ object Z80 {
         spaces -= 1
       }
       sb.toString + getMnemonic(mem,pc)
+    }
+
+    def getDisassembledInfo(mem:Memory,pc:Int): DisassembledInfo = {
+      val opcodes = (pc until pc + size).map(a => mem.read(a & 0xFFFF)).toArray
+      DisassembledInfo(pc,opcodes,getMnemonic(mem,pc))
     }
   }
 
@@ -2812,8 +2821,10 @@ class Z80(_mem:Memory,
   // Event listeners
 
   def addEventListener(el: EventListener): Unit = {
-    eventListeners += el
-    notifyEventListeners = eventListeners.nonEmpty
+    if (!eventListeners.contains(el)) {
+      eventListeners += el
+      notifyEventListeners = eventListeners.nonEmpty
+    }
   }
 
   def removeEventListener(el: EventListener): Unit = {
@@ -2858,6 +2869,18 @@ class Z80(_mem:Memory,
       val adr = Array(address)
       val opcode = fetch(adr)
       (opcode.disassemble(_mem, adr(0)), opcode.size)
+    }
+    finally {
+      dummyRead = false
+    }
+  }
+
+  def getDisassembledInfo(address:Int): DisassembledInfo = {
+    try {
+      dummyRead = true
+      val adr = Array(address)
+      val opcode = fetch(adr)
+      opcode.getDisassembledInfo(_mem,address)
     }
     finally {
       dummyRead = false
