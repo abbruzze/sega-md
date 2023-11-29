@@ -32,8 +32,13 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     case FULL, EACH_2_CELL
   private enum HSCROLL_MODE:
     case FULL, PROHIBITED, EACH_1_CELL, EACH_1_LINE
-  private enum INTERLACE_MODE:
-    case NO_INTERLACE, INTERLACE, PROHIBITED, INTERLACE_DOUBLE
+
+  private enum INTERLACE_MODE(val patternSizeShift: Int, val yScrollMask: Int):
+    case NO_INTERLACE extends INTERLACE_MODE( 5, 0x7FF)
+    case INTERLACE_1 extends INTERLACE_MODE( 5, 0x7FF)
+    case PROHIBITED extends INTERLACE_MODE( 5, 0x7FF)
+    case INTERLACE_2 extends INTERLACE_MODE( 6, 0x3FF)
+
   private enum SCROLL_SIZE(val cell:Int,val shift:Int):
     val mask = cell - 1
     case _32CELL extends SCROLL_SIZE(32,5)
@@ -123,7 +128,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   private val VRAM = Array.ofDim[Int](0x10000)
   private val CRAM = Array.ofDim[Int](128)      // 128 bytes,  64 word entries: |----bbb-|ggg-rrr-|
   private val CRAM_COLORS = Array.fill[Int](4,3,16)(Palette.getColor(0))  // 16 colors x 4 palette
-  private val VSRAM = Array.ofDim[Int](80)
+  private val VSRAM = Array.ofDim[Int](84)
   private val regs = Array.ofDim[Int](0x20)
 
   private var m68k : M6800X0 = _
@@ -311,14 +316,20 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     final def peekBit: Int = cache(readIndex)
 
     final def dequeueBit(): Int =
-      val bit = cache(readIndex)
-      readIndex += 1
-      bit
+      if readIndex < cache.length then
+        val bit = cache(readIndex)
+        readIndex += 1
+        bit
+      else
+        0
     final def dequeueBitAndClear(): Int =
-      val bit = cache(readIndex)
-      cache(readIndex) = 0
-      readIndex += 1
-      bit
+      if readIndex < cache.length then
+        val bit = cache(readIndex)
+        cache(readIndex) = 0
+        readIndex += 1
+        bit
+      else
+        0
 
   private class VDPLayerAddress(layer:Int):
     private var baseAddress = 0
@@ -394,7 +405,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   private val vdpLayer2CellMappingBuffer = Array(0,0)   // each entry contains 2 entry of 16 bits
   private val vdpLayerMappingAddress = Array(new VDPLayerAddress(A),new VDPLayerAddress(B))       // each entry reference the current x-cell position (0 - 32/40)
 
-  private val vdpLayerPatternBuffer = Array(new PatternBitCache(40 + 2), new PatternBitCache(40 + 2), new PatternBitCache(40)) // A, B, S
+  private val vdpLayerPatternBuffer = Array(new PatternBitCache(40 + 2), new PatternBitCache(40 + 2), new PatternBitCache(40 + 2)) // A, B, S
 
   private var hmode : HMode = HMode.H32
   private val xscroll = Array(0,0)  // xscroll for layer A and B
@@ -430,7 +441,8 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   private var videoPixels : Array[Int] = _
   private final val SCREEN_WIDTH = VDP.SCREEN_WIDTH
 
-  private var pixelClockCycles = 0
+  private var interlaceModeEnabled = false
+  private var interlaceMode: INTERLACE_MODE = INTERLACE_MODE.NO_INTERLACE
 
   /*
    8 bytes info
@@ -453,7 +465,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     private var next = 0
 
     final def x : Int = _x
-    final def y : Int = _y
+    final def y : Int = if interlaceModeEnabled then _y >> 1 else _y
     final def w : Int = width
     final def h : Int = height
     final def link : Int = next
@@ -488,7 +500,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     final def incCell(): Boolean =
       cellReadCount += 1
       horizontalPosition += 8
-      val cellDelta = (spriteCache(spriteCacheIndex).h + 1) << 5
+      val cellDelta = (spriteCache(spriteCacheIndex).h + 1) << interlaceMode.patternSizeShift
       if horizontalFlipped then
         address -= cellDelta
       else
@@ -508,15 +520,17 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       zeroPos = hpos == 0
       val deltaY = (activeDisplayLine - (spriteCache(spriteCacheIndex).y - 128)) & 0x1F
       cellReadCount = 0
-      address = (thirdByte & 0x7FF) << 5
+      address = (thirdByte & interlaceMode.yScrollMask) << interlaceMode.patternSizeShift
       val h = spriteCache(spriteCacheIndex).h
       val vf = (thirdByte & 0x1000) > 0
       val ycell = if vf then h - (deltaY >> 3) else deltaY >> 3
-      val yline = if vf then 7 - (deltaY & 7) else deltaY & 7
-      address += (ycell << 5) | yline << 2
+      var yline = if vf then 7 ^ (deltaY & 7) else deltaY & 7
+      if interlaceModeEnabled then
+        yline = (yline << 1) | frameCount
+      address += (ycell << interlaceMode.patternSizeShift) | yline << 2
       val hf = (thirdByte & 0x0800) > 0
       if hf then
-        address += ((h + 1) << 5) * spriteCache(spriteCacheIndex).w + 3
+        address += ((h + 1) << interlaceMode.patternSizeShift) * spriteCache(spriteCacheIndex).w + 3
 
       //println(s"Sprite $spriteCacheIndex X=${(horizontalPosition + 128).toHexString} Y=${spriteCache(spriteCacheIndex).y.toHexString} line=$activeDisplayLine deltaY=$deltaY address=${address.toHexString}")
   end SpriteInfo
@@ -624,7 +638,6 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     //java.util.Arrays.fill(sprite1VisibleIndexes,-1)
     changeVDPClockDivider(hmode.initialClockDiv)
     verticalBlanking = true
-    pixelClockCycles = 0
     frameCount = 0
 
     spriteLineRenderingEnabled = true
@@ -715,7 +728,8 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     if REG_M3 then
       latchedHVCounter
     else
-      (vcounter & 0xFF) << 8 | (hcounter >> 1) & 0xFF
+      val vcounter = if interlaceModeEnabled then (this.vcounter << 1 | (this.vcounter & 0x100) >> 8) & 0xFF else this.vcounter
+      vcounter << 8 | (hcounter >> 1) & 0xFF
   /*
     Register set
     |1 0 0 RS4 RS3 RS2 RS1 RS0|D7 D6 D5 D4 D3 D2 D1 D0|
@@ -805,8 +819,23 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         if ((oldValue ^ regs(reg)) & 0x2) > 0 then // M3 changed
           if REG_M3 then
             latchedHVCounter = (vcounter & 0xFF) << 8 | (hcounter >> 1) & 0xFF
+        //println(s"DE=$REG_DE line=$activeDisplayLine REG0_DE=${value & 1}")
+      //case 10 =>
+      //  println(s"HCOUNTER=$value at $rasterLine")
       case 12 => // REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|
         val h32 = REG_H32
+        interlaceMode = INTERLACE_MODE.fromOrdinal((value >> 1) & 3)
+        interlaceMode match
+          case INTERLACE_MODE.INTERLACE_2 =>
+            interlaceModeEnabled = true
+            display.setInterlaceMode(true)
+            videoPixels = display.displayMem
+            display.setClipArea(model.videoType.getClipArea(h40 = !h32).getInterlacedTuple)
+          case _ =>
+            display.setInterlaceMode(false)
+            display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
+            videoPixels = display.displayMem
+            interlaceModeEnabled = false
         val mode = if h32 then HMode.H32 else HMode.H40
         if hmode != mode then
           hmode = mode
@@ -841,7 +870,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     props += VDPProperty("Reg 7",s"${"%02X".format(regs(7))}",s"PALETTE=$REG_BACKGROUND_PALETTE COLOR=$REG_BACKGROUND_COLOR","REG #7 |0 0 CPT1 CPT0 COL3 COL2 COL1 COL0|",Some(7))
     props += VDPProperty("Reg 10",s"${"%02X".format(regs(10))}","","REG #10 |BIT7 BIT6 BIT5 BIT4 BIT3 BIT2 BIT1 BIT0|",Some(10))
     props += VDPProperty("Reg 11",s"${"%02X".format(regs(11))}",s"IE2=$REG_IE2 VS=$REG_VSCR HS=$REG_HSCR","REG #11 |0 0 0 0 IE2 VS HS1 HS2|",Some(11))
-    props += VDPProperty("Reg 12",s"${"%02X".format(regs(12))}",s"H32=$REG_H32 SHADOW=$REG_SHADOW_HIGHLIGHT_ENABLED INTERLACE=$REG_INTERLACE","REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|",Some(12))
+    props += VDPProperty("Reg 12",s"${"%02X".format(regs(12))}",s"H32=$REG_H32 SHADOW=$REG_SHADOW_HIGHLIGHT_ENABLED INTERLACE=$interlaceMode","REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|",Some(12))
     props += VDPProperty("Reg 13",s"${"%02X".format(regs(13))}",s"${"%04X".format(REG_HSCROLL_ADDRESS)}","REG #13 |0 HS16 HS15 HS14 HS13 HS12 HS11 HS10|",Some(13))
     props += VDPProperty("Reg 15",s"${"%02X".format(regs(15))}","","REG #15 |INC7 INC6 INC5 INC4 INC3 INC2 INC1 INC0|",Some(15))
     props += VDPProperty("Reg 16",s"${"%02X".format(regs(16))}",s"PLANE_WIDTH=$REG_HSCROLL_SIZE PLANE_HEIGHT=$REG_VSCROLL_SIZE","REG #16 |0 0 VSZ1 VSZ0 0 0 HSZ1 HSZ0|",Some(16))
@@ -914,7 +943,6 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   // REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|
   inline private def REG_H32: Boolean = (regs(12) & 0x81) == 0x00 // RS1/RS0: 1 = 320 pixel (40 cell) wide mode; 0 = 256 pixel (32 cell) wide mode. Both bits must be the same.
   inline private def REG_SHADOW_HIGHLIGHT_ENABLED: Boolean = (regs(12) & 8) > 0
-  inline private def REG_INTERLACE: INTERLACE_MODE = INTERLACE_MODE.fromOrdinal((regs(12) >> 1) & 3)
   // REG #13 |0 0 HS15 HS14 HS13 HS12 HS11 HS10|
   inline private def REG_HSCROLL_ADDRESS: Int = (regs(13) & 0x3F) << 10
   // REG #15 |INC7 INC6 INC5 INC4 INC3 INC2 INC1 INC0|
@@ -1221,8 +1249,10 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
           (VSRAM(layerOffset) << 8 | VSRAM(layerOffset + 1)) & 0x3FF
         case EACH_2_CELL =>
           val layerOffset = layer << 1
-          val _2cell = layerOffset + (vdpLayerMappingAddress(layer).cellX << 2) // TODO RE-CHECK
+          val _2cell = layerOffset + ((vdpLayerMappingAddress(layer).cellX >> 1) << 2)
           (VSRAM(_2cell) << 8 | VSRAM(_2cell + 1)) & 0x3FF
+      if interlaceModeEnabled then
+        yscroll(layer) >>= 1
 
       vdpLayerMappingAddress(layer).setCellY((activeDisplayLine + yscroll(layer)) >> 3)
       vdp4read.set(vdpLayerMappingAddress(layer).address)
@@ -1235,14 +1265,15 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       vdp4read.modifyAddress(vdpLayerMappingAddress(layer).address)
   end doAccessSlotLayerMapping
 
-  inline private def doAccessSlotLayerPattern(layer:Int): Unit =
+  private def doAccessSlotLayerPattern(layer:Int): Unit =
     val map = vdpLayer2CellMappingBuffer(layer) >>> 16
 
     if vdp4read.count == 0 then
       val activeDisplayLineScrolled = activeDisplayLine + yscroll(layer)
-      val line = if (map & PATTERN_V_MASK) != 0 then 7 - (activeDisplayLineScrolled & 7) else activeDisplayLineScrolled & 7 // vertical flip
+      var line = if (map & PATTERN_V_MASK) != 0 then 7 ^ (activeDisplayLineScrolled & 7) else activeDisplayLineScrolled & 7 // vertical flip
+      if interlaceModeEnabled then line = line << 1 | frameCount
       val hflip = (map & PATTERN_H_MASK) != 0
-      var address = (map & 0x7FF) << 5 | line << 2
+      var address = (map & 0x7FF) << interlaceMode.patternSizeShift | line << 2
       if hflip then address = (address + 3) & 0xFFFF
       vdp4read.set(address,hflip)
 
@@ -1259,7 +1290,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       vdpLayer2CellMappingBuffer(layer) <<= 16 // next entry
   end doAccessSlotLayerPattern
 
-  inline private def doAccessSlotSpriteMapping(): Unit =
+  private def doAccessSlotSpriteMapping(): Unit =
     val spriteIndex = if sprite1VisibleSR.getSize > 0 then sprite1VisibleSR.peekIndex() else -1
     if vdp4read.count == 0 then
       // For unused sprite slots sprite 0 is accessed but the data read is discarded
@@ -1286,7 +1317,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     26AE
     37BF
    */
-  inline private def doAccessSlotSpritePattern(): Unit =
+  private def doAccessSlotSpritePattern(): Unit =
     val spriteInfo = sprite2Info(if sprite2CurrentIndex < sprite2Size then sprite2CurrentIndex else 0)
 
     if vdp4read.count == 0 && spriteInfo.isFirstHorizontalCell then
@@ -1368,16 +1399,21 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     activeDisplayLine = 0
     vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
     hInterruptCounter = REG_H_INT
-    //display.showFrame(-1,0,0,0)
-    if pixelMod then
-      display.showFrame(minModX,minModY,maxModX + 1,maxModY + 1)
+
+    if interlaceModeEnabled then
+      if frameCount == 0 then
+        display.showFrame()
+      else
+        display.showFrame(0, 0, 0, 0,updateFrameRateOnly = true)
+    else if pixelMod then
+      display.showFrame(minModX, minModY, maxModX + 1, maxModY + 1)
     else
-      display.showFrame(-1,0,0,0)
+      display.showFrame(0, 0, 0, 0,updateFrameRateOnly = true)
     minModY = -1
     minModX = Integer.MAX_VALUE
     maxModX = 0
     pixelMod = false
-    frameCount += 1
+    frameCount ^= 1
 
   private def endOfLine(): Unit =
     val videoType = model.videoType
@@ -1424,6 +1460,12 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     sprite1FirstFetch = true
   end endOfLine
 
+  inline private def interlaceActiveDisplayLine : Int =
+    if interlaceModeEnabled then
+      activeDisplayLine << 1 | frameCount
+    else
+      activeDisplayLine
+
   inline private def isSpriteFirstEvaluationLine: Boolean = vcounter == 0x1FF
   inline private def isActiveDisplayArea: Boolean = inXActiveDisplay && inYActiveDisplay
   inline private def isSpriteEvaluationEnabled : Boolean = REG_DE && (inYActiveDisplay || isSpriteFirstEvaluationLine)
@@ -1434,14 +1476,17 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     CRAM(address) << 8 | CRAM(address + 1)
 
   inline private def setPixel(x:Int,y:Int,pixelColor:Int): Unit =
-    val pos = y * SCREEN_WIDTH + x
+    val iy = if interlaceModeEnabled then y << 1 | frameCount else y
+    val pos = iy * SCREEN_WIDTH + x
 
-    if videoPixels(pos) != pixelColor then
+    if interlaceModeEnabled then
+      videoPixels(pos) = pixelColor
+    else if videoPixels(pos) != pixelColor then
       videoPixels(pos) = pixelColor
       if (x < minModX) minModX = x
       else if (x > maxModX) maxModX = x
-      if (minModY == -1) minModY = rasterLine
-      maxModY = rasterLine
+      if (minModY == -1) minModY = iy
+      maxModY = iy
       pixelMod = true
 
   inline private def checkSpriteHS(pixelIndex:Int,palette:Int,color:Int,priorities:Int): Boolean =
@@ -1464,36 +1509,25 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     recheckPixels
 
   inline private def pixelClock(pixels:Int): Unit =
-    var pixelToDraw = pixels
-    while pixelToDraw > 0 do
-      pixelToDraw -= 1
+    val videoType = model.videoType
+    val v30 = REG_M2
+    val bottomBorderPos = videoType.bottomBorderPos(v30)
+    val isBlanking = verticalBlanking || (!inXActiveDisplay && xborderCount == 0)
 
-      // TODO
-      val videoType = model.videoType
-      val v30 = REG_M2
-      val bottomBorderPos = videoType.bottomBorderPos(v30)
-      val isBlanking = verticalBlanking || (!inXActiveDisplay && xborderCount == 0)
+    if isBlanking then
+      setPixel(xpos,rasterLine,BLANK_COLOR)
+    else if xborderCount > 0 || isVerticalBorder then
+      setPixel(xpos, rasterLine, CRAM_COLORS(REG_BACKGROUND_PALETTE)(0)(REG_BACKGROUND_COLOR))
+    else
+      val backgroundColor = REG_BACKGROUND_COLOR
+      val backgroundPalette = REG_BACKGROUND_PALETTE
+      var color = 0
+      var palette = 0
+      val hsEnabled = REG_SHADOW_HIGHLIGHT_ENABLED
+      colorMode = Palette.PaletteType.NORMAL
+      var spritePixelIndex = 0
 
-      if isBlanking then
-        setPixel(xpos,rasterLine,BLANK_COLOR)
-      else if xborderCount > 0 || isVerticalBorder then
-        setPixel(xpos,rasterLine,Palette.getColor(getColor(REG_BACKGROUND_COLOR,REG_BACKGROUND_PALETTE)))
-      else
-        // TODO
-        //setPixel(xpos,rasterLine,java.awt.Color.BLUE.getRGB)
-
-        //if vdpLayerPatternBuffer(A).isFirstBit then
-        //  vdpLayerPatternBuffer(A).scroll(xscroll(A))
-
-        val backgroundColor = REG_BACKGROUND_COLOR
-        val backgroundPalette = REG_BACKGROUND_PALETTE
-        var color = 0
-        var palette = 0
-        val hsEnabled = REG_SHADOW_HIGHLIGHT_ENABLED
-        colorMode = Palette.PaletteType.NORMAL
-        var spritePixelIndex = 0
-
-        //if REG_DE then
+      if REG_DE then
         val bitA = vdpLayerPatternBuffer(A).dequeueBit()
         val bitB = vdpLayerPatternBuffer(B).dequeueBit()
         val bitS = vdpLayerPatternBuffer(S).dequeueBitAndClear()
@@ -1557,34 +1591,34 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
                   palette = backgroundPalette
           end while
         end if
-
-        setPixel(xpos, rasterLine, CRAM_COLORS(palette)(colorMode.ordinal)(color)) // TODO
       end if
-      // epilogue
-      xpos += 1
-      hcounter = (hcounter + 1) & 0x1FF // 9-bit counter
 
-      if xpos >= hmode.totalWidth then
-        endOfLine()
-      else if inXActiveDisplay then
-        activeDisplayXPos += 1
-        if activeDisplayXPos == hmode.activePixels then
-          inXActiveDisplay = false
-          xborderCount = hmode.rightBorderPixel
-      else if xborderCount > 0 then
-        xborderCount -= 1
-        if xborderCount == 0 then
-          if xborderIsLeft then
-            xborderIsLeft = false
-            inXActiveDisplay = true
-            if !isVerticalBorder && !inYActiveDisplay then
-              inYActiveDisplay = true
-              activeDisplayLine = 0
-            activeDisplayXPos = 0
+      setPixel(xpos, rasterLine, CRAM_COLORS(palette)(colorMode.ordinal)(color)) // TODO
+    end if
+    // epilogue
+    xpos += 1
+    hcounter = (hcounter + 1) & 0x1FF // 9-bit counter
 
-      if checkHCounter() then
-        checkVCounter()
-    end while
+    if xpos >= hmode.totalWidth then
+      endOfLine()
+    else if inXActiveDisplay then
+      activeDisplayXPos += 1
+      if activeDisplayXPos == hmode.activePixels then
+        inXActiveDisplay = false
+        xborderCount = hmode.rightBorderPixel
+    else if xborderCount > 0 then
+      xborderCount -= 1
+      if xborderCount == 0 then
+        if xborderIsLeft then
+          xborderIsLeft = false
+          inXActiveDisplay = true
+          if !isVerticalBorder && !inYActiveDisplay then
+            inYActiveDisplay = true
+            activeDisplayLine = 0
+          activeDisplayXPos = 0
+
+    if checkHCounter() then
+      checkVCounter()
   end pixelClock
 
   // =============== Interrupt handling ==========================

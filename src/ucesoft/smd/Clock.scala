@@ -68,7 +68,7 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends Runnable
     //counts(clockIndex) = 0
 
   final def setErrorHandler(eh:Throwable => Unit): Unit =
-    this.errorHandler = errorHandler
+    this.errorHandler = eh
 
   final def setFrequency(clocksPerSecond:Int): Unit =
     this.clocksPerSecond = clocksPerSecond

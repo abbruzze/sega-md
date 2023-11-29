@@ -30,11 +30,9 @@ object SMD:
     val display = new Display(SCREEN_WIDTH, vmodel.totalLines, "Test SMD", f, masterClock)
     //java.util.Arrays.fill(display.displayMem, java.awt.Color.RED.getRGB)
     vdp.setDisplay(display)
-
-    //display.setClipArea(32,13,379,256)
-    display.setClipArea(model.videoType.getClipArea(h40 = false).getTuple)
+    
     //display.setPreferredSize(new java.awt.Dimension(SCREEN_WIDTH * 2, vmodel.totalLines * 2))
-    //display.setPreferredSize(new java.awt.Dimension((13 + 320 + 14) * 2,(11 + 224 + 8) * 2))
+    display.setClipArea(model.videoType.getClipArea(h40 = false).getTuple)
     display.setPreferredSize(model.videoType.getClipArea(h40 = true).getPreferredSize(2))
     f.getContentPane.add("Center", display)
     f.pack()
@@ -63,6 +61,11 @@ object SMD:
     masterClock.setClockDivider(0,4)
     masterClock.setClockDivider(1,7)
 
+    masterClock.setErrorHandler(t => {
+      t.printStackTrace()
+      sys.exit(1)
+    })
+
     //masterClock.setComponents(m68k,z80,vdp)
 
     val c1 = new KeyboardPADController(0,ControllerType.PAD6Buttons,masterClock)
@@ -85,7 +88,7 @@ object SMD:
 
     f.setVisible(true)
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog 2 (World).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog (USA, Europe).md""")
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)

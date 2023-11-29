@@ -243,16 +243,14 @@ class Display(width: Int, height: Int, title: String, frame: JFrame, clk:Clock) 
     new Rectangle(zx,zy,dx,dy)
   }
   
-  final def showFrame(x1: Int, y1: Int, x2: Int, y2: Int) : Unit = {
-    if (x1 != -1) {      
-      displayImage.newPixels(x1, y1, x2, y2)      
-      repaint()
-    }
-    else if (drawRasterLine || mouseZoomEnabled) repaint()
-    /*else {
+  final def showFrame(): Unit = showFrame(0,0,0,0,newPixels = true)
+  final def showFrame(x1: Int, y1: Int, x2: Int, y2: Int,newPixels:Boolean = false,updateFrameRateOnly:Boolean = false) : Unit = {
+    if newPixels then
       displayImage.newPixels()
       repaint()
-    }*/
+    else if !updateFrameRateOnly then
+      displayImage.newPixels(x1, y1, x2, y2)      
+      repaint()
 
     if (waitFrameAndSaveSnapshotFile != null) {
       if (waitFrameAndSaveSnapshotCounter < 2) waitFrameAndSaveSnapshotCounter += 1

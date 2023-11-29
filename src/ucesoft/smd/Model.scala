@@ -111,6 +111,7 @@ enum ModelType:
 case class DisplayClipArea(x1:Int,y1:Int,x2:Int,y2:Int):
   def getTuple: (Int,Int,Int,Int) = (x1,y1,x2,y2)
   def getPreferredSize(zoomFactor:Int): Dimension = new Dimension((x2 - x1) * zoomFactor,(y2 - y1) * zoomFactor)
+  def getInterlacedTuple: (Int,Int,Int,Int) = (x1,y1 << 1,x2,y2 << 1) 
 enum VideoType(val clockFrequency:Int,
                val topBlankingPixels:Int,
                val topBorderPixels:Int,
