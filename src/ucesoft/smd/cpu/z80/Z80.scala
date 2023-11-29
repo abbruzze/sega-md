@@ -2811,7 +2811,6 @@ class Z80(_mem:Memory,
   private var irqLow,nmiLow,nmiOnNegativeEdge = false
   private var im2LowByte = 0
   private var M1Fetch,refresh,dummyRead = false
-  private var cpuWaitUntil = 0L
   private var busREQ = false
   private var lastPC = 0
 
@@ -3011,6 +3010,9 @@ class Z80(_mem:Memory,
   }
 
   final def clock() : Int = {
+    if busREQ then
+      return 1
+
     if ((irqLow || nmiOnNegativeEdge) && !ctx.mustDelayInt) { // any interrupt pending ?
       ctx.lastQ = false
       if (nmiOnNegativeEdge) { // NMI
@@ -3091,25 +3093,18 @@ class Z80(_mem:Memory,
   }
 
   // ======================================== Clock ==========================================================
-  final def clock(cycles: Long): Unit = {
-    if (cycles > cpuWaitUntil && !busREQ) {
-      cpuWaitUntil = cycles + clock()
-    }
-  }
 
   // state
   protected def saveState(out:ObjectOutputStream) : Unit = {
     out.writeBoolean(irqLow)
     out.writeBoolean(nmiLow)
     out.writeBoolean(nmiOnNegativeEdge)
-    out.writeLong(cpuWaitUntil)
     ctx.saveState(out)
   }
   protected def loadState(in:ObjectInputStream) : Unit = {
     irqLow = in.readBoolean
     nmiLow = in.readBoolean
     nmiOnNegativeEdge = in.readBoolean
-    cpuWaitUntil = in.readLong
     ctx.loadState(in)
   }
 }
