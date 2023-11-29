@@ -141,8 +141,6 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
     else read_68k_RAM(address,size)
 
   override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
-    if address < 0 then
-      println()
     if address < 0x40_0000 then writeROM(address,value,size,writeOptions)
     else if address < 0x80_0000 then log.info(s"Writing to unused space: ${address.toHexString} = ${value.toHexString}")
     else if address < 0xA0_0000 then
@@ -311,10 +309,10 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
       if !z80BUSREQ then
         if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
           z80BUSREQ = true
-          requestZ80BUS(z80BUSREQ)
+          requestZ80BUS(true)
       else if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
         z80BUSREQ = false
-        requestZ80BUS(z80BUSREQ)
+        requestZ80BUS(false)
 
   /*
    Bit 0 of A11200h (byte access) or bit 8 of A11200h (word access) controls
@@ -332,10 +330,10 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
         if !z80RESETREQ then
           if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
             z80RESETREQ = true
-            requestZ80Reset(z80RESETREQ)
+            requestZ80Reset(true)
         else if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
           z80RESETREQ = false
-          requestZ80Reset(z80RESETREQ)
+          requestZ80Reset(false)
       else
         log.warning("write_68k_RESETREQ: reset request but not bus requested")
 
@@ -363,11 +361,15 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
 
   // ========================== READS =============================================
 
+  /*
+   Reading this bit will return 0 if the bus can be accessed by the 68000,
+   or 1 if the Z80 is still busy.
+   */
   inline private def read_68k_BUSREQ(): Int =
-    if z80BUSREQ then 0 else 1
+    if z80BUSREQ then 0 else 0x101
 
   inline private def read_68k_RESETREQ(): Int = // TODO: no info about reading from this address
-    if z80BUSREQ then 0 else 1
+    if z80RESETREQ then 0 else 1
 
   inline private def read_68k_RAM(address: Int, size: Size): Int =
     log.info(s"Reading 68k RAM address = ${address.toHexString} size=$size")
