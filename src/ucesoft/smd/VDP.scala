@@ -1,6 +1,7 @@
 package ucesoft.smd
 
 import ucesoft.smd.cpu.m68k.{M6800X0, Memory, Size}
+import ucesoft.smd.cpu.z80.Z80
 
 import scala.collection.mutable.ListBuffer
 
@@ -111,7 +112,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
 
         // check overflow entry
         if writeOverflowFIFOEntry != null then
-          log.info(s"FIFO:dequeue Restoring overflow entry $writeOverflowFIFOEntry and assert DTACK")
+          log.info("FIFO:dequeue Restoring overflow entry %s and assert DTACK",writeOverflowFIFOEntry)
           enqueue(writeOverflowFIFOEntry)
           val dtackCond = writeOverflowFIFOEntry2 == null
           writeOverflowFIFOEntry = writeOverflowFIFOEntry2
@@ -128,10 +129,11 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   private val VRAM = Array.ofDim[Int](0x10000)
   private val CRAM = Array.ofDim[Int](128)      // 128 bytes,  64 word entries: |----bbb-|ggg-rrr-|
   private val CRAM_COLORS = Array.fill[Int](4,3,16)(Palette.getColor(0))  // 16 colors x 4 palette
-  private val VSRAM = Array.ofDim[Int](84)
+  private val VSRAM = Array.ofDim[Int](80)
   private val regs = Array.ofDim[Int](0x20)
 
   private var m68k : M6800X0 = _
+  private var z80 : Z80 = _
 
   private inline val STATUS_FIFO_EMPTY_MASK   = 0x0200
   private inline val STATUS_FIFO_FULL_MASK    = 0x0100
@@ -476,7 +478,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       width = (hsvs >> 2) & 3
       height = hsvs & 3
       next = VRAM(address + 3) & 0x7F
-      log.info(s"SpriteCache $index cache updated: y=$_y width=$width height=$height next=$next")
+      log.info("SpriteCache %d cache updated: y=%d width=%d height=%d next=%d",index,_y,width,height,next)
       //println(s"SpriteCache $index cache updated: y=$_y width=$width height=$height next=$next")
   end SpriteCache
 
@@ -643,8 +645,9 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     spriteLineRenderingEnabled = true
     lastSpriteXPosZero = false
 
-  def setM68K(m68k:M6800X0): Unit =
+  def setCPUs(m68k:M6800X0,z80:Z80): Unit =
     this.m68k = m68k
+    this.z80 = z80
     m68k.setInterruptAckListener(this)
 
   def setModel(model:Model): Unit =
@@ -664,7 +667,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     writePendingFlag is cleared when the control port is read
    */
   final def readControlPort(): Int =
-    log.info(s"Reading status register: ${statusRegister.toHexString}")
+    log.info("Reading status register: %X",statusRegister)
     writePendingFlag = false
     //if REG_DE then
     statusRegister
@@ -687,21 +690,21 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     writePendingFlag = false
     val validWrite = getVRAMAccessMode match
       case acc@(VRAM_WRITE|CRAM_WRITE|VSRAM_WRITE) =>
-        log.info(s"writeDataPort($acc): address=${addressRegister.toHexString} = ${value.toHexString} codeRegister=$codeRegister")
+        log.info("writeDataPort(%d): address=%X = %X codeRegister=%d",acc,addressRegister,value,codeRegister)
         true
       case mode =>
-        log.warning(s"writeDataPort: writing data when access mode is not writing: $mode")
+        log.warning("writeDataPort: writing data when access mode is not writing: %d",mode)
         false
     if validWrite then
       val entry = FifoEntry(codeRegister,addressRegister,value)
       if !fifo.enqueue(entry) then
         if writeOverflowFIFOEntry != null then // can happen when writeDataPort is called twice in a row for a long data write and there's no space to set dtack to false
           if writeOverflowFIFOEntry2 != null then
-            log.error(s"writeOverflowFIFOEntry2 != null must never happen")
+            log.error("writeOverflowFIFOEntry2 != null must never happen")
           writeOverflowFIFOEntry2 = entry
         else
           writeOverflowFIFOEntry = entry
-        log.info(s"writeDataPort: FIFO full, going to stop M68K...")
+        log.info("writeDataPort: FIFO full, going to stop M68K...")
         m68k.setDTACK(false)
 
       if isDMAInProgress && !dmaFillWriteDone && REG_DMA_MODE == DMA_MODE.VRAM_FILL then
@@ -757,7 +760,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     if !writePendingFlag && (pendingControlPortCommand & 0xC000) == 0x8000 then
       val register = (pendingControlPortCommand >> 8) & 0x1F
       val value = pendingControlPortCommand & 0xFF
-      log.info(s"Processing register write reg=$register value=$value")
+      log.info("Processing register write reg=%d value=%d",register,value)
       writeRegister(register,value)
     else
       if !writePendingFlag then
@@ -776,7 +779,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         if (codeRegister & 0x20) != 0 then
           statusRegister |= STATUS_DMA_MASK
           //println(s"DMA request $REG_DMA_MODE: codeRegister=${codeRegister.toHexString} code=${codeRegister & 0xF} dmaCode=${codeRegister >> 6} address=${addressRegister.toHexString}")
-        log.info(s"Preparing VRAM access: codeRegister=${codeRegister.toHexString} code=${codeRegister & 0xF} dmaCode=${codeRegister >> 6} address=${addressRegister.toHexString}")
+        log.info("Preparing VRAM access: codeRegister=%X code=%d dmaCode=%d address=%X",codeRegister,codeRegister & 0xF,codeRegister >> 6,addressRegister)
 
         if (getVRAMAccessMode(codeRegister) & 1) == 0 then // VRAM/CRAM/VSRAM read request
           if isDMAInProgress then println("DMA in progress + READ")
@@ -789,18 +792,18 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         // The data is always read in word units. A0 is ignored during the read; no swap of bytes occurs if A0=1.
         // Subsequent reads are from address incremented by REGISTER #15. A0 is used in calculation of the next address.
         val value = VRAM(address & 0xFFFF) << 8 | VRAM((address + 1) & 0xFFFF)
-        log.info(s"VRAM read request: address=${address.toHexString} value=${value.toHexString}")
+        log.info("VRAM read request: address=%X value=%X",address,value)
         pendingReadValue = value
       case CRAM_READ =>
         val value = CRAM(address & 0x7F) << 8 | CRAM((address + 1) & 0x7F)
-        log.info(s"CRAM read request: address=${address.toHexString} value=${value.toHexString}")
+        log.info(s"CRAM read request: address=%X value=%X",address,value)
         pendingReadValue = value & 0xEEE // TODO fifoData & 0xF111 | value & 0xEEE
       case VSRAM_READ =>
         address &= 0x7F
         val value = if address < 0x49 then
           VSRAM(address) << 8 | VSRAM(address + 1)
         else VSRAM(0) << 8 | VSRAM(0)
-        log.info(s"VSRAM read request: address=${address.toHexString} value=${value.toHexString}")
+        log.info("VSRAM read request: address=%X value=%X",address,value)
         pendingReadValue = value & 0x7FF // TODO fifoData & 0xF800 | value & 0x7FF
       case _ =>
         // was not a read
@@ -810,7 +813,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
    */
   inline private def writeRegister(reg:Int,value:Int): Unit =
     //codeRegister = 0
-    log.info(s"Register $reg write ${value.toHexString}")
+    log.info(s"Register %d write %X",reg,value)
     val oldValue = regs(reg)
     regs(reg) = value & 0xFF
 
@@ -821,7 +824,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
             latchedHVCounter = (vcounter & 0xFF) << 8 | (hcounter >> 1) & 0xFF
         //println(s"DE=$REG_DE line=$activeDisplayLine REG0_DE=${value & 1}")
       //case 10 =>
-      //  println(s"HCOUNTER=$value at $rasterLine")
+      //  println(s"HCOUNTER=$value at $rasterLine enabled:$REG_IE1")
       case 12 => // REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|
         val h32 = REG_H32
         interlaceMode = INTERLACE_MODE.fromOrdinal((value >> 1) & 3)
@@ -840,17 +843,17 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         if hmode != mode then
           hmode = mode
           changeVDPClockDivider(hmode.initialClockDiv)
-          log.info(s"HMode set to $hmode")
+          log.info("HMode set to %s",hmode)
           println(s"HMode set to $hmode")
           display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
           vdpAccessSlot = vdpAccessSlot % hmode.vramAccessMatrix.length
           // TODO avoid index out of bound errors
       case 17 => // REG #17 |RIGT 0 0 WHP5 WHP4 WHP3 WHP2 WHP1|
         vdpLayerMappingAddress(A).setWindowX(value)
-        log.info(s"Window width set to ${value.toHexString}")
+        log.info("Window width set to %X",value)
       case 18 => // REG #18 |DOWN 0 0 WVP4 WVP3 WVP2 WVP1 WVP0|
         vdpLayerMappingAddress(A).setWindowY(value)
-        log.info(s"Window height set to ${value.toHexString}")
+        log.info("Window height set to %X",value)
       case _ =>
 
 
@@ -1025,7 +1028,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       if m68KBUSRequsted then
         m68KBUSRequsted = false
         m68k.setBUSAvailable(true)
-      log.info(s"DMA $REG_DMA_MODE finished")
+      log.info("DMA %s finished",REG_DMA_MODE)
       //println(s"DMA $REG_DMA_MODE finished")
 
   private def doExternalAccessSlot(): Unit =
@@ -1065,10 +1068,10 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         if !fifoEntry.vramFirstByteWritten then
           fifoEntry.vramFirstByteWritten = true
           updateVRAMByte(addressRegister,fifoEntry.data & 0xFF)
-          log.info(s"doDMAFill: first byte ${addressRegister.toHexString} = ${(fifoEntry.data & 0xFF).toHexString}")
+          log.info("doDMAFill: first byte %X = %X",addressRegister,fifoEntry.data & 0xFF)
 
         updateVRAMByte(addressRegister ^ 1,(fifoEntry.data >> 8) & 0xFF)
-        log.info(s"doDMAFill: VRAM => ${(addressRegister ^ 1).toHexString} = ${((fifoEntry.data >> 8) & 0xFF).toHexString}")
+        log.info("doDMAFill: VRAM => %X = %X",addressRegister ^ 1,(fifoEntry.data >> 8) & 0xFF)
         updateTargetAddress()
       /*
        When it comes to DMA fills to CRAM and VSRAM, there's a bug.
@@ -1085,14 +1088,14 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         val address = fifoEntry.address & 0x7E // ignore odd addresses
         writeByteCRAM(address,(fifoEntry.data >> 8) & 0xFF)
         writeByteCRAM(address + 1,fifoEntry.data & 0xFF)
-        log.info(s"doDMAFill: CRAM addressRegister=${addressRegister.toHexString}; ${address.toHexString} = ${fifoEntry.data.toHexString}")
+        log.info("doDMAFill: CRAM addressRegister=%X; %X = %X",addressRegister,address,fifoEntry.data)
         updateTargetAddress()
       case VSRAM_WRITE =>
         val fifoEntry = fifo.getLastPopped
         val address = fifoEntry.address & 0x7E // ignore odd addresses
         writeByteVSRAM(address, (fifoEntry.data >> 8) & 0xFF)
         writeByteVSRAM(address + 1, fifoEntry.data & 0xFF)
-        log.info(s"doDMAFill: VSRAM addressRegister=${addressRegister.toHexString}; ${address.toHexString} = ${fifoEntry.data.toHexString}")
+        log.info("doDMAFill: VSRAM addressRegister=%X; %X = %X",addressRegister,address,fifoEntry.data)
         updateTargetAddress()
       case mode =>
         log.error(s"Unexpected doDMAFill memory target: $mode")
@@ -1250,7 +1253,11 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
         case EACH_2_CELL =>
           val layerOffset = layer << 1
           val _2cell = layerOffset + ((vdpLayerMappingAddress(layer).cellX >> 1) << 2)
-          (VSRAM(_2cell) << 8 | VSRAM(_2cell + 1)) & 0x3FF
+          if _2cell < VSRAM.length then
+            (VSRAM(_2cell) << 8 | VSRAM(_2cell + 1)) & 0x3FF
+          else
+            println("VSRAM overflow with EACH_2_CELL mode")
+            0
       if interlaceModeEnabled then
         yscroll(layer) >>= 1
 
@@ -1398,7 +1405,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     rasterLine = 0
     activeDisplayLine = 0
     vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
-    hInterruptCounter = REG_H_INT
+    //hInterruptCounter = REG_H_INT
 
     if interlaceModeEnabled then
       if frameCount == 0 then
@@ -1447,8 +1454,8 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
     if rasterLine == model.videoType.totalLines then
       endOfFrame()
 
-    if rasterLine > 224 then
-      hInterruptCounter = REG_H_INT
+    //if rasterLine > 224 then
+    //  hInterruptCounter = REG_H_INT
 
     vdpAccessSlot = 0
     spriteLineRenderingEnabled = true
@@ -1623,10 +1630,11 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
 
   // =============== Interrupt handling ==========================
   private def generateVInterrupt(): Unit =
-    m68k.interrupt(VINT_LEVEL)
-    // TODO Z80
     statusRegister |= STATUS_F_MASK
-    vInterruptPending = true
+    if REG_IE0 then
+      m68k.interrupt(VINT_LEVEL)
+      z80.irq(low = true, im2LowByte = 0xFF)
+      vInterruptPending = true
 
   private def generateHInterrupt(): Unit =
     m68k.interrupt(HINT_LEVEL)
@@ -1649,19 +1657,25 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       changeVDPClockDivider(clockDiv)
 
     val v30 = REG_M2
-    if REG_IE0 && vcounter == model.videoType.fFlagSetAt(v30) && hcounter == hmode.fFlagSet then
+    val fFlagSetAt = model.videoType.fFlagSetAt(v30)
+    if vcounter == fFlagSetAt && hcounter == hmode.fFlagSet then
       generateVInterrupt()
+    else if vcounter == fFlagSetAt + 1 && hcounter == hmode.fFlagSet then
+      z80.irq(low = false) // is it correct ?
 
     hcounter == hmode.vCounterIncrement
 
   inline private def checkVCounter(): Unit =
     // check horizontal counter
-    if hInterruptCounter == 0 then
+    hInterruptCounter -= 1
+
+    if (statusRegister & STATUS_VB_MASK) != 0 then
+      hInterruptCounter = REG_H_INT
+    else if hInterruptCounter < 0 then
       if REG_IE1 then
         generateHInterrupt()
       hInterruptCounter = REG_H_INT
-    else
-      hInterruptCounter -= 1
+
 
     vcounter = (vcounter + 1) & 0x1FF // 9-bit counter
     vcounterInc += 1
