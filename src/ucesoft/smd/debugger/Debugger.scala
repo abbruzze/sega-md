@@ -89,6 +89,8 @@ class Debugger(m68k:M6800X0,
     () => z80DisassemblerItem.setSelected(false))
   private val z80DisassemblerDialog = z80DisassemblerPanel.dialog
 
+  private var selectedDebugger : InternalDebugger = m68kDebugger
+
 
   private val tabbedPane = new JTabbedPane()
 
@@ -107,12 +109,14 @@ class Debugger(m68k:M6800X0,
     private val distable = new JTable(disassembledTableModel)
     private var stepByStep = false
     private var stepAlways = false
+    private var stepDisassemble : Z80.DisassembledInfo = _
 
     init()
 
     private def existsBreakPending: Boolean = false
 
-    override def nextStep(): Unit = {}
+    override def nextStep(): Unit =
+      semaphore.release()
 
     override def hasBreakAt(address: Int): Boolean = false
 
@@ -124,7 +128,19 @@ class Debugger(m68k:M6800X0,
 
     override def rw(z80: Z80, address: Int, isRead: Boolean, value: Int = 0): Unit = {/* TODO */}
     override def fetch(z80: Z80, address: Int, opcode: Int): Unit =
-      {}
+      if !stepAlways then
+        onOffButton.setSelected(true)
+        disassembledTableModel.clear()
+        var adr = address
+        for a <- 1 to 25 do
+          val dis = z80.getDisassembledInfo(adr)
+          if a == 1 then
+            stepDisassemble = dis
+          disassembledTableModel.add(dis)
+          adr += dis.size
+
+        updateModels()
+      semaphore.acquire()
     override def interrupted(z80: Z80, mode: Int, isNMI: Boolean): Unit = {/* TODO */}
     override def reset(z80: Z80): Unit = {/* TODO */}
     override def halt(z80: Z80, isHalted: Boolean): Unit = {/* TODO */}
@@ -147,9 +163,8 @@ class Debugger(m68k:M6800X0,
       stepOutPending = StepState.NoStep
       stepOverPending = StepState.NoStep
     }
-    override def stepIn(): Unit = {
-
-    }
+    override def stepIn(): Unit =
+      nextStep()
     override def stepOver(): Unit = stepIn() // TODO
     override def stepOut(): Unit = stepIn() // TODO
 
@@ -157,6 +172,7 @@ class Debugger(m68k:M6800X0,
       registerTableModel.contentUpdated()
       statusTableModel.contentUpdated()
       disassembledTableModel.update()
+      distable.setRowSelectionInterval(0, 0)
     }
 
     private def init(): Unit =
@@ -555,6 +571,13 @@ class Debugger(m68k:M6800X0,
 
     tabbedPane.add("M68K",m68kDebugger)
     tabbedPane.add("Z80",z80Debugger)
+    tabbedPane.addChangeListener(e => {
+      tabbedPane.getSelectedIndex match
+        case 0 =>
+          selectedDebugger = m68kDebugger
+        case 1 =>
+          selectedDebugger = z80Debugger
+    })
     mainPanel.add("Center",tabbedPane)
 
     val splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, mainPanel, logButtonPanel)
@@ -600,8 +623,7 @@ class Debugger(m68k:M6800X0,
   end init
 
   def enableTracing(enabled: Boolean): Unit =
-    m68kDebugger.enableTracing(enabled)
-    z80Debugger.enableTracing(enabled)
+    selectedDebugger.enableTracing(enabled)
 
     if enabled then
       onOffButton.setToolTipText("Disable tracing")
@@ -611,16 +633,13 @@ class Debugger(m68k:M6800X0,
     onOffButton.setSelected(enabled)
 
   private def stepIn(): Unit =
-    m68kDebugger.stepIn()
-    z80Debugger.stepIn()
+    selectedDebugger.stepIn()
 
   private def stepOver(): Unit =
-    m68kDebugger.stepOver()
-    z80Debugger.stepOver()
+    selectedDebugger.stepOver()
 
   private def stepOut(): Unit =
-    m68kDebugger.stepOut()
-    z80Debugger.stepOut()
+    selectedDebugger.stepOut()
 
   private def disassembleGUI(): Unit = ???
   private def readGUI(): Unit = ???

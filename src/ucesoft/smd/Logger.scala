@@ -17,26 +17,18 @@ object Logger:
 
 
 class Logger private () :
-  import Logger.*
   private val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
-
   private var level : Level = Level.INFO
 
   def setLevel(level:Level): Unit = this.level = level
 
-  protected def format(level:Level,msg:String,t:Throwable): String =
+  inline private def format(level:Level,msg:String): String =
     val now = LocalDateTime.now()
-    val formatted = s"${now.format(dateFormatter)} [${"%7s".format(level)}] $msg"
-    if t == null then
-      formatted
-    else
-      val sw = new StringWriter()
-      t.printStackTrace(new PrintWriter(sw))
-      s"$formatted :\n$sw"
+    s"${now.format(dateFormatter)} [${"%7s".format(level)}] $msg"
 
-  def log(level:Level,msg:String,t:Throwable = null): Unit =
+  final def log(level:Level,fmt:String,pars:Any*): Unit =
     if level.intValue() >= this.level.intValue() then
-      logImpl(format(level,msg,t))
+      logImpl(format(level,fmt.format(pars:_*)))
 
   def log[T](tmpLevel:Level)(body : => T): T =
     val currentLevel = level
@@ -46,10 +38,10 @@ class Logger private () :
     finally
       setLevel(currentLevel)
 
-  def debug(msg: => String,t:Throwable = null): Unit = log(Level.FINE,msg,t)
-  def info(msg: => String,t:Throwable = null): Unit = log(Level.INFO,msg,t)
-  def warning(msg: => String,t:Throwable = null): Unit = log(Level.WARNING,msg,t)
-  def error(msg: => String,t:Throwable = null): Unit = log(Level.SEVERE,msg,t)
+  final def debug(format:String,pars:Any*): Unit = log(Level.FINE,format,pars:_*)
+  final def info(format:String,pars:Any*): Unit = log(Level.INFO,format,pars:_*)
+  final def warning(format:String,pars:Any*): Unit = log(Level.WARNING,format,pars:_*)
+  final def error(format:String,pars:Any*): Unit = log(Level.SEVERE,format,pars:_*)
 
   protected def logImpl(log:String): Unit =
     println(log)

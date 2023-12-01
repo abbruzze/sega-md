@@ -3,6 +3,7 @@ package ucesoft.smd
 import ucesoft.smd.cpu.m68k.{M6800X0, Memory, Size}
 import ucesoft.smd.cpu.z80.Z80
 
+import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 object VDP:
@@ -11,6 +12,17 @@ object VDP:
   case class VDPMemoryDump(ram:Array[Int],cram:Array[Int],vsram:Array[Int])
   case class VDPProperty(name:String,value:String,valueDetails:String = "",description:String = "",register:Option[Int] = None)
   case class VDPPropertiesDump(properties:Array[VDPProperty],registerWriter:(Int,Int) => Unit)
+  case class VDPSpriteCacheDump(spriteIndex:Int,
+                                x:Int,
+                                y:Int,
+                                w:Int,
+                                h:Int,
+                                gfx:Int,
+                                hf:Boolean,
+                                vf:Boolean,
+                                palette:Int,
+                                priority:Boolean,
+                                var next:Option[VDPSpriteCacheDump] = None)
 
 
 /**
@@ -27,7 +39,7 @@ object VDP:
  *  1 tile = 8 x 8 pixels = 32 byte
  *  1 pixel = 4 bits (16 possible colors for current palette PL)
  */
-class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckListener:
+class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckListener:
   import VDP.*
   private enum VSCROLL_MODE:
     case FULL, EACH_2_CELL
@@ -462,24 +474,34 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
    +----------------------------------------------------------------+
    */
   private class SpriteCache(val index:Int):
-    private var _x,_y = 0
+    private var _y = 0
     private var width, height = 0
     private var next = 0
+    private var address = 0
 
-    final def x : Int = _x
     final def y : Int = if interlaceModeEnabled then _y >> 1 else _y
     final def w : Int = width
     final def h : Int = height
     final def link : Int = next
 
-    def setCache(address:Int): Unit =
+    final def setCache(address:Int): Unit =
+      this.address = address
       _y = (VRAM(address) << 8 | VRAM(address + 1)) & 0x3FF
       val hsvs = VRAM(address + 2)
       width = (hsvs >> 2) & 3
       height = hsvs & 3
       next = VRAM(address + 3) & 0x7F
       log.info("SpriteCache %d cache updated: y=%d width=%d height=%d next=%d",index,_y,width,height,next)
-      //println(s"SpriteCache $index cache updated: y=$_y width=$width height=$height next=$next")
+
+    def dump(): VDPSpriteCacheDump =
+      val priority = (VRAM(address + 4) & 0x8000) > 0
+      val palette = (VRAM(address + 4) >> 13) & 3
+      val vf = (VRAM(address + 4) & 0x1000) > 0
+      val hf = (VRAM(address + 4) & 0x0800) > 0
+      val gfx = (VRAM(address + 4) << 8 | VRAM(address + 5)) & 0x7FF
+      val x = (VRAM(address + 6) << 8 | VRAM(address + 7)) & 0x1FF
+      VDPSpriteCacheDump(index,x,y,width,height,gfx,hf,vf,palette,priority)
+
   end SpriteCache
 
   private class SpriteInfo:
@@ -662,6 +684,19 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   def getPatternWindowAddress: Int = REG_PATTERN_WINDOW_ADDRESS
   def getPlayfieldSize: (Int,Int) = (REG_HSCROLL_SIZE.cell,REG_VSCROLL_SIZE.cell)
   def getScreenCells: (Int,Int) = (hmode.cells,if REG_M2 then 30 else 28)
+
+  def getSpritesDump(): VDPSpriteCacheDump = getSpritesDump(0,new mutable.HashSet[Int]).get
+  private def getSpritesDump(i:Int,indexes:mutable.HashSet[Int]): Option[VDPSpriteCacheDump] =
+    if indexes.contains(i) then None
+    else
+      indexes += i
+      val dump = spriteCache(i).dump()
+      val next = spriteCache(i).link
+      if next == 0 then
+        Some(dump)
+      else
+        dump.next = getSpritesDump(next,indexes)
+        Some(dump)
 
   /*
     writePendingFlag is cleared when the control port is read
@@ -1027,7 +1062,8 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       dmaFillWriteDone = false
       if m68KBUSRequsted then
         m68KBUSRequsted = false
-        m68k.setBUSAvailable(true)
+        //m68k.setBUSAvailable(true)
+        busArbiter.vdpRelease68KBUS()
       log.info("DMA %s finished",REG_DMA_MODE)
       //println(s"DMA $REG_DMA_MODE finished")
 
@@ -1146,7 +1182,8 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
   private def doDMAMemory(): Unit =
     if !m68KBUSRequsted then
       m68KBUSRequsted = true
-      m68k.setBUSAvailable(false)
+      //m68k.setBUSAvailable(false)
+      busArbiter.vdpRequest68KBUS()
     val data = m68KMemory.read(REG_DMA_SOURCE_ADDRESS << 1,Size.Word,MMU.VDP_MEM_OPTION)
     log.info(s"doDMAMemory: pushing codeRegister=${codeRegister.toHexString} address=${addressRegister.toHexString} data=${data.toHexString}")
     if !fifo.enqueue(FifoEntry(codeRegister,addressRegister,data)) then
@@ -1610,7 +1647,7 @@ class VDP extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckLis
       endOfLine()
     else if inXActiveDisplay then
       activeDisplayXPos += 1
-      if activeDisplayXPos == hmode.activePixels then
+      if activeDisplayXPos >= hmode.activePixels then
         inXActiveDisplay = false
         xborderCount = hmode.rightBorderPixel
     else if xborderCount > 0 then

@@ -41,7 +41,7 @@ object MMU:
  *          |    (6)   | (6) = The RAM is 64K in size and is repeatedly mirrored throughout the entire
  * 0xFFFFFF +----------+
  */
-class MMU extends SMDComponent with Memory with Z80.Memory:
+class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memory:
   import Size.*
   import MMU.*
 
@@ -61,8 +61,6 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
   private var m68k : M68000 = _
   private var z80 : Z80 = _
   private var vdp : VDP = _
-
-  private var z80BUSREQ,z80RESETREQ = false
 
   def get68KRAM: Array[Int] = m68kram
   def getZ80RAM: Array[Int] = z80ram
@@ -89,7 +87,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
 
   def enableOSROM(enabled:Boolean): Unit =
     osRomEnabled = enabled
-    log.info(s"OS ROM enabled: $enabled")
+    log.info("OS ROM enabled: %s",enabled)
 
 
   def setLockUpAction(action: () => Unit): Unit =
@@ -99,26 +97,24 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
     this.vdp = vdp
 
   inline private def requestZ80BUS(request:Boolean) =
-    log.info(s"Z80 bus request: $request")
+    log.info("Z80 bus request: %s",request)
 
   inline private def requestZ80Reset(request: Boolean) =
-    log.info(s"Z80 reset request: $request")
+    log.info("Z80 reset request: %s",request)
 
   // ========================= M68000 access ======================================
   override final def read(address: Int, size: Size, readOptions: Int): Int =
-    if address < 0 then
-      println()
     if (readOptions & VDP_MEM_OPTION) != 0 then // VDP is reading for DMA transfer to VRAM
       if address < 0x40_0000 then readROM(address,size)
       else if address >= 0xE0_0000 then
         read_68k_RAM(address,size)
       else
-        log.warning(s"VDP is trying to read from memory address: ${address.toHexString}")
+        log.warning("VDP is trying to read from memory address: %X",address)
         lastWordOnBus // TODO ??
     else if address < 0x40_0000 then readROM(address,size)
     else if address < 0x80_0000 then readOpenBUS(address,size)
     else if address < 0xA0_0000 then
-      log.info(s"Reading from 800000_9FFFFF area: ${address.toHexString}. Locking up machine ...")
+      log.info("Reading from 800000_9FFFFF area: %X. Locking up machine ...",address)
       if lockUpAction != null then
         lockUpAction()
       0
@@ -128,7 +124,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
     else if address == 0xA1_1200 then read_68k_RESETREQ()
     else if address < 0xC0_0000 then
       // TODO some addresses simply return last bus value
-      log.info(s"Reading from A10020_BFFFFF area: ${address.toHexString}. Locking up machine ...")
+      log.info("Reading from A10020_BFFFFF area: %X. Locking up machine ...",address)
       if lockUpAction != null then
         lockUpAction()
       0
@@ -136,15 +132,15 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
       if (address & 0xE7_00E0) == 0xC0_0000 then
         readVDP(address & 0x1F, size, readOptions)
       else
-        log.warning(s"Reading from unconnected VDP address: ${address.toHexString}")
+        log.warning("Reading from unconnected VDP address: %x",address)
         0xFF // TODO: here what happens ??
     else read_68k_RAM(address,size)
 
   override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
     if address < 0x40_0000 then writeROM(address,value,size,writeOptions)
-    else if address < 0x80_0000 then log.info(s"Writing to unused space: ${address.toHexString} = ${value.toHexString}")
+    else if address < 0x80_0000 then log.info(s"Writing to unused space: %X = %X",address,value)
     else if address < 0xA0_0000 then
-      log.info(s"Writing to 800000_9FFFFF area: ${address.toHexString}. Locking up machine ...")
+      log.info("Writing to 800000_9FFFFF area: %X. Locking up machine ...",address)
       if lockUpAction != null then
         lockUpAction()
     else if address < 0xA1_0000 then write_68k_z80_space(address,value,size)
@@ -156,7 +152,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
       if (address & 0xE7_00E0) == 0xC0_0000 then
         writeVDP(address & 0x1F,value, size, writeOptions)
       else
-        log.warning(s"Writing to unconnected VDP address: ${address.toHexString}")
+        log.warning("Writing to unconnected VDP address: %X",address)
     else write_68k_RAM(address,value,size)
 
   // ========================= Z80 access =========================================
@@ -171,11 +167,16 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
 
   override final def write(address:Int,value:Int): Unit =
     if address < 0x4000 then writeZ80Memory(address,value,Byte)
+    else if address < 0x6000 then writeYM2612(address,value,Byte)
+    else if address < 0x6100 then writeZ80BankRegister(value)
+    else if address >= 0x8000 then
+      write_z80_bank(address,value)
     else
-      {/*TODO*/}
+      println(s"Z80 is writing at ${address.toHexString}")
+      // TODO
   // ========================== WRITES ============================================
   private def writeVDP(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
-    log.info(s"Writing VDP register ${address.toHexString} value = $value size = $size writeOptions=$writeOptions")
+    //log.info(s"Writing VDP register ${address.toHexString} value = $value size = $size writeOptions=$writeOptions")
     size match
       /*
        Byte-wide writes
@@ -197,7 +198,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
           case 0x11 | 0x13 | 0x15 | 0x17 =>
             writePSG(address, value)
           case _ =>
-            log.info(s"Unrecognized byte write to VDP register: ${address.toHexString} = ${value.toHexString}")
+            log.info("Unrecognized byte write to VDP register: %X = %X",address,value)
       case Size.Word =>
         address match
           case 0 | 2 => vdp.writeDataPort(value)
@@ -208,33 +209,32 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
           case 0x10 | 0x12 | 0x14 | 0x16 => // If you want to write to the PSG via word-wide writes, the data must be in the LSB
             writePSG(address, value & 0xFF)
           case _ =>
-            log.info(s"Unrecognized word write to VDP register: ${address.toHexString} = ${value.toHexString}")
+            log.info("Unrecognized word write to VDP register: %X = %X",address,value)
       case Size.Long =>
         writeVDP(address, value >>> 16, Size.Word, writeOptions)
         writeVDP(address + 2, value & 0xFFFF, Size.Word, writeOptions)
 
   inline private def writeROM(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
-    log.warning(s"Writing to ROM address: ${address.toHexString} = ${value.toHexString}")
+    log.warning("Writing to ROM address: %X = %X",address,value)
     // TODO
 
   private def write_68k_z80_space(address:Int,value:Int,size:Size): Unit =
-    if z80BUSREQ then
+    if busArbiter.isZ80BUSAcquiredBy68K then
       val adr = address & 0xFFFF
       if adr < 0x4000 then writeZ80Memory(address,value,size)
       else if adr < 0x6000 then writeYM2612(address,value,size)
       else if adr < 0x6100 then writeZ80BankRegister(value)
       else if adr < 0x7F00 then {/* ignored */}
       else if adr < 0x7F20 then
-        log.info(s"write_68k_z80_space access to VDP: address=${address.toHexString} adr=${adr.toHexString}")
+        log.info("write_68k_z80_space access to VDP: address=%X adr=%X",address,adr)
         writeVDP(adr & 0x1F,value,size,0)
       else if adr < 0x7FFF then
-        log.info(s"Writing to 7F20_7FFF area from 68k: ${address.toHexString}. Locking up machine ...")
+        log.info("Writing to 7F20_7FFF area from 68k: %X. Locking up machine ...",address)
         if lockUpAction != null then
           lockUpAction()
       else // Addresses A08000-A0FFFFh mirror A00000-A07FFFh, so the 68000 cannot access it's own banked memory.
-        log.warning(s"write_68k_z80_space writing to banked memory: ${address.toHexString}")
+        log.warning("write_68k_z80_space writing to banked memory: %X",address)
         write_68k_z80_space(adr & 0x7FFF,value,size) // TODO check
-
     else
       log.warning("Writing to 68k_z80_space but z80BUSREQ is false")
 
@@ -245,7 +245,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
       z80ram(address & 0x1FFF) = (value >> 8) & 0xFF
 
   inline private def writeYM2612(address:Int,value:Int,size:Size): Unit =
-    log.info(s"Writing to YM2612: ${address.toHexString} size=$size value=${value.toHexString}")
+    log.info("Writing to YM2612: %X size=$size value=%X",address,value)
 
   /*
    To specify which 32k section you want to access, write the upper nine
@@ -259,7 +259,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
     if bankRegisterBitCounter == 9 then
       bankRegisterBitCounter = 0
       bankRegister = bankRegisterShifter
-      log.info(s"Z80 bank register set to ${bankRegister.toHexString} => ${(bankRegister << 15).toHexString}")
+      log.info("Z80 bank register set to %X => %X",bankRegister,bankRegister << 15)
 
   private def writeControllers(address: Int,_value:Int,size: Size): Unit = {
     var value = _value
@@ -295,7 +295,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
         case 0x0D => // reg_ctrl3
           controllers(2).writeControl(value)
         case _ =>
-          log.warning(s"Reading from unimplemented IO register: ${address.toHexString}")
+          log.warning("Reading from unimplemented IO register: %X",address)
   }
 
     /*
@@ -306,6 +306,11 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
      the bus later on by writing 0.
      */
     inline private def write_68k_BUSREQ(value:Int,size:Size): Unit =
+      if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
+        busArbiter.m68kRequestZ80BUS()
+      else if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
+        busArbiter.m68kReleaseZ80BUS()
+      /*
       if !z80BUSREQ then
         if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
           z80BUSREQ = true
@@ -313,6 +318,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
       else if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
         z80BUSREQ = false
         requestZ80BUS(false)
+       */
 
   /*
    Bit 0 of A11200h (byte access) or bit 8 of A11200h (word access) controls
@@ -326,6 +332,11 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
    will start executing from address 0000h onwards.
    */
     inline private def write_68k_RESETREQ(value:Int,size:Size): Unit =
+      if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
+        busArbiter.z80StartResetProcess()
+      else if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
+        busArbiter.z80StopResetProcess()
+      /*
       if z80BUSREQ then
         if !z80RESETREQ then
           if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
@@ -336,9 +347,10 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
           requestZ80Reset(false)
       else
         log.warning("write_68k_RESETREQ: reset request but not bus requested")
+       */
 
   inline private def write_68k_RAM(address: Int,value:Int, size: Size): Unit =
-    log.info(s"Writing 68k RAM ${address.toHexString} = ${value.toHexString} size=$size")
+    //log.info(s"Writing 68k RAM ${address.toHexString} = ${value.toHexString} size=$size")
     val adr = address & 0xFFFF
     size match
       case Byte =>
@@ -359,6 +371,19 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
           m68kram(adr + 2) = (value >> 8) & 0xFF
           m68kram(adr + 3) = value & 0xFF
 
+  inline private def write_z80_bank(address: Int,value:Int): Unit =
+    val _68kAddress = bankRegister << 15 | address & 0x7FFF
+    if (_68kAddress & 0xFF0000) == 0xA00000 then
+      log.info("Writing to A00000_A0FFFF area from Z80 while bank accessing. Locking up machine ...")
+      if lockUpAction != null then
+        lockUpAction()
+    else if _68kAddress >= 0xE0_0000 then
+      if allowZ80ToRead68KRam then // Z80 cannot access 68k's RAM
+        m68kram(_68kAddress & 0xFFFF) = value
+    else if _68kAddress < 0x40_000 then writeROM(_68kAddress,value, Byte,Z80_CPU_MEM_OPTION)
+    else
+      log.info("Z80 is writing bank area with address %X",_68kAddress)
+
   // ========================== READS =============================================
 
   /*
@@ -366,13 +391,13 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
    or 1 if the Z80 is still busy.
    */
   inline private def read_68k_BUSREQ(): Int =
-    if z80BUSREQ then 0 else 0x101
+    if busArbiter.isZ80BUSAcquiredBy68K then 0 else 0x101
 
   inline private def read_68k_RESETREQ(): Int = // TODO: no info about reading from this address
-    if z80RESETREQ then 0 else 1
+    if busArbiter.isZ80StartedResetProcess then 0 else 1
 
   inline private def read_68k_RAM(address: Int, size: Size): Int =
-    log.info(s"Reading 68k RAM address = ${address.toHexString} size=$size")
+    //log.info(s"Reading 68k RAM address = ${address.toHexString} size=$size")
     val adr = address & 0xFFFF
     size match
       case Byte =>
@@ -388,22 +413,22 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
 
   @tailrec
   private def read_68k_z80_space(address: Int, size: Size): Int =
-    if z80BUSREQ then
+    if busArbiter.isZ80BUSAcquiredBy68K then
       val adr = address & 0xFFFF
       if adr < 0x4000 then readZ80Memory(address,size)
       else if adr < 0x6000 then readYM2612(address,size)
       else if adr < 0x6100 then 0xFF // reads from bank register always return FF
       else if adr < 0x7F00 then 0xFF // reads always return FF
       else if adr < 0x7F20 then
-        log.info(s"read_68k_z80_space access to VDP address=${address.toHexString} adr=${adr.toHexString}")
+        log.info("read_68k_z80_space access to VDP address=%X adr=%X",address,adr)
         readVDP(address & 0x1F,size,0) // TODO check
       else if adr < 0x7FFF then
-        log.info(s"Reading from 7F20_7FFF area from 68k: ${address.toHexString}. Locking up machine ...")
+        log.info("Reading from 7F20_7FFF area from 68k: %X. Locking up machine ...",address)
         if lockUpAction != null then
           lockUpAction()
         0
       else // Addresses A08000-A0FFFFh mirror A00000-A07FFFh, so the 68000 cannot access it's own banked memory.
-        log.warning(s"read_68k_z80_space reading from banked memory: ${address.toHexString}")
+        log.warning("read_68k_z80_space reading from banked memory: %X",address)
         read_68k_z80_space(adr & 0x7FFF,size)
     else
       log.warning("Reading 68k_z80_space but z80BUSREQ is false")
@@ -438,13 +463,13 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
       case 0x0D => // reg_ctrl3
         controllers(2).readControl
       case _ =>
-        log.warning(s"Reading from unimplemented IO register: ${address.toHexString}")
+        log.warning("Reading from unimplemented IO register: %X",address)
         0
 
   inline private def read_z80_bank(address:Int): Int =
     val _68kAddress = bankRegister << 15 | address & 0x7FFF
     if (_68kAddress & 0xFF0000) == 0xA00000 then
-      log.info(s"Reading from A00000_A0FFFF area from Z80 while bank accessing. Locking up machine ...")
+      log.info("Reading from A00000_A0FFFF area from Z80 while bank accessing. Locking up machine ...")
       if lockUpAction != null then
         lockUpAction()
       0
@@ -453,7 +478,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
       else m68kram(_68kAddress & 0xFFFF)
     else if _68kAddress < 0x40_000 then readROM(_68kAddress,Byte)
     else
-      log.info(s"Z80 is reading bank area with address ${_68kAddress.toHexString}")
+      log.info("Z80 is reading bank area with address %X",address)
       0xFF
 
 
@@ -478,7 +503,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
    1Eh : Unused
    */
   private def readVDP(address:Int,size:Size,readOptions:Int): Int =
-    log.info(s"Reading VDP register ${address.toHexString} size = $size readOptions=$readOptions")
+    //log.info(s"Reading VDP register ${address.toHexString} size = $size readOptions=$readOptions")
     size match
       case Size.Byte =>
         // Reading from even VDP addresses returns the MSB of the 16-bit data,
@@ -511,15 +536,15 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
         readVDP(address,Size.Word,readOptions) << 16 | readVDP(address + 2,Size.Word,readOptions)
 
   inline private def writePSG(address:Int,value:Int): Unit =
-    log.info(s"Writing to PSG ${address.toHexString} value=${value.toHexString}")
+    log.info("Writing to PSG %X value=%X",address,value)
 
   inline private def readYM2612(address:Int,size:Size): Int =
-    log.info(s"Reading from YM2612: ${address.toHexString} size=$size")
+    log.info("Reading from YM2612: %X size=%s",address,size)
     // TODO
     0
 
   inline private def readZ80Memory(address: Int, size: Size): Int =
-    log.info(s"Reading Z80 RAM address = ${address.toHexString} size = $size")
+    //log.info(s"Reading Z80 RAM address = ${address.toHexString} size = $size")
     val value = z80ram(address & 0x1FFF)
     if size == Byte then
       value
@@ -527,7 +552,7 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
       value << 8 | value
 
   inline private def readOpenBUS(address:Int,size:Size): Int =
-    log.info(s"Reading open bus: address = ${address.toHexString}")
+    log.info("Reading open bus: address = %X",address)
     size match
       case Byte =>
         0
@@ -541,18 +566,18 @@ class MMU extends SMDComponent with Memory with Z80.Memory:
     lastWordOnBus = size match
       case Byte =>
         if address >= rom.length then
-          log.warning(s"Reading ROM beyond: ${address.toHexString}/${rom.length.toHexString} ${m68k.getLastInstructionPC.toHexString}")
+          log.warning("Reading ROM beyond: %X/%X %X",address,rom.length,m68k.getLastInstructionPC)
           0
         else rom(address)
       case Word =>
         if address + 1 >= rom.length then
-          log.warning(s"Reading ROM beyond: ${address.toHexString}/${rom.length.toHexString}")
+          log.warning("Reading ROM beyond: %X/%X",address,rom.length)
           0
         else
           rom(address) << 8 | rom(address + 1)
       case Long =>
         if address + 3 >= rom.length then
-          log.warning(s"Reading ROM beyond: ${address.toHexString}/${rom.length.toHexString}")
+          log.warning("Reading ROM beyond: %X/%X",address,rom.length)
           0
         else
           rom(address) << 24 | rom(address + 1) << 16 | rom(address + 2) << 8 | rom(address + 3)

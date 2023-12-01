@@ -15,12 +15,13 @@ import javax.swing.JFrame
 object SMD:
   def main(args:Array[String]): Unit =
     val masterClock = new Clock("master",53_693_175)
+    val busArbiter = new BusArbiter
     //masterClock.setWarpMode(true)
     //masterClock.setM68KClockDivider(7)
     //masterClock.setZ80ClockDivider(15)
     //masterClock.setVDPClockDivider(5)
 
-    val vdp = new VDP
+    val vdp = new VDP(busArbiter)
     val vmodel = VideoType.NTSC
     val model = Model(ModelType.Oversea, vmodel, 0)
     vdp.setModel(model)
@@ -39,12 +40,13 @@ object SMD:
 
     vdp.initComponent()
 
-    val mmu = new MMU
+    val mmu = new MMU(busArbiter)
     val m68k = new M68000(mmu)
     val z80 = new Z80(mmu,Z80.EmptyIOMemory)
+    busArbiter.set(m68k,z80)
     z80.initComponent()
     vdp.set68KMemory(mmu)
-    vdp.setM68K(m68k)
+    vdp.setCPUs(m68k,z80)
     mmu.setVDP(vdp)
 
     val n68kClock = new Clockable:
@@ -56,10 +58,18 @@ object SMD:
           remainingCycles -= 1
     val vdpClock = new Clockable:
       override def clock(cycles: Long): Unit = vdp.clock(cycles)
+    val z80Clock = new Clockable:
+      private var remainingCycles = 0
+      override def clock(cycles: Long): Unit =
+        if remainingCycles == 0 then
+          remainingCycles = z80.clock() - 1
+        else
+          remainingCycles -= 1
 
-    masterClock.setClockables(vdpClock,n68kClock)
+    masterClock.setClockables(vdpClock,n68kClock,z80Clock)
     masterClock.setClockDivider(0,4)
     masterClock.setClockDivider(1,7)
+    masterClock.setClockDivider(2,15)
 
     masterClock.setErrorHandler(t => {
       t.printStackTrace()
@@ -85,10 +95,11 @@ object SMD:
     mmu.setLogger(Logger.getLogger)
     m68k.setLogger(Logger.getLogger)
     c1.setLogger(Logger.getLogger)
+    busArbiter.setLogger(Logger.getLogger)
 
     f.setVisible(true)
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog (USA, Europe).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog 3 (USA).md""")
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)

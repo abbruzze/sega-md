@@ -78,7 +78,7 @@ class Display(width: Int, height: Int, title: String, frame: JFrame, clk:Clock) 
   }
 
   def setNewResolution(height:Int,width:Int) : Unit = {
-    log.info(s"New resolution: $width x $height")
+    log.info("New resolution: %d x %d",width,height)
     normalDisplayMem = Array.fill(width * height)(0xFF000000)
     interlacedDisplayMem = Array.fill(width * height * 2)(0xFF000000)
     normalDisplayImage = new MemoryImageSource(width, height, normalDisplayMem, 0, width)
@@ -194,7 +194,7 @@ class Display(width: Int, height: Int, title: String, frame: JFrame, clk:Clock) 
     if (dimension.width != getWidth || dimension.height != getHeight) {
       dimension.width = getWidth
       dimension.height = getHeight
-      log.info(s"New screen dimension ${dimension.width} x ${dimension.height}")
+      log.info("New screen dimension %d x %d",dimension.width,dimension.height)
       zoomFactorX = dimension.width.toDouble / (if (clipArea != null) clipArea._2.x - clipArea._1.x else screen.getWidth(null))
       zoomFactorY = dimension.height.toDouble / (if (clipArea != null) clipArea._2.y - clipArea._1.y else screen.getHeight(null))
       //println(s"New screen dimension ${dimension.width} x ${dimension.height} width/height=${dimension.width.toDouble/dimension.height}")

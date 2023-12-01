@@ -2838,25 +2838,25 @@ class Z80(_mem:Memory,
     }
   }
   private def onFetchEvent(address: Int, opcode:Int): Unit = {
-    val listeners = eventListeners.iterator
+    val listeners = eventListeners.toList.iterator
     while (listeners.hasNext) {
       listeners.next().fetch(this, address, opcode)
     }
   }
   private def onInterruptEvent(mode:Int,isNMI:Boolean): Unit = {
-    val listeners = eventListeners.iterator
+    val listeners = eventListeners.toList.iterator
     while (listeners.hasNext) {
       listeners.next().interrupted(this,mode,isNMI)
     }
   }
   private def onResetEvent(): Unit = {
-    val listeners = eventListeners.iterator
+    val listeners = eventListeners.toList.iterator
     while (listeners.hasNext) {
       listeners.next().reset(this)
     }
   }
   private def onHaltEvent(halted:Boolean): Unit = {
-    val listeners = eventListeners.iterator
+    val listeners = eventListeners.toList.iterator
     while (listeners.hasNext) {
       listeners.next().halt(this,halted)
     }
