@@ -51,6 +51,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   private var allowZ80ToRead68KRam = false
   private var cart : Cart = _
   private var rom,os_rom : Array[Int] = _
+  private var extraRam : Array[Int] = _
+  private var extraRamStartAddress, extraRamEndAddress = 0
   private var osRomEnabled = false
   private var lastWordOnBus = 0
   private var lockUpAction : () => Unit = _
@@ -72,6 +74,13 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   def setCart(cart: Cart): Unit =
     this.cart = cart
     rom = cart.getROM
+    extraRam = null
+    cart.getExtraMemoryInfo match
+      case Some(info) =>
+        extraRam = Array.ofDim[Int](info.endAddress - info.startAddress + 1)
+        extraRamStartAddress = info.startAddress
+        extraRamEndAddress = info.endAddress
+      case None =>
 
   def setModel(model:Model): Unit =
     this.model = model
@@ -171,9 +180,11 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if address < 0x6100 then writeZ80BankRegister(value)
     else if address >= 0x8000 then
       write_z80_bank(address,value)
-    else
-      println(s"Z80 is writing at ${address.toHexString}")
+    else {
+      // println(s"Z80 is writing at ${address.toHexString}")
       // TODO
+    }
+
   // ========================== WRITES ============================================
   private def writeVDP(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
     //log.info(s"Writing VDP register ${address.toHexString} value = $value size = $size writeOptions=$writeOptions")
@@ -215,8 +226,22 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         writeVDP(address + 2, value & 0xFFFF, Size.Word, writeOptions)
 
   inline private def writeROM(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
-    log.warning("Writing to ROM address: %X = %X",address,value)
-    // TODO
+    if extraRam != null && address >= extraRamStartAddress && address <= extraRamEndAddress then
+      println(s"Writing extraram: ${address.toHexString} ...")
+      val adr = address - extraRamStartAddress
+      size match
+        case Byte =>
+          extraRam(adr) = value & 0xFF
+        case Word =>
+          extraRam(adr) = (value >> 8) & 0xFF
+          extraRam(adr + 1) = value & 0xFF
+        case Long =>
+          extraRam(adr) = value >>> 24
+          extraRam(adr + 1) = (value >> 16) & 0xFF
+          extraRam(adr + 2) = (value >> 8) & 0xFF
+          extraRam(adr + 3) = value & 0xFF
+    else
+      log.warning("Writing to ROM address: %X = %X",address,value)
 
   private def write_68k_z80_space(address:Int,value:Int,size:Size): Unit =
     if busArbiter.isZ80BUSAcquiredBy68K then
@@ -562,24 +587,25 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         (lastWordOnBus & 0xFF00) << 16 | lastWordOnBus & 0xFF00
 
   private def readROM(address: Int, size: Size): Int =
-    // hypothesis: bus error if beyond rom's length
-    lastWordOnBus = size match
-      case Byte =>
-        if address >= rom.length then
-          log.warning("Reading ROM beyond: %X/%X %X",address,rom.length,m68k.getLastInstructionPC)
-          0
-        else rom(address)
-      case Word =>
-        if address + 1 >= rom.length then
-          log.warning("Reading ROM beyond: %X/%X",address,rom.length)
-          0
-        else
-          rom(address) << 8 | rom(address + 1)
-      case Long =>
-        if address + 3 >= rom.length then
-          log.warning("Reading ROM beyond: %X/%X",address,rom.length)
-          0
-        else
-          rom(address) << 24 | rom(address + 1) << 16 | rom(address + 2) << 8 | rom(address + 3)
+    if address < rom.length then
+      lastWordOnBus = size match
+        case Byte =>
+          rom(address)
+        case Word =>
+          if address + 1 >= rom.length then
+            log.warning("Reading ROM beyond: %X/%X",address,rom.length)
+            0
+          else
+            rom(address) << 8 | rom(address + 1)
+        case Long =>
+          if address + 3 >= rom.length then
+            log.warning("Reading ROM beyond: %X/%X",address,rom.length)
+            0
+          else
+            rom(address) << 24 | rom(address + 1) << 16 | rom(address + 2) << 8 | rom(address + 3)
+    else if extraRam != null && address >= extraRamStartAddress && address <= extraRamEndAddress then
+      lastWordOnBus = extraRam(address - extraRamStartAddress)
+    else
+      log.warning("Reading from a disconnected rom address %X",address)
 
     lastWordOnBus
