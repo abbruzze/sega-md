@@ -607,5 +607,6 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       lastWordOnBus = extraRam(address - extraRamStartAddress)
     else
       log.warning("Reading from a disconnected rom address %X",address)
+      lastWordOnBus = 0
 
     lastWordOnBus
