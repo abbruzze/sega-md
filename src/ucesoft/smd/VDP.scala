@@ -495,10 +495,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       log.info("SpriteCache %d cache updated: y=%d width=%d height=%d next=%d",index,_y,width,height,next)
 
     def dump(): VDPSpriteCacheDump =
-      val priority = (VRAM(address + 4) & 0x8000) != 0
+      val priority = (VRAM(address + 4) & 0x80) != 0
       val palette = (VRAM(address + 4) >> 13) & 3
-      val vf = (VRAM(address + 4) & 0x1000) != 0
-      val hf = (VRAM(address + 4) & 0x0800) != 0
+      val vf = (VRAM(address + 4) & 0x10) != 0
+      val hf = (VRAM(address + 4) & 0x08) != 0
       val gfx = (VRAM(address + 4) << 8 | VRAM(address + 5)) & 0x7FF
       val x = (VRAM(address + 6) << 8 | VRAM(address + 7)) & 0x1FF
       VDPSpriteCacheDump(index,x,y,width,height,gfx,hf,vf,palette,priority)
