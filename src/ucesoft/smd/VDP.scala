@@ -3,6 +3,7 @@ package ucesoft.smd
 import ucesoft.smd.cpu.m68k.{M6800X0, Memory, Size}
 import ucesoft.smd.cpu.z80.Z80
 
+import java.awt.RenderingHints
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
@@ -494,10 +495,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       log.info("SpriteCache %d cache updated: y=%d width=%d height=%d next=%d",index,_y,width,height,next)
 
     def dump(): VDPSpriteCacheDump =
-      val priority = (VRAM(address + 4) & 0x8000) > 0
+      val priority = (VRAM(address + 4) & 0x8000) != 0
       val palette = (VRAM(address + 4) >> 13) & 3
-      val vf = (VRAM(address + 4) & 0x1000) > 0
-      val hf = (VRAM(address + 4) & 0x0800) > 0
+      val vf = (VRAM(address + 4) & 0x1000) != 0
+      val hf = (VRAM(address + 4) & 0x0800) != 0
       val gfx = (VRAM(address + 4) << 8 | VRAM(address + 5)) & 0x7FF
       val x = (VRAM(address + 6) << 8 | VRAM(address + 7)) & 0x1FF
       VDPSpriteCacheDump(index,x,y,width,height,gfx,hf,vf,palette,priority)
@@ -537,22 +538,22 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       26AE
       37BF
      */
-    final def set(spriteCacheIndex:Int,thirdByte:Int,hpos:Int): Unit =
+    final def set(spriteCacheIndex:Int, thirdWord:Int, hpos:Int): Unit =
       this.spriteCacheIndex = spriteCacheIndex
-      this.thirdByte = thirdByte
+      this.thirdByte = thirdWord
       horizontalPosition = hpos - 128
       zeroPos = hpos == 0
       val deltaY = (activeDisplayLine - (spriteCache(spriteCacheIndex).y - 128)) & 0x1F
       cellReadCount = 0
-      address = (thirdByte & interlaceMode.yScrollMask) << interlaceMode.patternSizeShift
+      address = (thirdWord & interlaceMode.yScrollMask) << interlaceMode.patternSizeShift
       val h = spriteCache(spriteCacheIndex).h
-      val vf = (thirdByte & 0x1000) > 0
+      val vf = (thirdWord & 0x1000) > 0
       val ycell = if vf then h - (deltaY >> 3) else deltaY >> 3
       var yline = if vf then 7 ^ (deltaY & 7) else deltaY & 7
       if interlaceModeEnabled then
         yline = (yline << 1) | frameCount
       address += (ycell << interlaceMode.patternSizeShift) | yline << 2
-      val hf = (thirdByte & 0x0800) > 0
+      val hf = (thirdWord & 0x0800) > 0
       if hf then
         address += ((h + 1) << interlaceMode.patternSizeShift) * spriteCache(spriteCacheIndex).w + 3
 
@@ -704,10 +705,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   final def readControlPort(): Int =
     log.info("Reading status register: %X",statusRegister)
     writePendingFlag = false
-    //if REG_DE then
-    statusRegister
-    //else
-    //  statusRegister & ~(STATUS_VB_MASK|STATUS_HB_MASK)
+    // check REG_DE according to results of VDPFIFOTesting rom
+    if REG_DE then
+      statusRegister
+    else
+      statusRegister | STATUS_VB_MASK
 
   /*
    Byte-wide writes
@@ -875,6 +877,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
             videoPixels = display.displayMem
             interlaceModeEnabled = false
         val mode = if h32 then HMode.H32 else HMode.H40
+        if h32 then
+          display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        else
+          display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
         if hmode != mode then
           hmode = mode
           changeVDPClockDivider(hmode.initialClockDiv)
@@ -948,8 +954,15 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   inline private def REG_M3: Boolean = (regs(0) & 0x2) > 0          // HV. Counter stop
   // REG #1 |VR DE IE0 M1 M2 M5 0 0|
   inline private def REG_VR: Boolean = (regs(1) & 0x80) > 0         // use 128kB of VRAM. Will not work correctly on standard consoles with 64kB VRAM
-  inline private def REG_DE: Boolean = // TODO verify if regs(0) must be checked
-    (regs(1) & 0x40) > 0 && (regs(0) & 0x01) == 0                   // Enable display
+  /*
+   The one in register 1 (well, it's register $0 actually) is just a bit to configure CYSNC as input instead of output.
+   It produces a black screen on consoles where CSYNC is being used by video encoder obviously.
+   So it's an analog thing actually, which is very easy (but quite useless) to emulate.
+   The display enable bit is more important as it changes the internal behavior of VDP.
+   The effect is also different : in first case, you just got a blank screen while in second case you got a screen filled with background color.
+   */
+  inline private def REG_DE_BLACK_SCREEN : Boolean = (regs(0) & 0x1) > 0
+  inline private def REG_DE: Boolean = (regs(1) & 0x40) > 0         // Enable display
   inline private def REG_IE0: Boolean = (regs(1) & 0x20) > 0        // Enable V interrupt (68000 Level 6)
   inline private def REG_M1_DMA_ENABLED: Boolean =
     (regs(1) & 0x10) > 0                                            // DMA Enable
@@ -1394,24 +1407,19 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   end doAccessSlotSpritePattern
 
   inline private def doAccessSlotRead(): Boolean =
+    import VRAMAccess.*
     if REG_DE && !verticalBlanking && (!isVerticalBorder || isSpriteFirstEvaluationLine) then
-      import VRAMAccess.*
       hmode.vramAccessMatrix(vdpAccessSlot) match
         case H__ =>
-          //if !isSpriteEvalLine then doAccessSlotHScroll() else vdp4ReadCount += 1
-          doAccessSlotHScroll()
+          if !isSpriteFirstEvaluationLine then doAccessSlotHScroll() else vdp4read.incCount()
         case A_M =>
-          //if !isSpriteEvalLine then doAccessSlotLayerMapping(layer = A) else vdp4ReadCount += 1
-          doAccessSlotLayerMapping(layer = A)
+          if !isSpriteFirstEvaluationLine then doAccessSlotLayerMapping(layer = A) else vdp4read.incCount()
         case B_M =>
-          //if !isSpriteEvalLine then doAccessSlotLayerMapping(layer = B) else vdp4ReadCount += 1
-          doAccessSlotLayerMapping(layer = B)
+          if !isSpriteFirstEvaluationLine then doAccessSlotLayerMapping(layer = B) else vdp4read.incCount()
         case A_P =>
-          //if !isSpriteEvalLine then doAccessSlotLayerPattern(layer = A) else vdp4ReadCount += 1
-          doAccessSlotLayerPattern(layer = A)
+          if !isSpriteFirstEvaluationLine then doAccessSlotLayerPattern(layer = A) else vdp4read.incCount()
         case B_P =>
-          //if !isSpriteEvalLine then doAccessSlotLayerPattern(layer = B) else vdp4ReadCount += 1
-          doAccessSlotLayerPattern(layer = B)
+          if !isSpriteFirstEvaluationLine then doAccessSlotLayerPattern(layer = B) else vdp4read.incCount()
         case S_M =>
           doAccessSlotSpriteMapping()
         case S_P =>
@@ -1425,8 +1433,12 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
           vdp4read.incCount()
     else
-      if vdp4read.count == 0 then
-        doExternalAccessSlot()
+      hmode.vramAccessMatrix(vdpAccessSlot) match
+        case REF =>
+          /* do nothing ? */
+        case _ =>
+          if vdp4read.count == 0 then
+            doExternalAccessSlot()
 
       vdp4read.incCount()
     end if
@@ -1458,6 +1470,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     maxModX = 0
     pixelMod = false
     frameCount ^= 1
+
+    sprite1VisibleSR.reset()
+    sprite1VisibleNextLineSR.reset()
 
   private def endOfLine(): Unit =
     val videoType = model.videoType
@@ -1510,7 +1525,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     else
       activeDisplayLine
 
-  inline private def isSpriteFirstEvaluationLine: Boolean = vcounter == 0x1FF
+  inline private def isSpriteFirstEvaluationLine: Boolean = vcounter == 0x1FE // should be 1FF TODO CHECK
   inline private def isActiveDisplayArea: Boolean = inXActiveDisplay && inYActiveDisplay
   inline private def isSpriteEvaluationEnabled : Boolean = REG_DE && (inYActiveDisplay || isSpriteFirstEvaluationLine)
 
@@ -1556,7 +1571,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     val videoType = model.videoType
     val v30 = REG_M2
     val bottomBorderPos = videoType.bottomBorderPos(v30)
-    val isBlanking = verticalBlanking || (!inXActiveDisplay && xborderCount == 0)
+    val isBlanking = verticalBlanking || (!inXActiveDisplay && xborderCount == 0) || REG_DE_BLACK_SCREEN
 
     if isBlanking then
       setPixel(xpos,rasterLine,BLANK_COLOR)
@@ -1719,11 +1734,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     val v30 = REG_M2
     val videoType = model.videoType
-
-    // check REG_DE according to results of VDPFIFOTesting rom
-    if vcounter == videoType.vBlankSetAt(v30) && REG_DE then
+    
+    if vcounter == videoType.vBlankSetAt(v30) then
       statusRegister |= STATUS_VB_MASK
-    else if vcounter == videoType.vBlankClearedAt && REG_DE then
+    else if vcounter == videoType.vBlankClearedAt then
       statusRegister &= ~STATUS_VB_MASK
 
   inline private def changeVDPClockDivider(clockDiv:Int): Unit =
