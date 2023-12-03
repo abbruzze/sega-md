@@ -6,9 +6,9 @@ import ucesoft.smd.cpu.z80.Z80
 
 import java.awt.event.{FocusEvent, FocusListener, MouseAdapter, MouseEvent}
 import java.awt.{BorderLayout, Color, Component, FlowLayout}
+import javax.swing.*
 import javax.swing.border.EmptyBorder
 import javax.swing.table.{AbstractTableModel, DefaultTableCellRenderer, TableCellRenderer}
-import javax.swing.*
 import scala.collection.mutable.ArrayBuffer
 
 /**
@@ -461,5 +461,4 @@ object DebuggerUI {
 
       dialog.pack()
   end DisassemblerPanel
-
 }

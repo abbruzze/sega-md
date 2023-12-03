@@ -14,7 +14,8 @@ import javax.swing.JFrame
  */
 object SMD:
   def main(args:Array[String]): Unit =
-    val masterClock = new Clock("master",53_693_175)
+    val vmodel = VideoType.NTSC
+    val masterClock = new Clock("master",vmodel.clockFrequency)
     val busArbiter = new BusArbiter
     //masterClock.setWarpMode(true)
     //masterClock.setM68KClockDivider(7)
@@ -22,7 +23,6 @@ object SMD:
     //masterClock.setVDPClockDivider(5)
 
     val vdp = new VDP(busArbiter)
-    val vmodel = VideoType.NTSC
     val model = Model(ModelType.Oversea, vmodel, 0)
     vdp.setModel(model)
     vdp.setMasterClock(masterClock)
@@ -99,7 +99,7 @@ object SMD:
 
     f.setVisible(true)
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog 3 (USA).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog 2 (World).md""")
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)

@@ -68,6 +68,8 @@ class Debugger(m68k:M6800X0,
   private val m68KramDialog = new MemoryDumper(m68kRAM, 0xFF0000, "68K RAM", frame, () => m68kramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val romDumpItem = new JCheckBoxMenuItem("Cart's ROM")
   private val patternDialog = new PatternDumper(vdpMemDump.ram, vdpMemDump.cram, "Pattern Dump", frame, () => patternADumpItem.setSelected(false)).dialog
+  private val spriteDumpItem = new JCheckBoxMenuItem("Sprite Cache")
+  private val spriteDumpDialog = new SpriteDumper(vdp,"Sprite Cache",frame,() => spriteDumpItem.setSelected(false)).dialog
   private var romDialog: JDialog = _
   private val m68KDisassemblerItem = new JCheckBoxMenuItem("M68K Disassembler")
   private val z80DisassemblerItem = new JCheckBoxMenuItem("Z80 Disassembler")
@@ -588,6 +590,7 @@ class Debugger(m68k:M6800X0,
     val memoryMenu = new JMenu("Memory")
     val layerMenu = new JMenu("Pattern")
     val disMenu = new JMenu("Disassembler")
+    val spriteMenu = new JMenu("Sprite")
 
     vramMemoryDumpItem.addActionListener(_ => vdpVRAMDialog.setVisible(vramMemoryDumpItem.isSelected) )
     cramMemoryDumpItem.addActionListener(_ => vdpCRAMDialog.setVisible(cramMemoryDumpItem.isSelected) )
@@ -613,6 +616,11 @@ class Debugger(m68k:M6800X0,
     disMenu.add(z80DisassemblerItem)
 
     menu.add(disMenu)
+
+    spriteDumpItem.addActionListener(_ => spriteDumpDialog.setVisible(spriteDumpItem.isSelected) )
+    spriteMenu.add(spriteDumpItem)
+
+    menu.add(spriteMenu)
 
     vdpCRAMDialog.setResizable(false)
 
