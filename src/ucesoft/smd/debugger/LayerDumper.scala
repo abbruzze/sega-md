@@ -2,9 +2,9 @@ package ucesoft.smd.debugger
 
 import ucesoft.smd.{Palette, VDP}
 
-import java.awt.event.{MouseEvent, MouseMotionAdapter, WindowAdapter, WindowEvent}
-import java.awt.image.BufferedImage
 import java.awt.*
+import java.awt.event.{MouseEvent, MouseMotionAdapter}
+import java.awt.image.BufferedImage
 import javax.swing.*
 
 /**
@@ -60,6 +60,8 @@ class LayerDumper(vram:Array[Int],
   private val layerLabels = Array(new LayerCanvas(LAYER_A),new LayerCanvas(LAYER_B),new LayerCanvas(LAYER_W))
   private var palette = 0
   private val tabbedPane = new JTabbedPane()
+  private val layerAddressLabel = new JLabel("000000")
+  private val layerAddress = Array(0,0,0)
 
   init()
 
@@ -80,11 +82,15 @@ class LayerDumper(vram:Array[Int],
       updateModel()
     })
 
-    val buttonPanel = makeRefreshButtonPanel(new JLabel("Zoom:", SwingConstants.RIGHT),zoomCombo,new JLabel("Palette:", SwingConstants.RIGHT),paletteCombo)
+    val buttonPanel = makeRefreshButtonPanel(new JLabel("Zoom:", SwingConstants.RIGHT),zoomCombo,new JLabel("Palette:", SwingConstants.RIGHT),paletteCombo,new JLabel("Address:",SwingConstants.RIGHT),layerAddressLabel)
 
     for l <- LAYER_A to LAYER_W do
       val sp = new JScrollPane(layerLabels(l))
       tabbedPane.addTab(layerNames(l),sp)
+
+    tabbedPane.addChangeListener(_ => {
+      layerAddressLabel.setText("%04X".format(layerAddress(tabbedPane.getSelectedIndex)))
+    })
 
     mainPanel.add("North",buttonPanel)
     mainPanel.add("Center",tabbedPane)
@@ -99,26 +105,24 @@ class LayerDumper(vram:Array[Int],
       updateImage(l)
 
   private def updateImage(layerIndex:Int): Unit =
-    val layerAddress = layerIndex match
+    layerAddress(layerIndex) = layerIndex match
       case LAYER_A => vdp.getPatternAAddress
       case LAYER_B => vdp.getPatternBAddress
       case LAYER_W => vdp.getPatternWindowAddress
 
-    val (cellWidth,cellHeight) = vdp.getPlayfieldSize
-    /*
-      layerIndex match
-      case LAYER_W => vdp.getScreenCells
+    val (cellWidth,cellHeight) = layerIndex match
+      case LAYER_W =>
+        val screenSize = vdp.getScreenCells
+        if screenSize._1 == 32 then (32,32) else (64,32)
       case _ => vdp.getPlayfieldSize
 
-     */
 
     tabbedPane.setTitleAt(layerIndex,s"${layerNames(layerIndex)} ${cellWidth}x$cellHeight")
-
 
     val layer = new BufferedImage(cellWidth << 3,cellHeight << 3,BufferedImage.TYPE_INT_RGB)
     for y <- 0 until cellHeight do
       for x <- 0 until cellWidth do
-        val address = layerAddress + (y * cellWidth + x) * 2
+        val address = layerAddress(layerIndex) + ((y * cellWidth + x) << 1)
         val patternInfo = vram(address) << 8 | vram(address + 1)
         val hflip = (patternInfo & 0x800) > 0
         val vflip = (patternInfo & 0x1000) > 0
@@ -129,14 +133,14 @@ class LayerDumper(vram:Array[Int],
           val Y = if vflip then 7 - py else py
           for bx <- 0 to 3 do
             val X = if hflip then 3 - bx else bx
-            var twoBits = vram(patternAddress + Y * 4 + X)
+            var twoBits = vram(patternAddress + (Y << 2) + X)
             if hflip then
               twoBits = (twoBits & 0xF) << 4 | (twoBits >> 4) & 0xF
             for c <- 0 to 1 do
               val colorIndex = (twoBits >> 4) & 0xF
               val colorAddress = (palette << 5) + (colorIndex << 1)
               val color = cram(colorAddress) << 8 | cram(colorAddress + 1)
-              layer.setRGB(x * 8 + px,y * 8 + py,Palette.getColor(color))
+              layer.setRGB((x << 3) + px,(y << 3) + py,Palette.getColor(color))
               px += 1
               twoBits <<= 4
 

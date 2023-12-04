@@ -351,6 +351,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var windowBaseAddress = 0
     private var windowActive = false
     private var scrollx = 0
+    private var posy = 0
     private var cellx = 0
     private var celly = 0
     private var cellxSize : SCROLL_SIZE = SCROLL_SIZE._32CELL
@@ -390,25 +391,28 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     final def set(scrollx:Int,cellxSize:SCROLL_SIZE,cellySize:SCROLL_SIZE): Unit =
       this.baseAddress = if layer == A then REG_PATTERN_A_ADDRESS else REG_PATTERN_B_ADDRESS
       this.scrollx = scrollx
-      this.cellx = 0
+      cellx = 0
+      celly = 0
       this.cellxSize = cellxSize
       this.cellySize = cellySize
       if layer == A then
         windowBaseAddress = REG_PATTERN_WINDOW_ADDRESS
 
-    final def setCellY(celly:Int): Unit =
-      this.celly = celly
+    final def setCellY(line:Int,scrollY:Int): Boolean =
+      celly = line >> 3
+      posy = (line + scrollY) >> 3
+      isInWindow
 
     inline private def isInWindow: Boolean = windowActive && ((cellx >= windowX(0) && cellx < windowX(1)) || (celly >= windowY(0) && celly < windowY(1)))
 
-    final def isInsideWindow: Boolean = isInWindow
+    final def isInsideWindow(celly:Int): Boolean = windowActive && ((cellx >= windowX(0) && cellx < windowX(1)) || (celly >= windowY(0) && celly < windowY(1)))
 
     final def address: Int =
       if isInWindow then
-        //windowBaseAddress | (celly * hmode.cells) << 1 | cellx << 1
-        windowBaseAddress | ((celly & cellySize.mask) << cellxSize.shift) << 1 | (cellx & cellxSize.mask) << 1
+        val winCellXSizeShift = if REG_H32 then 5 else 6 // H32 = 32 cells, H40 = 64 cells; celly = 32
+        windowBaseAddress | (celly << winCellXSizeShift) << 1 | cellx << 1
       else
-        baseAddress | ((celly & cellySize.mask) << cellxSize.shift) << 1 | ((scrollx + cellx) & cellxSize.mask) << 1
+        baseAddress | ((posy & cellySize.mask) << cellxSize.shift) << 1 | ((scrollx + cellx) & cellxSize.mask) << 1
 
     final def incCellX(): Unit =
       cellx += 1
@@ -458,6 +462,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   private var interlaceModeEnabled = false
   private var interlaceMode: INTERLACE_MODE = INTERLACE_MODE.NO_INTERLACE
+
+  private var layerAEnabled = true
+  private var layerBEnabled = true
+  private var layerSEnabled = true
 
   /*
    8 bytes info
@@ -698,6 +706,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       else
         dump.next = getSpritesDump(next,indexes)
         Some(dump)
+
+  def setLayerAEnabled(enabled:Boolean): Unit = layerAEnabled = enabled
+  def setLayerBEnabled(enabled:Boolean): Unit = layerBEnabled = enabled
+  def setLayerSEnabled(enabled:Boolean): Unit = layerSEnabled = enabled
 
   /*
     writePendingFlag is cleared when the control port is read
@@ -1273,7 +1285,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           hscrollSize,
           vscrollSize
         )
-        if xscrollFine > 0 && !vdpLayerMappingAddress(layer).isInsideWindow then
+        if xscrollFine > 0 && !vdpLayerMappingAddress(layer).isInsideWindow(activeDisplayLine >> 3) then
           vdpLayerPatternBuffer(layer).skip(8 - xscrollFine)
 
         layer += 1
@@ -1311,7 +1323,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       if interlaceModeEnabled then
         yscroll(layer) >>= 1
 
-      vdpLayerMappingAddress(layer).setCellY((activeDisplayLine + yscroll(layer)) >> 3)
+      if vdpLayerMappingAddress(layer).setCellY(activeDisplayLine,yscroll(layer)) then yscroll(layer) = 0
       vdp4read.set(vdpLayerMappingAddress(layer).address)
     end if
     if vdp4read.readVRAMByte() then
@@ -1587,9 +1599,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       var spritePixelIndex = 0
 
       if REG_DE then
-        val bitA = vdpLayerPatternBuffer(A).dequeueBit()
-        val bitB = vdpLayerPatternBuffer(B).dequeueBit()
-        val bitS = vdpLayerPatternBuffer(S).dequeueBitAndClear()
+        var bitA = vdpLayerPatternBuffer(A).dequeueBit()
+        var bitB = vdpLayerPatternBuffer(B).dequeueBit()
+        var bitS = vdpLayerPatternBuffer(S).dequeueBitAndClear()
+
+        if !layerAEnabled then bitA = 0
+        if !layerBEnabled then bitB = 0
+        if !layerSEnabled then bitS = 0
 
         if !(REG_L && activeDisplayXPos < 8) then
           val priorities = (bitS & 0x40) >> 4 | (bitA & 0x40) >> 5 | (bitB & 0x40) >> 6 // SAB

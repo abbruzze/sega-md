@@ -588,7 +588,7 @@ class Debugger(m68k:M6800X0,
     // menu
     val menu = new JMenuBar
     val memoryMenu = new JMenu("Memory")
-    val layerMenu = new JMenu("Pattern")
+    val layerMenu = new JMenu("Layers")
     val disMenu = new JMenu("Disassembler")
     val spriteMenu = new JMenu("Sprite")
 
@@ -608,6 +608,18 @@ class Debugger(m68k:M6800X0,
     patternADumpItem.addActionListener(_ => patternDialog.setVisible(patternADumpItem.isSelected) )
     layerMenu.add(layerDumpItem)
     layerMenu.add(patternADumpItem)
+    val layerAEnabledItem = new JCheckBoxMenuItem("Layer A enabled")
+    layerAEnabledItem.setSelected(true)
+    layerAEnabledItem.addActionListener(_ => vdp.setLayerAEnabled(layerAEnabledItem.isSelected))
+    val layerBEnabledItem = new JCheckBoxMenuItem("Layer B enabled")
+    layerBEnabledItem.setSelected(true)
+    layerBEnabledItem.addActionListener(_ => vdp.setLayerBEnabled(layerBEnabledItem.isSelected))
+    val layerSEnabledItem = new JCheckBoxMenuItem("Layer Sprite enabled")
+    layerSEnabledItem.setSelected(true)
+    layerSEnabledItem.addActionListener(_ => vdp.setLayerSEnabled(layerSEnabledItem.isSelected))
+    layerMenu.add(layerAEnabledItem)
+    layerMenu.add(layerBEnabledItem)
+    layerMenu.add(layerSEnabledItem)
     menu.add(layerMenu)
 
     m68KDisassemblerItem.addActionListener(_ => m68kDisassemblerDialog.setVisible(m68KDisassemblerItem.isSelected) )
