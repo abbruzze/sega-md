@@ -66,12 +66,18 @@ class BusArbiter extends SMDComponent:
   final def isZ80StartedResetProcess: Boolean =
     z80ResetProcess == STARTED
   final def z80StartResetProcess(): Unit =
-    z80ResetProcess = STARTED
-    if z80BusState == Z80_OWNER then
-      log.warning("Z80 start reset process without bus requested")
+    z80ResetProcess match
+      case STOPPED =>
+        z80ResetProcess = STARTED
+        if z80BusState == Z80_OWNER then
+          log.warning("Z80 start reset process without bus requested")
+      case STARTED =>
   final def z80StopResetProcess(): Unit =
     z80ResetProcess match
       case STARTED =>
+        z80ResetProcess = STOPPED
         log.info("Z80 RESET request")
+        val sp = z80.ctx.SP // TODO check if correct
         z80.resetComponent()
+        z80.ctx.SP = sp
       case STOPPED =>

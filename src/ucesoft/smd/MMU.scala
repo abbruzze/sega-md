@@ -45,8 +45,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   import Size.*
   import MMU.*
 
-  private val m68kram = Array.ofDim[Int](0x10000)
-  private val z80ram = Array.ofDim[Int](0x2000)
+  private final val m68kram = Array.ofDim[Int](0x10000)
+  private final val z80ram = Array.ofDim[Int](0x2000)
   private var bankRegisterShifter,bankRegisterBitCounter,bankRegister = 0
   private var allowZ80ToRead68KRam = false
   private var cart : Cart = _
@@ -127,8 +127,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       0
     else if address < 0xA1_0000 then read_68k_z80_space(address,size)
     else if address < 0xA1_0020 then readVersionOrControllers(address,size)
-    else if address == 0xA1_1100 then read_68k_BUSREQ()
-    else if address == 0xA1_1200 then read_68k_RESETREQ()
+    else if address < 0xA1_1200 then read_68k_BUSREQ()
+    else if address < 0xA1_1300 then read_68k_RESETREQ()
     else if address < 0xC0_0000 then
       // TODO some addresses simply return last bus value
       log.warning("Reading from A10020_BFFFFF area: %X. Locking up machine ...",address)
@@ -143,28 +143,30 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         0xFF // TODO: here what happens ??
     else read_68k_RAM(address,size)
 
-  override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
-    if address < 0x40_0000 then writeROM(address,value,size,writeOptions)
-    else if address < 0x80_0000 then log.warning(s"Writing to unused space: %X = %X",address,value)
+  override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit = 
+    if address < 0x40_0000 then writeROM(address, value, size, writeOptions)
+    else if address < 0x80_0000 then log.warning(s"Writing to unused space: %X = %X", address, value)
     else if address < 0xA0_0000 then
-      log.warning("Writing to 800000_9FFFFF area: %X. Locking up machine ...",address)
+      log.warning("Writing to 800000_9FFFFF area: %X. Locking up machine ...", address)
       if lockUpAction != null then
         lockUpAction()
-    else if address < 0xA1_0000 then write_68k_z80_space(address,value,size)
-    else if address < 0xA1_0020 then writeControllers(address,value,size)
-    else if address == 0xA1_1100 then write_68k_BUSREQ(value,size)
-    else if address == 0xA1_1200 then write_68k_RESETREQ(value,size)
-    else if address < 0xC0_0000 then {/* ignored */} // TODO check
+    else if address < 0xA1_0000 then write_68k_z80_space(address, value, size)
+    else if address < 0xA1_0020 then writeControllers(address, value, size)
+    else if address < 0xA1_1200 then write_68k_BUSREQ(value, size)
+    else if address < 0xA1_1300 then write_68k_RESETREQ(value, size)
+    else if address < 0xC0_0000 then {
+      /* ignored */
+    } // TODO check
     else if address < 0xE0_0000 then // VDP
       if (address & 0xE7_00E0) == 0xC0_0000 then
-        writeVDP(address & 0x1F,value, size, writeOptions)
+        writeVDP(address & 0x1F, value, size, writeOptions)
       else
-        log.warning("Writing to unconnected VDP address: %X",address)
-    else write_68k_RAM(address,value,size)
+        log.warning("Writing to unconnected VDP address: %X", address)
+    else write_68k_RAM(address, value, size)
 
   // ========================= Z80 access =========================================
   override final def read(address: Int): Int =
-    if address < 0x4000 then readZ80Memory(address,Byte)
+    val read = if address < 0x4000 then readZ80Memory(address,Byte)
     else if address < 0x6000 then readYM2612(address,Byte)
     else if address < 0x6100 then 0xFF // reads from bank register always return FF
     else if address < 0x7F00 then 0xFF // reads always return FF
@@ -172,13 +174,19 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if address < 0x8000 then 0xFF // TODO: ??
     else read_z80_bank(address)
 
-  override final def write(address:Int,value:Int): Unit =
-    if address < 0x4000 then writeZ80Memory(address,value,Byte)
-    else if address < 0x6000 then writeYM2612(address,value,Byte)
+    read & 0xFF
+
+  override final def write(address:Int,value:Int): Unit = 
+    if address < 0x4000 then writeZ80Memory(address, value, Byte)
+    else if address < 0x6000 then writeYM2612(address, value, Byte)
     else if address < 0x6100 then writeZ80BankRegister(value)
-    else if address == 0x7F11 then writePSG(value)
+    else if address < 0x7F00 then {
+      /* UNUSED */
+    }
+    else if address < 0x7F20 then
+      writeVDP(address & 0x1F, value, Byte, Z80_CPU_MEM_OPTION)
     else if address >= 0x8000 then
-      write_z80_bank(address,value)
+      write_z80_bank(address, value)
     else {
       println(s"Z80 is writing at ${address.toHexString}")
       // TODO
@@ -480,7 +488,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if _68kAddress >= 0xE0_0000 then
       if !allowZ80ToRead68KRam then 0xFF // Z80 cannot access 68k's RAM
       else m68kram(_68kAddress & 0xFFFF)
-    else if _68kAddress < 0x40_0000 then readROM(_68kAddress,Byte)
+    else if _68kAddress < 0x40_0000 then
+      readROM(_68kAddress,Byte)
     else
       log.warning("Z80 is reading bank area with address %X => 68K address %X",address,_68kAddress)
       0xFF
@@ -566,7 +575,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       case Long =>
         (lastWordOnBus & 0xFF00) << 16 | lastWordOnBus & 0xFF00
 
-  private def readROM(address: Int, size: Size): Int =
+  inline private def readROM(address: Int, size: Size): Int =
     if address < rom.length then
       lastWordOnBus = size match
         case Byte =>
@@ -587,6 +596,6 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       lastWordOnBus = extraRam(address - extraRamStartAddress)
     else
       log.warning("Reading from a disconnected rom address %X",address)
-      lastWordOnBus = 0
+      lastWordOnBus = 0x0 // ComradeOj's tiny demo wants 0!!
 
     lastWordOnBus
