@@ -2,9 +2,10 @@ package ucesoft.smd
 
 import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.VDP.SCREEN_WIDTH
+import ucesoft.smd.audio.PSG
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
-import ucesoft.smd.debugger.{Default68KDisassembleAnnotator, Debugger}
+import ucesoft.smd.debugger.{Debugger, Default68KDisassembleAnnotator}
 
 import javax.swing.JFrame
 
@@ -40,15 +41,18 @@ object SMD:
 
     vdp.initComponent()
 
+    val z80MasterClock = new Clock("master-z80", vmodel.clockFrequency)
+
     val mmu = new MMU(busArbiter)
     val m68k = new M68000(mmu)
     val z80 = new Z80(mmu,Z80.EmptyIOMemory)
+    z80.setPCMask(0x3FFF)
     busArbiter.set(m68k,z80)
     z80.initComponent()
     vdp.set68KMemory(mmu)
     vdp.setCPUs(m68k,z80)
     mmu.setVDP(vdp)
-
+    // M680000
     val n68kClock = new Clockable:
       private var remainingCycles = 0
       override def clock(cycles: Long): Unit =
@@ -56,8 +60,16 @@ object SMD:
           remainingCycles = m68k.execute() - 1
         else
           remainingCycles -= 1
+    // VDP
     val vdpClock = new Clockable:
       override def clock(cycles: Long): Unit = vdp.clock(cycles)
+    val psgAudio = new PSG(44100,"PSG")
+    mmu.setPSG(psgAudio.sn76489)
+    psgAudio.setCPUFrequency(vmodel.clockFrequency / 15)
+    psgAudio.setBufferInMillis(25)
+    psgAudio.start()
+
+    // Z80
     val z80Clock = new Clockable:
       private var remainingCycles = 0
       override def clock(cycles: Long): Unit =
@@ -66,17 +78,24 @@ object SMD:
         else
           remainingCycles -= 1
 
-    masterClock.setClockables(vdpClock,n68kClock,z80Clock)
+        psgAudio.clock()
+
+    z80MasterClock.setClockables(z80Clock)
+    z80MasterClock.setClockDivider(0,15)
+
+    masterClock.setClockables(vdpClock,n68kClock)//,z80Clock)
     masterClock.setClockDivider(0,4)
     masterClock.setClockDivider(1,7)
-    masterClock.setClockDivider(2,15)
+    //masterClock.setClockDivider(2,15)
 
+    z80MasterClock.setErrorHandler(t => {
+      t.printStackTrace()
+      sys.exit(1)
+    })
     masterClock.setErrorHandler(t => {
       t.printStackTrace()
       sys.exit(1)
     })
-
-    //masterClock.setComponents(m68k,z80,vdp)
 
     val c1 = new KeyboardPADController(0,ControllerType.PAD6Buttons,masterClock)
     val c2 = new KeyboardPADController(1,ControllerType.PAD6Buttons,masterClock)
@@ -87,7 +106,7 @@ object SMD:
 
     f.addKeyListener(c1)
 
-    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu,vdp,new Default68KDisassembleAnnotator)
+    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu,vdp,dualClock = true)
     deb.enableTracing(true)
     val logger = Logger.setLogger(deb.log)
     logger.setLevel(java.util.logging.Level.INFO)
@@ -99,7 +118,7 @@ object SMD:
 
     f.setVisible(true)
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Vectorman (USA, Europe).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog 3 (USA).md""")
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)
@@ -108,3 +127,4 @@ object SMD:
     m68k.reset()
 
     masterClock.start()
+    z80MasterClock.start()

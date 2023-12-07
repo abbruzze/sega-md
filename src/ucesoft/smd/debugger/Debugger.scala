@@ -23,7 +23,7 @@ class Debugger(m68k:M6800X0,
                z80:Z80,
                z80Memory:Z80.Memory,
                vdp:VDP,
-               annotator:Disassemble68KAnnotator):
+               dualClock:Boolean):
 
   private enum StepState:
     case NoStep, WaitReturn, WaitTarget
@@ -250,7 +250,7 @@ class Debugger(m68k:M6800X0,
       m68kMemory,
       null,
       address => getBreakStringAt(address).map(_.substring(0,1)),
-      annotator)
+      new Default68KDisassembleAnnotator)
     private val vdpTableMode = new VDPPropertiesTableModel(vdp,frame)
     private val distable = new JTable(disassembledTableModel)
 
@@ -558,7 +558,7 @@ class Debugger(m68k:M6800X0,
     logToolBar.add(clearLog)
     val logSeverityGroup = new ButtonGroup
     val logSeverityInfoButton = new JRadioButton("Info")
-    val logSeveritySevereButton = new JRadioButton("Severe")
+    val logSeveritySevereButton = new JRadioButton("Warning")
     logSeverityGroup.add(logSeverityInfoButton)
     logSeverityGroup.add(logSeveritySevereButton)
     val logSeverityPanel = new JPanel()
@@ -568,7 +568,7 @@ class Debugger(m68k:M6800X0,
     logToolBar.add(logSeverityPanel)
     logSeverityInfoButton.setSelected(true)
     logSeverityInfoButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.INFO))
-    logSeveritySevereButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.SEVERE))
+    logSeveritySevereButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.WARNING))
     clearLog.addActionListener(_ => logPanel.setText(""))
 
     tabbedPane.add("M68K",m68kDebugger)
@@ -643,7 +643,11 @@ class Debugger(m68k:M6800X0,
   end init
 
   def enableTracing(enabled: Boolean): Unit =
-    selectedDebugger.enableTracing(enabled)
+    if dualClock then
+      m68kDebugger.enableTracing(enabled)
+      z80Debugger.enableTracing(enabled)
+    else
+      selectedDebugger.enableTracing(enabled)
 
     if enabled then
       onOffButton.setToolTipText("Disable tracing")
@@ -653,13 +657,25 @@ class Debugger(m68k:M6800X0,
     onOffButton.setSelected(enabled)
 
   private def stepIn(): Unit =
-    selectedDebugger.stepIn()
+    if dualClock then
+      m68kDebugger.stepIn()
+      z80Debugger.stepIn()
+    else
+      selectedDebugger.stepIn()
 
   private def stepOver(): Unit =
-    selectedDebugger.stepOver()
+    if dualClock then
+      m68kDebugger.stepOver()
+      z80Debugger.stepOver()
+    else
+      selectedDebugger.stepOver()
 
   private def stepOut(): Unit =
-    selectedDebugger.stepOut()
+    if dualClock then
+      m68kDebugger.stepOut()
+      z80Debugger.stepOut()
+    else
+      selectedDebugger.stepOut()
 
   private def disassembleGUI(): Unit = ???
   private def readGUI(): Unit = ???

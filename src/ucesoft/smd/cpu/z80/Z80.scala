@@ -2813,9 +2813,15 @@ class Z80(_mem:Memory,
   private var M1Fetch,refresh,dummyRead = false
   private var busREQ = false
   private var lastPC = 0
+  
+  private var pcMask = 0xFFFF
 
   private val eventListeners = new ListBuffer[EventListener]
   private var notifyEventListeners = false
+  
+  def setPCMask(mask:Int): Unit = {
+    pcMask = mask
+  }
 
   // Event listeners
 
@@ -2929,14 +2935,14 @@ class Z80(_mem:Memory,
     M1Fetch = true
     try {
       val pc = if (addr == null) ctx.PC else addr(0)
-      val op = mem.read(pc)
+      val op = mem.read(pc & pcMask)
       if (addr == null) ctx.incR(1)
       refreshCycle()
       // single opcode
       val opcode = opcodes_1(op)
       if (opcode != null) return opcode
       // extended
-      val op1 = mem.read((pc + 1) & 0xFFFF)
+      val op1 = mem.read((pc + 1) & pcMask)
       if (addr == null) ctx.incR(1)
       refreshCycle()
       // ED
@@ -2965,7 +2971,7 @@ class Z80(_mem:Memory,
         if (op1 == 0xCB) {
           val lastDummy = dummyRead
           dummyRead = true
-          val op2 = mem.read((pc + 3) & 0xFFFF)
+          val op2 = mem.read((pc + 3) & pcMask)
           dummyRead = lastDummy
           return opcodes_xxcb(op2)
         }
@@ -2977,7 +2983,7 @@ class Z80(_mem:Memory,
                 ctx.incPC()//ctx.PC = (ctx.PC + 1) & 0xFFFF
                 ctx.setAdditionalClockCycles(4)
               }
-              else addr(0) = (pc + 1) & 0xFFFF
+              else addr(0) = (pc + 1) & pcMask
               val c2 = opcodes_1(op1)
               if (c2 == null) return NOP // if op1 is DD or FD
               else return c2

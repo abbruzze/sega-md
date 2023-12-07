@@ -1,6 +1,6 @@
 package ucesoft.smd
 
-import ucesoft.smd.cpu.m68k.Size.Word
+import ucesoft.smd.audio.SN76489
 import ucesoft.smd.cpu.m68k.{M68000, Memory, Size}
 import ucesoft.smd.cpu.z80.Z80
 
@@ -63,9 +63,13 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   private var m68k : M68000 = _
   private var z80 : Z80 = _
   private var vdp : VDP = _
+  private var psg : SN76489 = _
 
   def get68KRAM: Array[Int] = m68kram
   def getZ80RAM: Array[Int] = z80ram
+
+  def setPSG(psg:SN76489): Unit =
+    this.psg = psg
 
   def setCPUs(m68k:M68000,z80:Z80): Unit =
     this.m68k = m68k
@@ -105,12 +109,6 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   def setVDP(vdp:VDP): Unit =
     this.vdp = vdp
 
-  inline private def requestZ80BUS(request:Boolean) =
-    log.info("Z80 bus request: %s",request)
-
-  inline private def requestZ80Reset(request: Boolean) =
-    log.info("Z80 reset request: %s",request)
-
   // ========================= M68000 access ======================================
   override final def read(address: Int, size: Size, readOptions: Int): Int =
     if (readOptions & VDP_MEM_OPTION) != 0 then // VDP is reading for DMA transfer to VRAM
@@ -123,7 +121,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if address < 0x40_0000 then readROM(address,size)
     else if address < 0x80_0000 then readOpenBUS(address,size)
     else if address < 0xA0_0000 then
-      log.info("Reading from 800000_9FFFFF area: %X. Locking up machine ...",address)
+      log.warning("Reading from 800000_9FFFFF area: %X. Locking up machine ...",address)
       if lockUpAction != null then
         lockUpAction()
       0
@@ -133,7 +131,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if address == 0xA1_1200 then read_68k_RESETREQ()
     else if address < 0xC0_0000 then
       // TODO some addresses simply return last bus value
-      log.info("Reading from A10020_BFFFFF area: %X. Locking up machine ...",address)
+      log.warning("Reading from A10020_BFFFFF area: %X. Locking up machine ...",address)
       if lockUpAction != null then
         lockUpAction()
       0
@@ -147,9 +145,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
     if address < 0x40_0000 then writeROM(address,value,size,writeOptions)
-    else if address < 0x80_0000 then log.info(s"Writing to unused space: %X = %X",address,value)
+    else if address < 0x80_0000 then log.warning(s"Writing to unused space: %X = %X",address,value)
     else if address < 0xA0_0000 then
-      log.info("Writing to 800000_9FFFFF area: %X. Locking up machine ...",address)
+      log.warning("Writing to 800000_9FFFFF area: %X. Locking up machine ...",address)
       if lockUpAction != null then
         lockUpAction()
     else if address < 0xA1_0000 then write_68k_z80_space(address,value,size)
@@ -178,10 +176,11 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     if address < 0x4000 then writeZ80Memory(address,value,Byte)
     else if address < 0x6000 then writeYM2612(address,value,Byte)
     else if address < 0x6100 then writeZ80BankRegister(value)
+    else if address == 0x7F11 then writePSG(value)
     else if address >= 0x8000 then
       write_z80_bank(address,value)
     else {
-      // println(s"Z80 is writing at ${address.toHexString}")
+      println(s"Z80 is writing at ${address.toHexString}")
       // TODO
     }
 
@@ -207,9 +206,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
             if lockUpAction != null then
               lockUpAction()
           case 0x11 | 0x13 | 0x15 | 0x17 =>
-            writePSG(address, value)
+            writePSG(value)
           case _ =>
-            log.info("Unrecognized byte write to VDP register: %X = %X",address,value)
+            log.warning("Unrecognized byte write to VDP register: %X = %X",address,value)
       case Size.Word =>
         address match
           case 0 | 2 => vdp.writeDataPort(value)
@@ -218,9 +217,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
             if lockUpAction != null then
               lockUpAction()
           case 0x10 | 0x12 | 0x14 | 0x16 => // If you want to write to the PSG via word-wide writes, the data must be in the LSB
-            writePSG(address, value & 0xFF)
+            writePSG(value & 0xFF)
           case _ =>
-            log.info("Unrecognized word write to VDP register: %X = %X",address,value)
+            log.warning("Unrecognized word write to VDP register: %X = %X",address,value)
       case Size.Long =>
         writeVDP(address, value >>> 16, Size.Word, writeOptions)
         writeVDP(address + 2, value & 0xFFFF, Size.Word, writeOptions)
@@ -335,44 +334,23 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         busArbiter.m68kRequestZ80BUS()
       else if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
         busArbiter.m68kReleaseZ80BUS()
-      /*
-      if !z80BUSREQ then
-        if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
-          z80BUSREQ = true
-          requestZ80BUS(true)
-      else if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
-        z80BUSREQ = false
-        requestZ80BUS(false)
-       */
 
-  /*
-   Bit 0 of A11200h (byte access) or bit 8 of A11200h (word access) controls
-   the Z80's /RESET line.
+    /*
+     Bit 0 of A11200h (byte access) or bit 8 of A11200h (word access) controls
+     the Z80's /RESET line.
 
-   Writing 0 to this bit will start the reset process. The Z80 manual says you
-   have to assert the /RESET line for three Z80 clock cycles as a reset does
-   not happen instantly.
+     Writing 0 to this bit will start the reset process. The Z80 manual says you
+     have to assert the /RESET line for three Z80 clock cycles as a reset does
+     not happen instantly.
 
-   Writing 1 to this bit will stop the reset process. At this point, the Z80
-   will start executing from address 0000h onwards.
-   */
+     Writing 1 to this bit will stop the reset process. At this point, the Z80
+     will start executing from address 0000h onwards.
+     */
     inline private def write_68k_RESETREQ(value:Int,size:Size): Unit =
       if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
         busArbiter.z80StartResetProcess()
       else if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
         busArbiter.z80StopResetProcess()
-      /*
-      if z80BUSREQ then
-        if !z80RESETREQ then
-          if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
-            z80RESETREQ = true
-            requestZ80Reset(true)
-        else if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
-          z80RESETREQ = false
-          requestZ80Reset(false)
-      else
-        log.warning("write_68k_RESETREQ: reset request but not bus requested")
-       */
 
   inline private def write_68k_RAM(address: Int,value:Int, size: Size): Unit =
     //log.info(s"Writing 68k RAM ${address.toHexString} = ${value.toHexString} size=$size")
@@ -399,15 +377,16 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   inline private def write_z80_bank(address: Int,value:Int): Unit =
     val _68kAddress = bankRegister << 15 | address & 0x7FFF
     if (_68kAddress & 0xFF0000) == 0xA00000 then
-      log.info("Writing to A00000_A0FFFF area from Z80 while bank accessing. Locking up machine ...")
+      log.warning("Writing to A00000_A0FFFF area from Z80 while bank accessing. Locking up machine ...")
       if lockUpAction != null then
         lockUpAction()
     else if _68kAddress >= 0xE0_0000 then
       if allowZ80ToRead68KRam then // Z80 cannot access 68k's RAM
         m68kram(_68kAddress & 0xFFFF) = value
-    else if _68kAddress < 0x40_000 then writeROM(_68kAddress,value, Byte,Z80_CPU_MEM_OPTION)
+    else if _68kAddress < 0x40_0000 then
+      writeROM(_68kAddress,value, Byte,Z80_CPU_MEM_OPTION)
     else
-      log.info("Z80 is writing bank area with address %X",_68kAddress)
+      log.warning("Z80 is writing bank area with address %X => 68K address %X",address,_68kAddress)
 
   // ========================== READS =============================================
 
@@ -448,7 +427,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         log.info("read_68k_z80_space access to VDP address=%X adr=%X",address,adr)
         readVDP(address & 0x1F,size,0) // TODO check
       else if adr < 0x7FFF then
-        log.info("Reading from 7F20_7FFF area from 68k: %X. Locking up machine ...",address)
+        log.warning("Reading from 7F20_7FFF area from 68k: %X. Locking up machine ...",address)
         if lockUpAction != null then
           lockUpAction()
         0
@@ -501,9 +480,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if _68kAddress >= 0xE0_0000 then
       if !allowZ80ToRead68KRam then 0xFF // Z80 cannot access 68k's RAM
       else m68kram(_68kAddress & 0xFFFF)
-    else if _68kAddress < 0x40_000 then readROM(_68kAddress,Byte)
+    else if _68kAddress < 0x40_0000 then readROM(_68kAddress,Byte)
     else
-      log.info("Z80 is reading bank area with address %X",address)
+      log.warning("Z80 is reading bank area with address %X => 68K address %X",address,_68kAddress)
       0xFF
 
 
@@ -560,8 +539,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       case Size.Long =>
         readVDP(address,Size.Word,readOptions) << 16 | readVDP(address + 2,Size.Word,readOptions)
 
-  inline private def writePSG(address:Int,value:Int): Unit =
-    log.info("Writing to PSG %X value=%X",address,value)
+  inline private def writePSG(value:Int): Unit =
+    //log.info("Writing to PSG %X value=%X",address,value)
+    psg.write(value)
 
   inline private def readYM2612(address:Int,size:Size): Int =
     log.info("Reading from YM2612: %X size=%s",address,size)
