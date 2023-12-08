@@ -14,7 +14,7 @@ object Clock:
   trait Clockable:
     def clock(cycles:Long): Unit
 
-class Clock (val name: String,private var clocksPerSecond: Int) extends Runnable:
+class Clock (val name: String,private var clocksPerSecond: Int) extends SMDComponent with Runnable:
   import Clock.*
 
   private class ClockEvent(val when:Long,val action:Clockable,val period:Int = 0):
@@ -55,17 +55,29 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends Runnable
   private var counts : Array[Int] = _
   private var steps : Array[Int] = _
   private var clocks : Array[Int] = _
+  private var waits : Array[Int] = _
 
   setFrequency(clocksPerSecond)
 
+  override def reset(): Unit =
+    java.util.Arrays.fill(counts,0)
+    java.util.Arrays.fill(waits, 0)
+
+  override def hardReset(): Unit =
+    reset()
+    java.util.Arrays.fill(clocks, 0)
+
+  final def setWait(clockIndex:Int,wait:Int): Unit =
+    waits(clockIndex) = wait
+
   final def setClockables(clocks:Clockable*): Unit =
-    this.clockables = clocks.toArray
+    clockables = clocks.toArray
     steps = Array.ofDim[Int](clocks.length)
     counts = Array.ofDim[Int](clocks.length)
     this.clocks = Array.ofDim[Int](clocks.length)
+    waits = Array.ofDim[Int](clocks.length)
   final def setClockDivider(clockIndex:Int,divider:Int): Unit =
     steps(clockIndex) = divider
-    //counts(clockIndex) = 0
 
   final def setErrorHandler(eh:Throwable => Unit): Unit =
     this.errorHandler = eh
@@ -150,7 +162,10 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends Runnable
       if counts(c) >= steps(c) then
         counts(c) = 0
         clocks(c) += 1
-        clockables(c).clock(clocks(c))
+        if waits(c) == 0 then
+          clockables(c).clock(clocks(c))
+        else
+          waits(c) -= 1
       c += 1
 
   private inline def checkEvents(): Unit =

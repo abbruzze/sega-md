@@ -35,6 +35,8 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
     CPU_CYCLE_PER_SECOND = f
     cyclePerSample = CPU_CYCLE_PER_SECOND / sampleRate
     reset()
+    
+  def getCyclesPerSample: Int = cyclePerSample
 
   def isStereo: Boolean = false
 
@@ -50,20 +52,25 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
     if !muted then
       if cycle == cyclePerSample then
         cycle = 0
-        val level = getLevel()
-        if isStereoInternal then
-          buffer(bufferId) = (level >> 8).asInstanceOf[Byte]
-          buffer(bufferId + 1) = (level & 0xFF).asInstanceOf[Byte]
-          bufferId += 2
-        else
-          buffer(bufferId) = level.asInstanceOf[Byte]
-          bufferId += 1
-        if bufferId == bufferSize then
-          queue.put(buffer)
-          buffer = Array.ofDim[Byte](bufferSize)
-          bufferId = 0
+        internalClock()
 
       cycle += 1
+
+  final def externalClock(): Unit = internalClock()
+
+  inline private def internalClock(): Unit =
+    val level = getLevel()
+    if isStereoInternal then
+      buffer(bufferId) = (level >> 8).asInstanceOf[Byte]
+      buffer(bufferId + 1) = (level & 0xFF).asInstanceOf[Byte]
+      bufferId += 2
+    else
+      buffer(bufferId) = level.asInstanceOf[Byte]
+      bufferId += 1
+    if bufferId == bufferSize then
+      queue.put(buffer)
+      buffer = Array.ofDim[Byte](bufferSize)
+      bufferId = 0
       
   protected def getLevel(): Int = 0
 

@@ -1,5 +1,6 @@
 package ucesoft.smd
 
+import com.formdev.flatlaf.FlatLightLaf
 import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.audio.PSG
@@ -7,7 +8,7 @@ import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.{Debugger, Default68KDisassembleAnnotator}
 
-import javax.swing.JFrame
+import javax.swing.{JDialog, JFrame, UIManager}
 
 /**
  * @author Alessandro Abbruzzetti
@@ -15,13 +16,22 @@ import javax.swing.JFrame
  */
 object SMD:
   def main(args:Array[String]): Unit =
+    inline val VDP_CLOCK_INDEX = 0
+    inline val M68_CLOCK_INDEX = 1
+    inline val Z80_CLOCK_INDEX = 2
+
+    inline val VDP_CLOCK_DIVIDER = 4
+    inline val M68_CLOCK_DIVIDER = 7
+    inline val Z80_CLOCK_DIVIDER = 15
+
+    FlatLightLaf.setup()
+    JFrame.setDefaultLookAndFeelDecorated(false)
+    JDialog.setDefaultLookAndFeelDecorated(false)
+    UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarculaLaf")
+
     val vmodel = VideoType.NTSC
     val masterClock = new Clock("master",vmodel.clockFrequency)
     val busArbiter = new BusArbiter
-    //masterClock.setWarpMode(true)
-    //masterClock.setM68KClockDivider(7)
-    //masterClock.setZ80ClockDivider(15)
-    //masterClock.setVDPClockDivider(5)
 
     val vdp = new VDP(busArbiter)
     val model = Model(ModelType.Oversea, vmodel, 0)
@@ -30,10 +40,8 @@ object SMD:
 
     val f = new JFrame("Test SMD")
     val display = new Display(SCREEN_WIDTH, vmodel.totalLines, "Test SMD", f, masterClock)
-    //java.util.Arrays.fill(display.displayMem, java.awt.Color.RED.getRGB)
     vdp.setDisplay(display)
     
-    //display.setPreferredSize(new java.awt.Dimension(SCREEN_WIDTH * 2, vmodel.totalLines * 2))
     display.setClipArea(model.videoType.getClipArea(h40 = false).getTuple)
     display.setPreferredSize(model.videoType.getClipArea(h40 = true).getPreferredSize(2))
     f.getContentPane.add("Center", display)
@@ -41,7 +49,8 @@ object SMD:
 
     vdp.initComponent()
 
-    val z80MasterClock = new Clock("master-z80", vmodel.clockFrequency)
+    //val z80MasterClock = new Clock("master-z80", vmodel.clockFrequency)
+    val psgMasterClock = new Clock("master-psg", vmodel.clockFrequency / Z80_CLOCK_DIVIDER)
 
     val mmu = new MMU(busArbiter)
     val m68k = new M68000(mmu)
@@ -52,46 +61,57 @@ object SMD:
     vdp.set68KMemory(mmu)
     vdp.setCPUs(m68k,z80)
     mmu.setVDP(vdp)
-    // M680000
-    val n68kClock = new Clockable:
-      private var remainingCycles = 0
+    // M680000 ===========================================================
+    val m68kClock = new Clockable:
+      //private var remainingCycles = 0
       override def clock(cycles: Long): Unit =
-        if remainingCycles == 0 then
+        masterClock.setWait(M68_CLOCK_INDEX,m68k.execute() - 1)
+        /*if remainingCycles == 0 then
           remainingCycles = m68k.execute() - 1
         else
-          remainingCycles -= 1
-    // VDP
+          remainingCycles -= 1*/
+    // ===================================================================
+    // VDP ===============================================================
     val vdpClock = new Clockable:
       override def clock(cycles: Long): Unit = vdp.clock(cycles)
+    // ===================================================================
+    // PSG ===============================================================
     val psgAudio = new PSG(44100,"PSG")
     mmu.setPSG(psgAudio.sn76489)
     psgAudio.setCPUFrequency(vmodel.clockFrequency / 15)
     psgAudio.setBufferInMillis(25)
     psgAudio.start()
-
-    // Z80
+    val psgClock = new Clockable:
+      override def clock(cycles: Long): Unit = psgAudio.externalClock()
+    // ===================================================================
+    // Z80 ===============================================================
     val z80Clock = new Clockable:
-      private var remainingCycles = 0
-      override def clock(cycles: Long): Unit =
-        if remainingCycles == 0 then
+      //private var remainingCycles = 0
+      override def clock(cycles:Long): Unit =
+        masterClock.setWait(Z80_CLOCK_INDEX, z80.clock() - 1)
+        /*if remainingCycles == 0 then
           remainingCycles = z80.clock() - 1
         else
-          remainingCycles -= 1
+          remainingCycles -= 1*/
 
-        psgAudio.clock()
+        //psgAudio.clock()
+    // ===================================================================
 
-    z80MasterClock.setClockables(z80Clock)
-    z80MasterClock.setClockDivider(0,15)
+    psgMasterClock.setClockables(psgClock)
+    psgMasterClock.setClockDivider(0,psgAudio.getCyclesPerSample)
 
-    masterClock.setClockables(vdpClock,n68kClock)//,z80Clock)
-    masterClock.setClockDivider(0,4)
-    masterClock.setClockDivider(1,7)
-    //masterClock.setClockDivider(2,15)
+    //z80MasterClock.setClockables(z80Clock)
+    //z80MasterClock.setClockDivider(0,15)
 
-    z80MasterClock.setErrorHandler(t => {
+    masterClock.setClockables(vdpClock,m68kClock,z80Clock)
+    masterClock.setClockDivider(VDP_CLOCK_INDEX,VDP_CLOCK_DIVIDER)
+    masterClock.setClockDivider(M68_CLOCK_INDEX,M68_CLOCK_DIVIDER)
+    masterClock.setClockDivider(Z80_CLOCK_INDEX,Z80_CLOCK_DIVIDER)
+
+    /*z80MasterClock.setErrorHandler(t => {
       t.printStackTrace()
       sys.exit(1)
-    })
+    })*/
     masterClock.setErrorHandler(t => {
       t.printStackTrace()
       sys.exit(1)
@@ -106,7 +126,7 @@ object SMD:
 
     f.addKeyListener(c1)
 
-    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu,vdp,dualClock = true)
+    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu,vdp,dualClock = false)
     deb.enableTracing(true)
     val logger = Logger.setLogger(deb.log)
     logger.setLevel(java.util.logging.Level.INFO)
@@ -118,7 +138,7 @@ object SMD:
 
     f.setVisible(true)
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog 3 (USA).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\R-Type DEMO 1.2.bin""")
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)
@@ -127,4 +147,5 @@ object SMD:
     m68k.reset()
 
     masterClock.start()
-    z80MasterClock.start()
+    psgMasterClock.start()
+    //z80MasterClock.start()

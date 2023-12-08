@@ -12,5 +12,3 @@ class PSG(override val sampleRate:Int, override val name:String) extends AudioDe
     sn76489.init(f,sampleRate)
 
   override protected def getLevel(): Int = sn76489.clock()
-
-

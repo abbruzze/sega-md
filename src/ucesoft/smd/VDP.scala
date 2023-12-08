@@ -825,7 +825,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         addressRegister = (pendingControlPortCommand & 3) << 14 | addressRegister & 0x3FFF
         //println(s"2nd write: pendingControlPortCommand=${pendingControlPortCommand.toHexString} oldaddress=${oldAdr.toHexString} address=${addressRegister.toHexString}")
         // check DMA bit CD5
-        if (codeRegister & 0x20) != 0 then
+        if (codeRegister & 0x20) != 0 && REG_M1_DMA_ENABLED then
           statusRegister |= STATUS_DMA_MASK
           //println(s"DMA request $REG_DMA_MODE: codeRegister=${codeRegister.toHexString} code=${codeRegister & 0xF} dmaCode=${codeRegister >> 6} address=${addressRegister.toHexString}")
         log.info("Preparing VRAM access: codeRegister=%X code=%d dmaCode=%d address=%X",codeRegister,codeRegister & 0xF,codeRegister >> 6,addressRegister)
@@ -845,7 +845,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         pendingReadValue = value
       case CRAM_READ =>
         val value = CRAM(address & 0x7F) << 8 | CRAM((address + 1) & 0x7F)
-        log.info(s"CRAM read request: address=%X value=%X",address,value)
+        log.info("CRAM read request: address=%X value=%X",address,value)
         pendingReadValue = value & 0xEEE // TODO fifoData & 0xF111 | value & 0xEEE
       case VSRAM_READ =>
         address &= 0x7F
@@ -862,7 +862,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
    */
   inline private def writeRegister(reg:Int,value:Int): Unit =
     //codeRegister = 0
-    log.info(s"Register %d write %X",reg,value)
+    log.info("Register %d write %X",reg,value)
     val oldValue = regs(reg)
     regs(reg) = value & 0xFF
 
@@ -1159,12 +1159,12 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         log.info("doDMAFill: VSRAM addressRegister=%X; %X = %X",addressRegister,address,fifoEntry.data)
         updateTargetAddress()
       case mode =>
-        log.error(s"Unexpected doDMAFill memory target: $mode")
+        log.error("Unexpected doDMAFill memory target: %d",mode)
         println(s"Unexpected doDMAFill memory target: $mode")
 
   private def writeByteCRAM(_address:Int,value:Int): Unit =
     val address = _address & 0x7F
-    log.info(s"Write CRAM byte: ${address.toHexString} = ${value.toHexString}")
+    log.info("Write CRAM byte: %X = %X",address,value)
     CRAM(address) = value
 
     val cramColorPalette = address >> 5
@@ -1185,9 +1185,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     val address = _address & 0x7F
     if address < VSRAM.length then
       VSRAM(address) = value
-      log.info(s"Write VSRAM byte: ${address.toHexString} = ${value.toHexString}")
+      log.info("Write VSRAM byte: %X = %X",address,value)
     else
-      log.info(s"Writing VSRAM over its size: ${address.toHexString}")
+      log.info("Writing VSRAM over its size: %X",address)
 
   /*
    At any rate, during the VDP update cycle, if CD5, DMD1, and DMD0 are all set, a DMA copy operation will advance one step,
@@ -1198,10 +1198,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     if readCopyCache == -1 then
       val address = REG_DMA_SOURCE_ADDRESS // TODO check why ^ 1
       readCopyCache = VRAM(address)
-      log.info(s"doDMACopy: 1st phase readCopyCache read from ${address.toHexString} = ${readCopyCache.toHexString}")
+      log.info("doDMACopy: 1st phase readCopyCache read from %X = %X",address,readCopyCache)
     else
       updateVRAMByte(addressRegister,readCopyCache) // TODO check why ^ 1
-      log.info(s"doDMACopy: 2nd phase readCopyCache write to ${addressRegister.toHexString} = ${readCopyCache.toHexString}")
+      log.info("doDMACopy: 2nd phase readCopyCache write to %X = %X",addressRegister,readCopyCache)
       readCopyCache = -1
 
   private def doDMAMemory(): Unit =
@@ -1210,9 +1210,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       //m68k.setBUSAvailable(false)
       busArbiter.vdpRequest68KBUS()
     val data = m68KMemory.read(REG_DMA_SOURCE_ADDRESS << 1,Size.Word,MMU.VDP_MEM_OPTION)
-    log.info(s"doDMAMemory: pushing codeRegister=${codeRegister.toHexString} address=${addressRegister.toHexString} data=${data.toHexString}")
+    log.info("doDMAMemory: pushing codeRegister=%X address=%X data=%X",codeRegister,addressRegister,data)
     if !fifo.enqueue(FifoEntry(codeRegister,addressRegister,data)) then
-      log.error(s"doDMAMemory: FIFO full")
+      log.error("doDMAMemory: FIFO full")
     updateTargetAddress()
 
 
@@ -1223,18 +1223,18 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case VRAM_WRITE => // 2 phases
         if fifoEntry.vramFirstByteWritten then
           fifo.dequeue()
-          log.info(s"doVRAMWriteWord: remaining fifo entries: ${fifo.length}")
+          log.info("doVRAMWriteWord: remaining fifo entries: %d",fifo.length)
           if (fifoEntry.address & 1) == 1 then // swap low / high
             updateVRAMByte(address,fifoEntry.data & 0xFF)
             updateVRAMByte((address + 1) & 0xFFFF,(fifoEntry.data >> 8) & 0xFF)
-            log.info(s"doVRAMWriteWord: 2nd byte; bytes swapped ${address.toHexString} = ${fifoEntry.data.toHexString}")
+            log.info("doVRAMWriteWord: 2nd byte; bytes swapped %X = %X",address,fifoEntry.data)
           else
             updateVRAMByte(address,(fifoEntry.data >> 8) & 0xFF)
             updateVRAMByte((address + 1) & 0xFFFF,fifoEntry.data & 0xFF)
-            log.info(s"doVRAMWriteWord: 2nd byte; bytes ${address.toHexString} = ${fifoEntry.data.toHexString}")
+            log.info("doVRAMWriteWord: 2nd byte; bytes %X = %X",address,fifoEntry.data)
         else
           fifoEntry.vramFirstByteWritten = true
-          log.info(s"doVRAMWriteWord: 1st byte")
+          log.info("doVRAMWriteWord: 1st byte")
       case CRAM_WRITE =>
         fifo.dequeue()
         writeByteCRAM(address, (fifoEntry.data >> 8) & 0xFF)
@@ -1244,7 +1244,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         writeByteVSRAM(address, (fifoEntry.data >> 8) & 0xFF)
         writeByteVSRAM(address + 1, fifoEntry.data & 0xFF)
       case mode =>
-        log.error(s"doVRAMWriteWord: mode mismatch: $mode")
+        log.error("doVRAMWriteWord: mode mismatch: %d",mode)
 
   // ==========================================================================================================
 
@@ -1830,7 +1830,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         vInterruptPending = false
         statusRegister &= ~STATUS_F_MASK
       case _ =>
-        log.error(s"Unknown interrupt ack level: $level")
+        log.error("Unknown interrupt ack level: %d",level)
 
     var intLevel = 0
     if hInterruptPending then
@@ -1838,7 +1838,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     if vInterruptPending then
       intLevel |= VINT_LEVEL
 
-    log.info(s"VDP ack interrupt level $level: new level is $intLevel")
+    log.info("VDP ack interrupt level %d: new level is %d",level,intLevel)
     m68k.interrupt(intLevel)
 
   end intAcknowledged

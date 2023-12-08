@@ -35,6 +35,8 @@ class BusArbiter extends SMDComponent:
   def set(m68k:M6800X0,z80:Z80): Unit =
     this.m68k = m68k
     this.z80 = z80
+    
+  final def isVDPRequestedBUS: Boolean = m68kBusState == M68KBusState.VDP_OWNER
   
   final def vdpRequest68KBUS(): Unit =
     m68kBusState match
