@@ -112,7 +112,7 @@ class M68000(override val mem:Memory) extends M68KCore(mem):
     if (size == Size.Word || size == Size.Long) && (address & 1) == 1 then
       throw new AddressBusException(address,busAccessMode,instructionInProgress = instructionInProgress,isCodeAccess)
 
-  override def execute(): Int =
+  override final def execute(): Int =
     if !dtackEnabled || !busAvailable then // on last read/write dtack was not asserted, must wait
       return 1
 

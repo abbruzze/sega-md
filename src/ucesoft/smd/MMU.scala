@@ -1,6 +1,6 @@
 package ucesoft.smd
 
-import ucesoft.smd.audio.SN76489
+import ucesoft.smd.audio.{FM, SN76489}
 import ucesoft.smd.cpu.m68k.{M68000, Memory, Size}
 import ucesoft.smd.cpu.z80.Z80
 
@@ -64,12 +64,25 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   private var z80 : Z80 = _
   private var vdp : VDP = _
   private var psg : SN76489 = _
+  private var fm : FM = _
+
+  hardReset()
+
+  override def reset(): Unit = {
+    // TODO
+  }
+
+  override def hardReset(): Unit = {
+    reset()
+    z80ram(0) = 0x76 // HALT
+  }
 
   def get68KRAM: Array[Int] = m68kram
   def getZ80RAM: Array[Int] = z80ram
 
-  def setPSG(psg:SN76489): Unit =
+  def setAudioChips(psg:SN76489,fm:FM): Unit =
     this.psg = psg
+    this.fm = fm
 
   def setCPUs(m68k:M68000,z80:Z80): Unit =
     this.m68k = m68k
@@ -278,6 +291,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   inline private def writeYM2612(address:Int,value:Int,size:Size): Unit =
     log.info("Writing to YM2612: %X size=$size value=%X",address,value)
+    fm.write(address,value)
 
   /*
    To specify which 32k section you want to access, write the upper nine
@@ -554,8 +568,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   inline private def readYM2612(address:Int,size:Size): Int =
     log.info("Reading from YM2612: %X size=%s",address,size)
-    // TODO
-    0
+    fm.read(address)
 
   inline private def readZ80Memory(address: Int, size: Size): Int =
     //log.info(s"Reading Z80 RAM address = ${address.toHexString} size = $size")
@@ -595,7 +608,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if extraRam != null && address >= extraRamStartAddress && address <= extraRamEndAddress then
       lastWordOnBus = extraRam(address - extraRamStartAddress)
     else
-      log.warning("Reading from a disconnected rom address %X",address)
+      //log.warning("Reading from a disconnected rom address %X",address)
       lastWordOnBus = 0x0 // ComradeOj's tiny demo wants 0!!
 
     lastWordOnBus

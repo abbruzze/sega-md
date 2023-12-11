@@ -82,4 +82,5 @@ class BusArbiter extends SMDComponent:
         val sp = z80.ctx.SP // TODO check if correct
         z80.resetComponent()
         z80.ctx.SP = sp
+        // TODO FM sound must be reset as well
       case STOPPED =>

@@ -218,7 +218,7 @@ public class Ym3438 implements IYm3438 {
     static /* 32 bit unsigned */ int chip_type = ym3438_mode_readmode;
 
     // IYm3438.IYm3438_Type
-    void OPN2_DoIO(IYm3438.IYm3438_Type chip) {
+    private void OPN2_DoIO(IYm3438.IYm3438_Type chip) {
         /* Write signal check */
         chip.write_a_en = (chip.write_a & 0x03) == 0x01;
         chip.write_d_en = (chip.write_d & 0x03) == 0x01;
@@ -234,7 +234,7 @@ public class Ym3438 implements IYm3438 {
         chip.write_busy_cnt &= 0x1f;
     }
 
-    void OPN2_DoRegWrite(IYm3438.IYm3438_Type chip) {
+    private void OPN2_DoRegWrite(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int i;
         /* 32 bit unsigned */
@@ -428,7 +428,7 @@ public class Ym3438 implements IYm3438 {
         }
     }
 
-    void OPN2_PhaseCalcIncrement(IYm3438.IYm3438_Type chip) {
+    private void OPN2_PhaseCalcIncrement(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int chan = chip.channel;
         /* 32 bit unsigned */
@@ -502,7 +502,7 @@ public class Ym3438 implements IYm3438 {
         chip.pg_inc[slot] &= 0xfffff;
     }
 
-    void OPN2_PhaseGenerate(IYm3438.IYm3438_Type chip) {
+    private void OPN2_PhaseGenerate(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int slot;
         /* Mask increment */
@@ -519,7 +519,7 @@ public class Ym3438 implements IYm3438 {
         }
     }
 
-    void OPN2_EnvelopeSSGEG(IYm3438.IYm3438_Type chip) {
+    private void OPN2_EnvelopeSSGEG(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int slot = chip.cycles;
         /* 8 bit unsigned */
@@ -560,7 +560,7 @@ public class Ym3438 implements IYm3438 {
                 & chip.eg_kon[slot];
     }
 
-    void OPN2_EnvelopeADSR(IYm3438.IYm3438_Type chip) {
+    private void OPN2_EnvelopeADSR(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int slot = (chip.cycles + 22) % 24;
 
@@ -670,7 +670,7 @@ public class Ym3438 implements IYm3438 {
         chip.eg_state[slot] = nextstate;
     }
 
-    void OPN2_EnvelopePrepare(IYm3438.IYm3438_Type chip) {
+    private void OPN2_EnvelopePrepare(IYm3438.IYm3438_Type chip) {
         /* 8 bit unsigned */
         int rate;
         /* 8 bit unsigned */
@@ -750,7 +750,7 @@ public class Ym3438 implements IYm3438 {
         chip.eg_sl[0] = chip.sl[slot];
     }
 
-    void OPN2_EnvelopeGenerate(IYm3438.IYm3438_Type chip) {
+    private void OPN2_EnvelopeGenerate(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int slot = (chip.cycles + 23) % 24;
         /* 16 bit unsigned */
@@ -780,7 +780,7 @@ public class Ym3438 implements IYm3438 {
         chip.eg_out[slot] = level;
     }
 
-    void OPN2_UpdateLFO(IYm3438.IYm3438_Type chip) {
+    private void OPN2_UpdateLFO(IYm3438.IYm3438_Type chip) {
         if ((chip.lfo_quotient & lfo_cycles[chip.lfo_freq]) == lfo_cycles[chip.lfo_freq]) {
             chip.lfo_quotient = 0;
             chip.lfo_cnt++;
@@ -790,7 +790,7 @@ public class Ym3438 implements IYm3438 {
         chip.lfo_cnt &= chip.lfo_en;
     }
 
-    void OPN2_FMPrepare(IYm3438.IYm3438_Type chip) {
+    private void OPN2_FMPrepare(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int slot = (chip.cycles + 6) % 24;
         /* 32 bit unsigned */
@@ -846,7 +846,7 @@ public class Ym3438 implements IYm3438 {
         }
     }
 
-    void OPN2_ChGenerate(IYm3438.IYm3438_Type chip) {
+    private void OPN2_ChGenerate(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int slot = (chip.cycles + 18) % 24;
         /* 32 bit unsigned */
@@ -881,7 +881,7 @@ public class Ym3438 implements IYm3438 {
         chip.ch_acc[channel] = sum;
     }
 
-    void OPN2_ChOutput(IYm3438.IYm3438_Type chip) {
+    private void OPN2_ChOutput(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int cycles = chip.cycles;
         /* 32 bit unsigned */
@@ -953,7 +953,7 @@ public class Ym3438 implements IYm3438 {
         }
     }
 
-    void OPN2_FMGenerate(IYm3438.IYm3438_Type chip) {
+    private void OPN2_FMGenerate(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int slot = (chip.cycles + 19) % 24;
         /* Calculate phase */
@@ -989,7 +989,7 @@ public class Ym3438 implements IYm3438 {
         chip.fm_out[slot] = output;
     }
 
-    void OPN2_DoTimerA(IYm3438.IYm3438_Type chip) {
+    private void OPN2_DoTimerA(IYm3438.IYm3438_Type chip) {
         /* 16 bit unsigned */
         int time;
         /* 8 bit unsigned */
@@ -1028,7 +1028,7 @@ public class Ym3438 implements IYm3438 {
         chip.timer_a_cnt = time & 0x3ff;
     }
 
-    void OPN2_DoTimerB(IYm3438.IYm3438_Type chip) {
+    private void OPN2_DoTimerB(IYm3438.IYm3438_Type chip) {
         /* 16 bit unsigned */
         int time;
         /* 8 bit unsigned */
@@ -1065,7 +1065,7 @@ public class Ym3438 implements IYm3438 {
         chip.timer_b_cnt = time & 0xff;
     }
 
-    void OPN2_KeyOn(IYm3438.IYm3438_Type chip) {
+    private void OPN2_KeyOn(IYm3438.IYm3438_Type chip) {
         /* 32 bit unsigned */
         int slot = chip.cycles;
         /* 32 bit unsigned */
@@ -1234,6 +1234,8 @@ public class Ym3438 implements IYm3438 {
 
         buffer[0] = chip.mol;
         buffer[1] = chip.mor;
+
+        //if (buffer[0] != 0) System.out.println("L " + buffer[0] + " R " + buffer[1]);
 
         if (chip.status_time > 0)
             chip.status_time--;

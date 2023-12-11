@@ -8,12 +8,11 @@ import javax.sound.sampled.*
 abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDComponent with Runnable:
 
   private var CPU_CYCLE_PER_SECOND = 0
-  private var cyclePerSample = 0
+  private var cyclePerSample = 1
   private val queue = new LinkedBlockingDeque[Array[Byte]]
   private var bufferSize = 0
 
   private var buffer: Array[Byte] = Array()
-  private var cycle = 0L
 
   private var bufferId = 0
   private var bufferPos = 0
@@ -25,6 +24,7 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
   private var volumeLine : FloatControl = _
   private var volume = 0
   private var stopped = false
+  private val stereoLR = Array(0,0)
 
   private val isStereoInternal = isStereo
 
@@ -40,39 +40,34 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
 
   def isStereo: Boolean = false
 
-  protected def getBytesPerSample: Int = 1
-
   def setBufferInMillis(bim:Int) : Unit =
     bufferInMillis = bim
-    val scale = if isStereo then 2 else 1
+    val scale = if isStereo then 4 else 1 // stereo has 2 channels 16 bits each
     bufferSize = scale * (sampleRate * bim / 1000.0).toInt
     buffer = Array.ofDim[Byte](bufferSize)
 
   def clock(): Unit =
-    if !muted then
-      if cycle == cyclePerSample then
-        cycle = 0
-        internalClock()
-
-      cycle += 1
-
-  final def externalClock(): Unit = internalClock()
-
-  inline private def internalClock(): Unit =
-    val level = getLevel()
     if isStereoInternal then
-      buffer(bufferId) = (level >> 8).asInstanceOf[Byte]
-      buffer(bufferId + 1) = (level & 0xFF).asInstanceOf[Byte]
-      bufferId += 2
+      getLevelStereo16Bit(stereoLR)
+      val leftLevel = stereoLR(0)
+      val rightLevel = stereoLR(1)
+      //if name.charAt(0) == 'F' && leftLevel != 0 then
+      //  println(s"L $leftLevel R $rightLevel")
+      buffer(bufferId) = (leftLevel >> 8).asInstanceOf[Byte] ; bufferId += 1
+      buffer(bufferId) = (leftLevel & 0xFF).asInstanceOf[Byte] ; bufferId += 1
+      buffer(bufferId) = (rightLevel >> 8).asInstanceOf[Byte] ; bufferId += 1
+      buffer(bufferId) = (rightLevel & 0xFF).asInstanceOf[Byte] ; bufferId += 1
     else
+      val level = getLevelMono8Bit()
       buffer(bufferId) = level.asInstanceOf[Byte]
       bufferId += 1
     if bufferId == bufferSize then
       queue.put(buffer)
       buffer = Array.ofDim[Byte](bufferSize)
       bufferId = 0
-      
-  protected def getLevel(): Int = 0
+
+  protected def getLevelMono8Bit(): Int = 0
+  protected def getLevelStereo16Bit(LR:Array[Int]): Unit = {}
 
   override protected def reset(): Unit =
     queue.clear()
@@ -100,7 +95,7 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
 
   inline private def getSourceLine: Option[SourceDataLine] =
     try
-      val format = new AudioFormat(sampleRate.toFloat, 8 * getBytesPerSample, if isStereo then 2 else 1, true, true)
+      val format = new AudioFormat(sampleRate.toFloat, 8 * (if isStereo then 2 else 1), if isStereo then 2 else 1, true, true)
 
       val info = new DataLine.Info(classOf[SourceDataLine], format)
       val sourceLine = AudioSystem.getLine(info).asInstanceOf[SourceDataLine]
