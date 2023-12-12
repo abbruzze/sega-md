@@ -45,6 +45,10 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   import Size.*
   import MMU.*
 
+  private inline val M68K_WAIT_CYCLES_Z80_ACCESS = 3
+  private inline val M68K_WAIT_CYCLES_Z80_ACCESS_BANK = 11
+  private inline val Z80_WAIT_CYCLES_ACCESS_BANK = 4
+
   private final val m68kram = Array.ofDim[Int](0x10000)
   private final val z80ram = Array.ofDim[Int](0x2000)
   private var bankRegisterShifter,bankRegisterBitCounter,bankRegister = 0
@@ -264,6 +268,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       log.warning("Writing to ROM address: %X = %X",address,value)
 
   private def write_68k_z80_space(address:Int,value:Int,size:Size): Unit =
+    m68k.addWaitCycles(M68K_WAIT_CYCLES_Z80_ACCESS)
     if busArbiter.isZ80BUSAcquiredBy68K then
       val adr = address & 0xFFFF
       if adr < 0x4000 then writeZ80Memory(address,value,size)
@@ -397,6 +402,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
           m68kram(adr + 3) = value & 0xFF
 
   inline private def write_z80_bank(address: Int,value:Int): Unit =
+    m68k.addWaitCycles(M68K_WAIT_CYCLES_Z80_ACCESS_BANK)
+    z80.ctx.setAdditionalClockCycles(Z80_WAIT_CYCLES_ACCESS_BANK)
     val _68kAddress = bankRegister << 15 | address & 0x7FFF
     if (_68kAddress & 0xFF0000) == 0xA00000 then
       log.warning("Writing to A00000_A0FFFF area from Z80 while bank accessing. Locking up machine ...")
@@ -439,6 +446,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   @tailrec
   private def read_68k_z80_space(address: Int, size: Size): Int =
+    m68k.addWaitCycles(M68K_WAIT_CYCLES_Z80_ACCESS)
     if busArbiter.isZ80BUSAcquiredBy68K then
       val adr = address & 0xFFFF
       if adr < 0x4000 then readZ80Memory(address,size)
@@ -493,6 +501,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         0
 
   inline private def read_z80_bank(address:Int): Int =
+    m68k.addWaitCycles(M68K_WAIT_CYCLES_Z80_ACCESS_BANK)
+    z80.ctx.setAdditionalClockCycles(Z80_WAIT_CYCLES_ACCESS_BANK)
     val _68kAddress = bankRegister << 15 | address & 0x7FFF
     if (_68kAddress & 0xFF0000) == 0xA00000 then
       log.info("Reading from A00000_A0FFFF area from Z80 while bank accessing. Locking up machine ...")
