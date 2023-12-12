@@ -19,7 +19,6 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
   private var bufferInMillis = 10
   private val thread = new Thread(this,s"AudioDevice-$name")
   private var muted = false
-  private val muteLock = new Object
   private var sourceLine : SourceDataLine = _
   private var volumeLine : FloatControl = _
   private var volume = 0
@@ -49,16 +48,19 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
   def clock(): Unit =
     if isStereoInternal then
       getLevelStereo16Bit(stereoLR)
+      if muted then
+        stereoLR(0) = 0
+        stereoLR(1) = 0
       val leftLevel = stereoLR(0)
       val rightLevel = stereoLR(1)
-      //if name.charAt(0) == 'F' && leftLevel != 0 then
-      //  println(s"L $leftLevel R $rightLevel")
       buffer(bufferId) = (leftLevel >> 8).asInstanceOf[Byte] ; bufferId += 1
       buffer(bufferId) = (leftLevel & 0xFF).asInstanceOf[Byte] ; bufferId += 1
       buffer(bufferId) = (rightLevel >> 8).asInstanceOf[Byte] ; bufferId += 1
       buffer(bufferId) = (rightLevel & 0xFF).asInstanceOf[Byte] ; bufferId += 1
     else
-      val level = getLevelMono8Bit()
+      var level = getLevelMono8Bit()
+      if muted then
+        level = 0
       buffer(bufferId) = level.asInstanceOf[Byte]
       bufferId += 1
     if bufferId == bufferSize then
@@ -72,12 +74,7 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
   override protected def reset(): Unit =
     queue.clear()
 
-  inline private def dequeue() : Array[Byte] =
-    muteLock.synchronized {
-      while muted do
-        muteLock.wait()
-    }
-    queue.take()
+  inline private def dequeue() : Array[Byte] = queue.take()
 
   def start(): Unit =
     if !thread.isAlive then thread.start()
@@ -85,10 +82,7 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
   def isMuted : Boolean = muted
 
   def mute(muted:Boolean) : Unit =
-    muteLock.synchronized {
-      this.muted = muted
-      muteLock.notify()
-    }
+    this.muted = muted
 
   def stop(): Unit =
     stopped = true
