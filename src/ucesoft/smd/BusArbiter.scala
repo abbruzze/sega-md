@@ -1,5 +1,6 @@
 package ucesoft.smd
 
+import ucesoft.smd.audio.FM
 import ucesoft.smd.cpu.m68k.M6800X0
 import ucesoft.smd.cpu.z80.Z80
 
@@ -20,6 +21,7 @@ class BusArbiter extends SMDComponent:
 
   private var z80 : Z80 = _
   private var m68k : M6800X0 = _
+  private var fm : FM = _
   private var z80ResetProcess = STOPPED
   private var z80BusState = Z80_OWNER
   private var m68kBusState = M68KBusState.M68K_OWNER
@@ -32,9 +34,10 @@ class BusArbiter extends SMDComponent:
     z80.requestBUS(false)
   }
 
-  def set(m68k:M6800X0,z80:Z80): Unit =
+  def set(m68k:M6800X0,z80:Z80,fm:FM): Unit =
     this.m68k = m68k
     this.z80 = z80
+    this.fm = fm
     
   final def isVDPRequestedBUS: Boolean = m68kBusState == M68KBusState.VDP_OWNER
   
@@ -82,5 +85,6 @@ class BusArbiter extends SMDComponent:
         val sp = z80.ctx.SP // TODO check if correct
         z80.resetComponent()
         z80.ctx.SP = sp
-        // TODO FM sound must be reset as well
+        // FM sound must be reset as well
+        fm.reset()
       case STOPPED =>
