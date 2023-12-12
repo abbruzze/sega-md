@@ -21,9 +21,8 @@ class Debugger(m68k:M6800X0,
                m68kMemory:Memory,
                m68kRAM:Array[Int],
                z80:Z80,
-               z80Memory:Z80.Memory,
-               vdp:VDP,
-               dualClock:Boolean):
+               z80Ram:Array[Int],
+               vdp:VDP):
 
   private enum StepState:
     case NoStep, WaitReturn, WaitTarget
@@ -49,16 +48,17 @@ class Debugger(m68k:M6800X0,
     def updateModels(): Unit
   end InternalDebugger
 
-  private val frame = new JFrame()
+  private val frame = new JFrame("Debugger")
   private var cart : Cart = _
   private val logPanel = new RSyntaxTextArea(10,100)
   private val onOffButton = new JToggleButton(new ImageIcon(getClass.getResource("/resources/trace/on.png")))
   private val vdpMemDump = vdp.getMemoryDump
 
-  private val vramMemoryDumpItem = new JCheckBoxMenuItem("VDP's VRAM")
-  private val cramMemoryDumpItem = new JCheckBoxMenuItem("VDP's CRAM")
-  private val vsramMemoryDumpItem = new JCheckBoxMenuItem("VDP's VSRAM")
-  private val m68kramMemoryDumpItem = new JCheckBoxMenuItem("68k's RAM")
+  private val vramMemoryDumpItem = new JCheckBoxMenuItem("VDP VRAM")
+  private val cramMemoryDumpItem = new JCheckBoxMenuItem("VDP CRAM")
+  private val vsramMemoryDumpItem = new JCheckBoxMenuItem("VDP VSRAM")
+  private val m68kramMemoryDumpItem = new JCheckBoxMenuItem("68k RAM")
+  private val z80RamMemoryDumpItem = new JCheckBoxMenuItem("Z80 RAM")
   private val layerDumpItem = new JCheckBoxMenuItem("Pattern Layers")
   private val patternADumpItem = new JCheckBoxMenuItem("Pattern Dump")
   private val vdpVRAMDialog = new MemoryDumper(vdpMemDump.ram, 0, "VRAM", frame, () => vramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
@@ -66,6 +66,7 @@ class Debugger(m68k:M6800X0,
   private val vdpCRAMDialog = new MemoryDumper(vdpMemDump.cram, 0, "CRAM", frame, () => cramMemoryDumpItem.setSelected(false), withColorDumper = true).dialog
   private val patternLayersDialog = new LayerDumper(vdpMemDump.ram, vdpMemDump.cram, "Pattern Layers", vdp, frame, () => layerDumpItem.setSelected(false)).dialog
   private val m68KramDialog = new MemoryDumper(m68kRAM, 0xFF0000, "68K RAM", frame, () => m68kramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
+  private val z80RamDialog = new MemoryDumper(z80Ram, 0x0000, "Z80 RAM", frame, () => z80RamMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val romDumpItem = new JCheckBoxMenuItem("Cart's ROM")
   private val patternDialog = new PatternDumper(vdpMemDump.ram, vdpMemDump.cram, "Pattern Dump", frame, () => patternADumpItem.setSelected(false)).dialog
   private val spriteDumpItem = new JCheckBoxMenuItem("Sprite Cache")
@@ -525,20 +526,15 @@ class Debugger(m68k:M6800X0,
     disaButton.addActionListener(_ => disassembleGUI())
     disaButton.setToolTipText("Disassemble")
 
-    val readButton = new JButton(new ImageIcon(getClass.getResource("/resources/trace/read.png")))
-    readButton.addActionListener(_ => readGUI())
-    readButton.setToolTipText("Read memory")
-
     val writeButton = new JButton(new ImageIcon(getClass.getResource("/resources/trace/write.png")))
-    writeButton.addActionListener(_ => writeGUI())
-    writeButton.setToolTipText("Fill memory")
+    writeButton.addActionListener(_ => memoryGUI())
+    writeButton.setToolTipText("Memory")
 
     toolBar.add(onOffButton)
     toolBar.add(stepInButton)
     toolBar.add(stepOverButton)
     toolBar.add(stepOutButton)
     toolBar.add(disaButton)
-    toolBar.add(readButton)
     toolBar.add(writeButton)
 
     // log panel
@@ -596,12 +592,14 @@ class Debugger(m68k:M6800X0,
     cramMemoryDumpItem.addActionListener(_ => vdpCRAMDialog.setVisible(cramMemoryDumpItem.isSelected) )
     vsramMemoryDumpItem.addActionListener(_ => vdpVSRAMDialog.setVisible(vsramMemoryDumpItem.isSelected) )
     m68kramMemoryDumpItem.addActionListener(_ => m68KramDialog.setVisible(m68kramMemoryDumpItem.isSelected) )
+    z80RamMemoryDumpItem.addActionListener(_ => z80RamDialog.setVisible(z80RamMemoryDumpItem.isSelected))
     romDumpItem.addActionListener(_ => romDialog.setVisible(romDumpItem.isSelected) )
     memoryMenu.add(vramMemoryDumpItem)
     memoryMenu.add(cramMemoryDumpItem)
     memoryMenu.add(vsramMemoryDumpItem)
     memoryMenu.add(romDumpItem)
     memoryMenu.add(m68kramMemoryDumpItem)
+    memoryMenu.add(z80RamMemoryDumpItem)
     menu.add(memoryMenu)
 
     layerDumpItem.addActionListener(_ => patternLayersDialog.setVisible(layerDumpItem.isSelected) )
@@ -643,11 +641,7 @@ class Debugger(m68k:M6800X0,
   end init
 
   def enableTracing(enabled: Boolean): Unit =
-    if dualClock then
-      m68kDebugger.enableTracing(enabled)
-      z80Debugger.enableTracing(enabled)
-    else
-      selectedDebugger.enableTracing(enabled)
+    selectedDebugger.enableTracing(enabled)
 
     if enabled then
       onOffButton.setToolTipText("Disable tracing")
@@ -657,29 +651,29 @@ class Debugger(m68k:M6800X0,
     onOffButton.setSelected(enabled)
 
   private def stepIn(): Unit =
-    if dualClock then
-      m68kDebugger.stepIn()
-      z80Debugger.stepIn()
-    else
-      selectedDebugger.stepIn()
+   selectedDebugger.stepIn()
 
   private def stepOver(): Unit =
-    if dualClock then
-      m68kDebugger.stepOver()
-      z80Debugger.stepOver()
-    else
-      selectedDebugger.stepOver()
+    selectedDebugger.stepOver()
 
   private def stepOut(): Unit =
-    if dualClock then
-      m68kDebugger.stepOut()
-      z80Debugger.stepOut()
-    else
-      selectedDebugger.stepOut()
+    selectedDebugger.stepOut()
 
-  private def disassembleGUI(): Unit = ???
-  private def readGUI(): Unit = ???
-  private def writeGUI(): Unit = ???
+  private def disassembleGUI(): Unit =
+    if tabbedPane.getSelectedIndex == 1 then
+      z80DisassemblerItem.setSelected(true)
+      z80DisassemblerDialog.setVisible(true)
+    else
+      m68KDisassemblerItem.setSelected(true)
+      m68kDisassemblerDialog.setVisible(true)
+
+  private def memoryGUI(): Unit =
+    if tabbedPane.getSelectedIndex == 1 then
+      z80RamMemoryDumpItem.setSelected(true)
+      z80RamDialog.setVisible(true)
+    else
+      m68kramMemoryDumpItem.setSelected(true)
+      m68KramDialog.setVisible(true)
 
   def log(msg: String): Unit = swing {
     logPanel.append(msg)
