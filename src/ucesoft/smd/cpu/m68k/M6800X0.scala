@@ -113,3 +113,4 @@ trait M6800X0:
   def getTotalElapsedCycles : Long
   def getLastInstructionElapsedCycles: Int
   def setDTACK(enabled:Boolean): Unit
+  def addWaitCycles(waitCycles:Int): Unit

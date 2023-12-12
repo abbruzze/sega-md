@@ -62,6 +62,8 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
   protected var dtackEnabled = true
   // Interrupt ack listener
   protected var intAckListener : InterruptAckListener = _
+  // additional wait cycles
+  protected var waitCycles = 0
 
   // Context
   protected final val ctx = new M6800X0.Context {
@@ -79,7 +81,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
       p
 
     override def fetchWordForDisassembling(address: Int): Int =
-      mem.read(address,Size.Word,DEBUG_READ_OPTION) // doesn't fire read event
+      mem.read(address & model.addressBUSMask,Size.Word,DEBUG_READ_OPTION) // doesn't fire read event
 
     override def getEA(mode: Int, reg: Int, size: Size, disassemblingAddress: Option[Int],includeIdleBusCycles:Boolean): Operand =
       val index = if mode < 7 then mode else mode + reg
@@ -180,7 +182,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
     val stackReg = getRegister(RegisterType.SP)
     val address = stackReg.get(Size.Long)
     if notifyEventListeners then fireRWEvent(address,size,isRead = true)
-    val popped = mem.read(address,size)
+    val popped = mem.read(address & model.addressBUSMask,size)
     checkMemoryAccess(address, BusAccessMode.Pop, popped, size,codeAccess = false)
 
     popped
@@ -233,7 +235,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
 
   // =========================== Disassembling =====================================
   override def disassemble(address: Int): DisassembledInstruction =
-    val opcode = mem.read(address,Size.Word,DEBUG_READ_OPTION) // doesn't fire read event
+    val opcode = mem.read(address & model.addressBUSMask,Size.Word,DEBUG_READ_OPTION) // doesn't fire read event
     val i = instructionSet(opcode)
     if i == null then
       DisassembledInstruction(address,-1,".short",List(opcode),Some("%04x".format(opcode)))
@@ -372,14 +374,14 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
     if clear then
       prefetchQueue.memptr = pcReg.get(Size.Long)
       if notifyEventListeners then fireRWEvent(prefetchQueue.memptr,Size.Word,isRead = true)
-      prefetchQueue.irc = mem.read(prefetchQueue.memptr,Size.Word)
+      prefetchQueue.irc = mem.read(prefetchQueue.memptr & model.addressBUSMask,Size.Word)
       checkMemoryAccess(prefetchQueue.memptr,BusAccessMode.Fetch,prefetchQueue.irc,Size.Word,codeAccess = true)
       prefetchQueue.memptr += Size.Word.bytes
     // 2) IR <- IRC
     val ir = prefetchQueue.irc
     // 3) Reload IRC from external memory
     if notifyEventListeners then fireRWEvent(prefetchQueue.memptr,Size.Word,isRead = true)
-    prefetchQueue.irc = mem.read(prefetchQueue.memptr,Size.Word)
+    prefetchQueue.irc = mem.read(prefetchQueue.memptr & model.addressBUSMask,Size.Word)
     checkMemoryAccess(prefetchQueue.memptr,BusAccessMode.Fetch,prefetchQueue.irc,Size.Word,codeAccess = true)
     //println(s"Prefected from ${prefetchQueue.memptr} = ${prefetchQueue.irc}")
     prefetchQueue.memptr += Size.Word.bytes
@@ -414,7 +416,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
 
     val vectorAddress = n << 2
     if notifyEventListeners then fireRWEvent(vectorAddress,Size.Long,isRead = true)
-    val newPC = mem.read(vectorAddress,Size.Long)
+    val newPC = mem.read(vectorAddress & model.addressBUSMask,Size.Long)
     checkMemoryAccess(vectorAddress, BusAccessMode.FetchVector, newPC, Size.Long,codeAccess = true)
 
     busAccess(BusAccessMode.Idle,Size.Byte,false,0,0,2)
@@ -447,6 +449,9 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
         userSPReg
       case SSP =>
         systemSPReg
+
+  override final def addWaitCycles(waitCycles: Int): Unit =
+    this.waitCycles = waitCycles
 
   override def setBUSAvailable(available: Boolean): Unit = busAvailable = available
 
