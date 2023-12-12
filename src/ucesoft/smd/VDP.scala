@@ -41,6 +41,10 @@ object VDP:
  *  1 pixel = 4 bits (16 possible colors for current palette PL)
  */
 class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckListener:
+  inline private val A = 0
+  inline private val B = 1
+  inline private val S = 2
+  
   import VDP.*
   private enum VSCROLL_MODE:
     case FULL, EACH_2_CELL
@@ -54,7 +58,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     case INTERLACE_2 extends INTERLACE_MODE( 6, 0x3FF)
 
   private enum SCROLL_SIZE(val cell:Int,val shift:Int):
-    val mask = cell - 1
+    val mask : Int = cell - 1
     case _32CELL extends SCROLL_SIZE(32,5)
     case _64CELL extends SCROLL_SIZE(64,6)
     case PROHIBITED extends SCROLL_SIZE(32,5)
@@ -308,10 +312,14 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var readIndex, writeIndex = 0
     private var skipFirst = 0
 
-    def reset(): Unit =
+    final def reset(): Unit =
       readIndex = 0
       writeIndex = 0
       skipFirst = 0
+
+    final def clear(): Unit =
+      java.util.Arrays.fill(cache,0)
+      reset()
 
     final def skip(skipFirst: Int): Unit =
       this.skipFirst = skipFirst
@@ -416,10 +424,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     final def incCellX(): Unit =
       cellx += 1
-
-  inline private val A = 0
-  inline private val B = 1
-  inline private val S = 2
 
   private val vdpLayer2CellMappingBuffer = Array(0,0)   // each entry contains 2 entry of 16 bits
   private val vdpLayerMappingAddress = Array(new VDPLayerAddress(A),new VDPLayerAddress(B))       // each entry reference the current x-cell position (0 - 32/40)
@@ -1463,6 +1467,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   end doAccessSlotRead
 
   private def endOfFrame(): Unit =
+    vdpLayerPatternBuffer(S).clear()
     rasterLine = 0
     activeDisplayLine = 0
     vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
@@ -1537,7 +1542,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     else
       activeDisplayLine
 
-  inline private def isSpriteFirstEvaluationLine: Boolean = vcounter == 0x1FE // should be 1FF TODO CHECK
+  inline private def isSpriteFirstEvaluationLine: Boolean = vcounter == 0x1FE
   inline private def isActiveDisplayArea: Boolean = inXActiveDisplay && inYActiveDisplay
   inline private def isSpriteEvaluationEnabled : Boolean = REG_DE && (inYActiveDisplay || isSpriteFirstEvaluationLine)
 
@@ -1579,7 +1584,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     recheckPixels
 
-  inline private def pixelClock(pixels:Int): Unit =
+  inline private def pixelClock(): Unit =
     val videoType = model.videoType
     val v30 = REG_M2
     val bottomBorderPos = videoType.bottomBorderPos(v30)
@@ -1817,7 +1822,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
 
       if (cycles & 1) == 1 then
-        pixelClock(1)
+        pixelClock()
 
   end clock
 
