@@ -76,7 +76,7 @@ class M68000(override val mem:Memory) extends M68KCore(mem):
     new MOVEToCCR(ctx), new MOVEToSR(ctx), new MOVE_USP(ctx), new MOVEM(ctx), new MOVEP(ctx), new MOVEQ(ctx), new MULS(ctx), new MULU(ctx),
     new NBCD(ctx), new NEG(ctx), new NEGX(ctx), new NOP(ctx), new NOT(ctx), new OR(ctx), new ORI(ctx), new ORI2CCR(ctx), new ORI2SR(ctx),
     new PEA(ctx), new RESET(ctx), new ROL_ROR(ctx), new ROXL_ROXR(ctx), new RTE(ctx), new RTR(ctx), new RTS(ctx), new SBCD(ctx),
-    new Scc(ctx), new SUB(ctx), new SUBA(ctx), new SUBI(ctx), new SUBQ(ctx), new SUBX(ctx), new SWAP(ctx), new TAS(ctx),
+    new Scc(ctx), new STOP(ctx), new SUB(ctx), new SUBA(ctx), new SUBI(ctx), new SUBQ(ctx), new SUBX(ctx), new SWAP(ctx), new TAS(ctx),
     new TRAP(ctx), new TRAPV(ctx), new TST(ctx), new UNLK(ctx)
   )
 
@@ -119,6 +119,7 @@ class M68000(override val mem:Memory) extends M68KCore(mem):
     lastInstructionElapsedCycles = instructionElapsedCycles
     instructionElapsedCycles = 0
     instructionExceptionNumber = -1
+    waitCycles = 0
 
     var opcode = 0
     try
@@ -195,6 +196,7 @@ class M68000(override val mem:Memory) extends M68KCore(mem):
         raiseException(9)
         fillPrefetchQueue(true)
 
+    instructionElapsedCycles += waitCycles
     totalElapsedCycles += instructionElapsedCycles
     instructionElapsedCycles
   end execute
