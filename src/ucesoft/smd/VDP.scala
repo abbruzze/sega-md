@@ -44,7 +44,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   inline private val A = 0
   inline private val B = 1
   inline private val S = 2
-  
+
   import VDP.*
   private enum VSCROLL_MODE:
     case FULL, EACH_2_CELL
@@ -63,6 +63,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     case _64CELL extends SCROLL_SIZE(64,6)
     case PROHIBITED extends SCROLL_SIZE(32,5)
     case _128CELL extends SCROLL_SIZE(128,7)
+    case _1CELL extends SCROLL_SIZE(1,0)
   private enum DMA_MODE:
     case MEMORY_TO_VRAM, VRAM_FILL, VRAM_COPY
 
@@ -864,7 +865,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   /*
    Writing to a VDP register will clear the code register.
    */
-  inline private def writeRegister(reg:Int,value:Int): Unit =
+  private def writeRegister(reg:Int,value:Int): Unit =
     //codeRegister = 0
     log.info("Register %d write %X",reg,value)
     val oldValue = regs(reg)
@@ -960,7 +961,19 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     VDPPropertiesDump(props.toArray,(reg,value) => writeRegister(reg,value))
 
   private def initRegisters(): Unit = {
-
+    // TODO check if it's correct
+    java.util.Arrays.fill(regs,0)
+    writeRegister(0, 4)
+    writeRegister(1, 20)
+    writeRegister(2, 48)
+    writeRegister(3, 60)
+    writeRegister(4, 7)
+    writeRegister(5, 108)
+    writeRegister(6, 0)
+    writeRegister(7, 0)
+    writeRegister(8, 0)
+    writeRegister(9, 0)
+    writeRegister(10, 255)
   }
 
   // utility methods to read registers' bits
@@ -1016,7 +1029,20 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   inline private def REG_AUTO_INCREMENT: Int = regs(15)
   // REG #16 |0 0 VSZ1 VSZ0 0 0 HSZ1 HSZ0|
   inline private def REG_HSCROLL_SIZE: SCROLL_SIZE = SCROLL_SIZE.fromOrdinal(regs(16) & 3)
-  inline private def REG_VSCROLL_SIZE: SCROLL_SIZE = SCROLL_SIZE.fromOrdinal((regs(16) >> 4) & 3)
+  inline private def REG_VSCROLL_SIZE: SCROLL_SIZE =
+    import SCROLL_SIZE.*
+    val hsize = regs(16) & 3
+    (regs(16) >> 4) & 3 match
+      case 0 =>
+        if hsize == 2 then _1CELL else _32CELL
+      case 1|2 =>
+        if hsize == 2 then _1CELL
+        else if hsize == 3 then _32CELL else _64CELL
+      case 3 =>
+        if hsize == 2 then _1CELL
+        else if hsize == 3 then _32CELL
+        else if hsize == 1 then _64CELL else _128CELL
+        
   // REG #17 |RIGT 0 0 WHP5 WHP4 WHP3 WHP2 WHP1|
   inline private def REG_WINDOW_HPOS: Int = regs(17)
   // REG #18 |DOWN 0 0 WVP4 WVP3 WVP2 WVP1 WVP0|
@@ -1322,7 +1348,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           if _2cell < VSRAM.length then
             (VSRAM(_2cell) << 8 | VSRAM(_2cell + 1)) & 0x3FF
           else
-            println("VSRAM overflow with EACH_2_CELL mode")
+            println(s"VSRAM overflow with EACH_2_CELL mode ${_2cell}")
             0
       if interlaceModeEnabled then
         yscroll(layer) >>= 1
