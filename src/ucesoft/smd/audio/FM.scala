@@ -11,7 +11,7 @@ class FM(override val sampleRate: Int, override val name: String) extends AudioD
   private var outputCycles = 0
   private var L, R = 0
 
-  //inline val AUDIO_SCALE_BITS = 3
+  inline val AUDIO_SCALE_BITS = 3
 
   override final def isStereo: Boolean = true
 
@@ -35,8 +35,8 @@ class FM(override val sampleRate: Int, override val name: String) extends AudioD
     ym3438.OPN2_Read(chip,address)
 
   override final protected def getLevelStereo16Bit(LR:Array[Int]): Unit =
-    LR(0) = L * 11
-    LR(1) = R * 11
+    LR(0) = L << AUDIO_SCALE_BITS
+    LR(1) = R << AUDIO_SCALE_BITS
     L = 0
     R = 0
 

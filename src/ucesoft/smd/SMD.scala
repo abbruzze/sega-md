@@ -6,9 +6,11 @@ import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.audio.{FM, PSG}
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
-import ucesoft.smd.debugger.{Debugger, Default68KDisassembleAnnotator}
+import ucesoft.smd.debugger.Debugger
+import ucesoft.smd.ui.MessageGlassPane
 
-import javax.swing.{JDialog, JFrame, UIManager}
+import java.awt.Color
+import javax.swing.*
 
 /**
  * @author Alessandro Abbruzzetti
@@ -27,10 +29,12 @@ object SMD:
 
     Logger.getLogger.setLevel(java.util.logging.Level.SEVERE)
 
-    FlatLightLaf.setup()
-    JFrame.setDefaultLookAndFeelDecorated(false)
-    JDialog.setDefaultLookAndFeelDecorated(false)
-    UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarculaLaf")
+    SwingUtilities.invokeAndWait(() => {
+      FlatLightLaf.setup()
+      JFrame.setDefaultLookAndFeelDecorated(false)
+      JDialog.setDefaultLookAndFeelDecorated(false)
+      UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarculaLaf")
+    })
 
     val vmodel = VideoType.NTSC
     val masterClock = new Clock("master",vmodel.clockFrequency)
@@ -42,6 +46,8 @@ object SMD:
     vdp.setMasterClock(masterClock)
 
     val f = new JFrame("Test SMD")
+
+    f.setIconImage(new ImageIcon(getClass.getResource("/resources/sonic_ring.png")).getImage)
     val display = new Display(SCREEN_WIDTH, vmodel.totalLines, "Test SMD", f, masterClock)
     vdp.setDisplay(display)
     
@@ -139,9 +145,13 @@ object SMD:
     fmAudio.setLogger(Logger.getLogger)
     psgAudio.setLogger(Logger.getLogger)
 
-    f.setVisible(true)
-
+    var glassPane : MessageGlassPane = null
     val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog (USA, Europe).md""")
+    SwingUtilities.invokeAndWait(() => {
+      f.setVisible(true)
+      glassPane = new MessageGlassPane(f)
+    })
+    glassPane.add(MessageGlassPane.Message(cart.getDomesticName, MessageGlassPane.XPOS.CENTER, MessageGlassPane.YPOS.BOTTOM, 2000, None, Some(2000)))
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)

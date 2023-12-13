@@ -96,7 +96,7 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
       sourceLine.open(format)
 
       volumeLine = sourceLine.getControl(FloatControl.Type.MASTER_GAIN).asInstanceOf[FloatControl]
-      setMasterVolume(50)
+      setMasterVolume(100)
 
       sourceLine.start()
       Some(sourceLine)
