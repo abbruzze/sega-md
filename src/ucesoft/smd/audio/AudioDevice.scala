@@ -5,8 +5,9 @@ import ucesoft.smd.SMDComponent
 import java.util.concurrent.LinkedBlockingDeque
 import javax.sound.sampled.*
 
-abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDComponent with Runnable:
+abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent with Runnable:
 
+  private var sampleRate = _sampleRate
   private var CPU_CYCLE_PER_SECOND = 0
   private var cyclePerSample = 1
   private val queue = new LinkedBlockingDeque[Array[Byte]]
@@ -24,6 +25,7 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
   private var volume = 0
   private var stopped = false
   private val stereoLR = Array(0,0)
+  private var pendingNewSampleRate = 0
 
   private val isStereoInternal = isStereo
 
@@ -36,6 +38,9 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
     reset()
     
   def getCyclesPerSample: Int = cyclePerSample
+
+  def setSampleRate(sr:Int): Unit =
+    pendingNewSampleRate = sr
 
   def isStereo: Boolean = false
 
@@ -113,12 +118,22 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
 
   def getVolume: Int = volume
 
+  def available(): Int = if sourceLine == null then 0 else sourceLine.available()
+
   override def run(): Unit =
     getSourceLine match
       case Some(sl) =>
         sourceLine = sl
         log.info("Audio System %s started",name)
         while !stopped do
+          if pendingNewSampleRate > 0 then
+            sampleRate = pendingNewSampleRate
+            pendingNewSampleRate = 0
+            sourceLine.drain()
+            sourceLine.close()
+            sourceLine = getSourceLine.get
+            log.info("Audio system %s updated with new sample rate %d",name,sampleRate)
+          end if
           val samples = queue.take()
           val available = sourceLine.available()
           if available >= samples.length then
@@ -128,5 +143,7 @@ abstract class AudioDevice(val sampleRate:Int,val name:String) extends SMDCompon
 
         sourceLine.drain()
         sourceLine.close()
+        sourceLine = null
+        log.info("Audio System %s stopped",name)
       case None =>
         log.error("Cannot initialize audio system")

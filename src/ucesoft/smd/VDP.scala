@@ -1732,8 +1732,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     statusRegister |= STATUS_F_MASK
     if REG_IE0 then
       m68k.interrupt(VINT_LEVEL)
-      z80.irq(low = true, im2LowByte = 0xFF)
       vInterruptPending = true
+    /*
+     The Z80 will receive an IRQ from the VDP on scanline E0h. This happens
+     once per frame, every frame, regardless of frame interrupts being
+     disabled by the 68000
+     */
+    z80.irq(low = true, im2LowByte = 0xFF)
 
   private def generateHInterrupt(): Unit =
     m68k.interrupt(HINT_LEVEL)

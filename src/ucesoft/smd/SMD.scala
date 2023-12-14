@@ -67,7 +67,7 @@ object SMD:
     vdp.setCPUs(m68k,z80)
     mmu.setVDP(vdp)
 
-    val fmAudio = new FM(53267,"FM")
+    val fmAudio = new FM(vmodel.clockFrequency / (FM_CLOCK_DIVIDER * 24),"FM")
     fmAudio.setBufferInMillis(25)
 
     val psgAudio = new PSG(44100,"PSG")

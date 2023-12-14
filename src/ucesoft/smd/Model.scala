@@ -365,4 +365,10 @@ enum HMode(val cells:Int,
     80,
     4)
 
+/*
+ Games must write the text 'SEGA' to A14000h if the lower four
+ bits of the version register return 01h.
+ Writing 01h to A14101h disables the OS ROM and swaps in the cart ROM.
+ The OS ROM checks for 'SEGA' or ' SEGA' at offset 100h in the cart ROM
+ */
 case class Model(modelType: ModelType,videoType: VideoType,versionNumber:Int)

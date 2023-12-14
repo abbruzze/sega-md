@@ -4,14 +4,15 @@ package ucesoft.smd.audio
  * @author Alessandro Abbruzzetti
  *         Created on 09/12/2023 19:54  
  */
-class FM(override val sampleRate: Int, override val name: String) extends AudioDevice(sampleRate, name):
+class FM(sampleRate: Int, override val name: String) extends AudioDevice(sampleRate, name):
   private val ym3438 = new Ym3438
   private val chip = new IYm3438.IYm3438_Type
   private final val LR = Array(0,0)
   private var outputCycles = 0
   private var L, R = 0
+  private var pL, pR = 0
 
-  inline val AUDIO_SCALE_BITS = 3
+  inline private val AUDIO_SCALE = 8
 
   override final def isStereo: Boolean = true
 
@@ -35,8 +36,12 @@ class FM(override val sampleRate: Int, override val name: String) extends AudioD
     ym3438.OPN2_Read(chip,address)
 
   override final protected def getLevelStereo16Bit(LR:Array[Int]): Unit =
-    LR(0) = L << AUDIO_SCALE_BITS
-    LR(1) = R << AUDIO_SCALE_BITS
+    /*L = (L + pL) >> 1
+    R = (R + pL) >> 1
+    pL = L
+    pR = R*/
+    LR(0) = L * AUDIO_SCALE
+    LR(1) = R * AUDIO_SCALE
     L = 0
     R = 0
 

@@ -296,7 +296,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   inline private def writeYM2612(address:Int,value:Int,size:Size): Unit =
     log.info("Writing to YM2612: %X size=$size value=%X",address,value)
-    fm.write(address,value)
+    fm.write(address,value & 0xFF)
 
   /*
    To specify which 32k section you want to access, write the upper nine
@@ -574,7 +574,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   inline private def writePSG(value:Int): Unit =
     //log.info("Writing to PSG %X value=%X",address,value)
-    psg.write(value)
+    psg.write(value & 0xFF)
 
   inline private def readYM2612(address:Int,size:Size): Int =
     log.info("Reading from YM2612: %X size=%s",address,size)
