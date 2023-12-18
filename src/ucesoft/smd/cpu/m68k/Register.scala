@@ -20,8 +20,8 @@ class Register(val rtype : RegisterType,val model:Model,val index:Int = -1):
       if msb > 0 then
         v |= ~size.mask
 
-    if rtype == RegisterType.PC then
-      v &= model.addressBUSMask
+    /*if rtype == RegisterType.PC then
+      v &= model.addressBUSMask*/
 
     v
   end get
