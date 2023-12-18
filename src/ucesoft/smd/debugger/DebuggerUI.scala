@@ -461,4 +461,68 @@ object DebuggerUI {
 
       dialog.pack()
   end DisassemblerPanel
+
+  class DMAEventTableModel extends AbstractTableModel:
+    private val columns = Array("#","DMA Type", "Memory Type", "Source address","Dest address","Length","Fill value")
+    private val events = new collection.mutable.ArrayBuffer[VDP.DMAEvent]
+
+    final def addEvent(event:VDP.DMAEvent): Unit =
+      events += event
+      fireTableDataChanged()
+
+    final def clearEvents(): Unit =
+      events.clear()
+      fireTableDataChanged()
+
+    override def getColumnName(column: Int): String = columns(column)
+    override def getColumnCount: Int = columns.length
+    override def getRowCount: Int = events.size
+    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
+      columnIndex match
+        case 0 =>
+          "%05d".format(rowIndex + 1)
+        case 1 => events(rowIndex).dmaType.toString
+        case 2 => events(rowIndex).memoryType.toString
+        case 3 => "%06X".format(events(rowIndex).sourceAddress)
+        case 4 => "%06X".format(events(rowIndex).destinationAddress)
+        case 5 => "%X".format(events(rowIndex).length)
+        case 6 =>
+          events(rowIndex).fillValue match
+            case None =>
+              "-"
+            case Some(v) =>
+              "%02X".format(v)
+
+  class DMAEventPanel(frame:JFrame,
+                      vdp:VDP,
+                      override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame, "DMA event trace", windowCloseOperation) with VDP.DMAEventListener:
+    private val model = new DMAEventTableModel
+
+    init()
+
+    override def onDMAEvent(event: VDP.DMAEvent): Unit =
+      model.addEvent(event)
+
+    override protected def init(): Unit =
+      super.init()
+      val mainPanel = new JPanel(new BorderLayout())
+      dialog.getContentPane.add("Center", mainPanel)
+      val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      val enableCB = new JCheckBox("Enabled")
+      northPanel.add(enableCB)
+      enableCB.addActionListener(_ => if enableCB.isSelected then vdp.setDMAEventListener(this) else vdp.setDMAEventListener(null))
+      val southPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      val clearLog = new JButton(new ImageIcon(getClass.getResource("/resources/trace/clear.png")))
+      clearLog.addActionListener(_ => model.clearEvents())
+      southPanel.add(clearLog)
+
+      val table = new JTable(model)
+      table.getTableHeader.setReorderingAllowed(false)
+      val sp = new JScrollPane(table)
+      mainPanel.add("North",northPanel)
+      mainPanel.add("Center",sp)
+      mainPanel.add("South",southPanel)
+
+      dialog.pack()
 }

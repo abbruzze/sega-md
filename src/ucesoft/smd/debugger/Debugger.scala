@@ -13,6 +13,22 @@ import java.util.concurrent.Semaphore
 import javax.swing.*
 import javax.swing.text.DefaultCaret
 
+object Debugger:
+  sealed trait BreakType
+  case class AddressBreakType(address:Int,execute:Boolean = false,read:Boolean = false,write:Boolean = false) extends BreakType:
+    override def toString: String =
+      val sb = new StringBuilder()
+      if execute then sb += 'E'
+      if read then sb += 'R'
+      if write then sb += 'W'
+      sb.toString()
+
+  case object ResetBreak extends BreakType
+  case object HaltBreak extends BreakType
+  case object StopBreak extends BreakType
+  case class ExceptionBreak(number:Int) extends BreakType
+  case class InterruptBreak(number:Int,label:String = "") extends BreakType
+
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 15/10/2023 14:44
@@ -23,7 +39,7 @@ class Debugger(m68k:M6800X0,
                z80:Z80,
                z80Ram:Array[Int],
                vdp:VDP):
-
+  import Debugger.*
   private enum StepState:
     case NoStep, WaitReturn, WaitTarget
 
@@ -74,6 +90,8 @@ class Debugger(m68k:M6800X0,
   private var romDialog: JDialog = _
   private val m68KDisassemblerItem = new JCheckBoxMenuItem("M68K Disassembler")
   private val z80DisassemblerItem = new JCheckBoxMenuItem("Z80 Disassembler")
+  private val dmaItem = new JCheckBoxMenuItem("DMA trace")
+  private val dmaDialog = new DMAEventPanel(frame,vdp,() => dmaItem.setSelected(false)).dialog
 
   private val m68kDebugger = new M68KDebugger
   private val m68kDisassemblerPanel = new DisassemblerPanel("M68K",
@@ -88,7 +106,7 @@ class Debugger(m68k:M6800X0,
     null,
     z80,
     frame,
-    m68kDebugger,
+    z80Debugger,
     () => z80DisassemblerItem.setSelected(false))
   private val z80DisassemblerDialog = z80DisassemblerPanel.dialog
 
@@ -113,25 +131,36 @@ class Debugger(m68k:M6800X0,
     private var stepByStep = false
     private var stepAlways = false
     private var stepDisassemble : Z80.DisassembledInfo = _
+    private val breaks = new collection.mutable.HashMap[Int,AddressBreakType]
+    private var breakOnReset = false
+    private var breakOnInterrupt = false
+    private var breakOnHalt = false
 
     init()
 
-    private def existsBreakPending: Boolean = false
+    private def existsBreakPending: Boolean =
+      breaks.nonEmpty || breakOnReset || breakOnInterrupt || breakOnHalt
 
     override def nextStep(): Unit =
       semaphore.release()
 
-    override def hasBreakAt(address: Int): Boolean = false
+    override def hasBreakAt(address: Int): Boolean = breaks.contains(address)
 
-    override def addExecuteBreakAt(address: Int): Unit = {}
+    override def addExecuteBreakAt(address: Int): Unit = breaks += address -> AddressBreakType(address,execute = true)
 
-    override def removeBreakAt(address: Int): Unit = {}
+    override def removeBreakAt(address: Int): Unit = breaks -= address
 
-    override def getBreakStringAt(address: Int): Option[String] = None
+    override def getBreakStringAt(address: Int): Option[String] = breaks.get(address).map(_.toString)
 
     override def rw(z80: Z80, address: Int, isRead: Boolean, value: Int = 0): Unit = {/* TODO */}
     override def fetch(z80: Z80, address: Int, opcode: Int): Unit =
-      if !stepAlways then
+      breaks.get(address) match
+        case Some(break) =>
+          log(s"Break $break on address ${address.toHexString}")
+          stepByStep = true
+        case None =>
+
+      if !stepAlways && stepByStep then
         onOffButton.setSelected(true)
         disassembledTableModel.clear()
         var adr = address
@@ -143,7 +172,8 @@ class Debugger(m68k:M6800X0,
           adr += dis.size
 
         updateModels()
-      semaphore.acquire()
+        semaphore.acquire()
+    end fetch
     override def interrupted(z80: Z80, mode: Int, isNMI: Boolean): Unit = {/* TODO */}
     override def reset(z80: Z80): Unit = {/* TODO */}
     override def halt(z80: Z80, isHalted: Boolean): Unit = {/* TODO */}
@@ -334,6 +364,46 @@ class Debugger(m68k:M6800X0,
           case _ =>
     }
 
+    override def enableTracing(enabled: Boolean): Unit =
+      debugger.setStepByStep(enabled)
+
+      if !enabled then
+        debugger.setStepAlways(false)
+        debugger.setStepByStep(false)
+
+      stepOutPending = StepState.NoStep
+      stepOverPending = StepState.NoStep
+
+    override def stepIn(): Unit =
+      debugger.nextStep()
+
+    override def stepOver(): Unit =
+      import InstructionType.*
+      import StepState.*
+      stepInstruction.instructionType match
+        case JSR | TRAP | TRAPV | ILLEGAL =>
+          stepOverPending = WaitReturn
+          debugger.setStepAlways(true)
+        case DBRA | DBCC | DBCS | DBEQ | DBGE | DBGT | DBHI | DBLE | DBLS | DBMI | DBNE | DBPL | DBVC | DBVS =>
+          stepOverTargetAddress = stepDisassemble.address + stepDisassemble.size
+          stepOverPending = WaitTarget
+          debugger.setStepAlways(true)
+        case _ =>
+
+      debugger.nextStep()
+
+    override def stepOut(): Unit =
+      import InstructionType.*
+      import StepState.*
+      stepInstruction.instructionType match
+        case RTR | RTE | RTS =>
+          stepOutPending = NoStep
+        case _ =>
+          stepOutPending = WaitReturn
+          debugger.setStepAlways(true)
+      debugger.nextStep()
+
+
     init()
 
     private def init(): Unit =
@@ -435,45 +505,6 @@ class Debugger(m68k:M6800X0,
       vdpTableMode.update()
       distable.setRowSelectionInterval(0, 0)
     }
-
-    override def enableTracing(enabled: Boolean): Unit =
-      debugger.setStepByStep(enabled)
-
-      if !enabled then
-        debugger.setStepAlways(false)
-        debugger.setStepByStep(false)
-
-      stepOutPending = StepState.NoStep
-      stepOverPending = StepState.NoStep
-
-    override def stepIn(): Unit =
-      debugger.nextStep()
-
-    override def stepOver(): Unit =
-      import InstructionType.*
-      import StepState.*
-      stepInstruction.instructionType match
-        case JSR | TRAP | TRAPV | ILLEGAL =>
-          stepOverPending = WaitReturn
-          debugger.setStepAlways(true)
-        case DBRA | DBCC | DBCS | DBEQ | DBGE | DBGT | DBHI | DBLE | DBLS | DBMI | DBNE | DBPL | DBVC | DBVS =>
-          stepOverTargetAddress = stepDisassemble.address + stepDisassemble.size
-          stepOverPending = WaitTarget
-          debugger.setStepAlways(true)
-        case _ =>
-
-      debugger.nextStep()
-
-    override def stepOut(): Unit =
-      import InstructionType.*
-      import StepState.*
-      stepInstruction.instructionType match
-        case RTR | RTE | RTS =>
-          stepOutPending = NoStep
-        case _ =>
-          stepOutPending = WaitReturn
-          debugger.setStepAlways(true)
-      debugger.nextStep()
 
   end M68KDebugger
 
@@ -587,6 +618,7 @@ class Debugger(m68k:M6800X0,
     val layerMenu = new JMenu("Layers")
     val disMenu = new JMenu("Disassembler")
     val spriteMenu = new JMenu("Sprite")
+    val dmaMenu = new JMenu("DMA")
 
     vramMemoryDumpItem.addActionListener(_ => vdpVRAMDialog.setVisible(vramMemoryDumpItem.isSelected) )
     cramMemoryDumpItem.addActionListener(_ => vdpCRAMDialog.setVisible(cramMemoryDumpItem.isSelected) )
@@ -633,6 +665,10 @@ class Debugger(m68k:M6800X0,
     menu.add(spriteMenu)
 
     vdpCRAMDialog.setResizable(false)
+
+    dmaItem.addActionListener(_ => dmaDialog.setVisible(dmaItem.isSelected))
+    dmaMenu.add(dmaItem)
+    menu.add(dmaMenu)
 
     frame.setJMenuBar(menu)
 
