@@ -351,7 +351,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     final def enqueueBit(v: Int): Unit =
       if skipFirst > 0 then
         skipFirst -= 1
-      else
+      else if writeIndex < cache.length then
         cache(writeIndex) = v
         writeIndex += 1
 
@@ -656,7 +656,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var masterClock : Clock = _
 
   // ============================= Constructor =========================================
-  initRegisters()
+  hardReset()
   // ===================================================================================
   def setDebugger(debugger:Debugger): Unit =
     this.debugger = debugger
@@ -679,6 +679,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
     hcounter = hmode.hCounterInitialValue
 
+  override def hardReset(): Unit =
+    reset()
+    for(r <- regs.indices) writeRegister(r,0)
+    if model != null then
+      vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
+    hcounter = hmode.hCounterInitialValue
+
   override def reset(): Unit =
     for pal <- 0 to 3; mode <- 0 to 2 do
       java.util.Arrays.fill(CRAM_COLORS(pal)(mode),Palette.getColor(0))
@@ -699,7 +706,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     vdpLayerPatternBuffer(S).reset()
     //sprite1VisibleCurrentIndex = 0
     //java.util.Arrays.fill(sprite1VisibleIndexes,-1)
-    changeVDPClockDivider(hmode.initialClockDiv)
+    if masterClock != null then
+      changeVDPClockDivider(hmode.initialClockDiv)
     verticalBlanking = true
     frameCount = 0
 
@@ -882,7 +890,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case CRAM_WRITE => DMAMemoryType.CRAM_WRITE
       case VSRAM_READ => DMAMemoryType.VSRAM_READ
       case VSRAM_WRITE => DMAMemoryType.VSRAM_WRITE
-    dmaEventListener.onDMAEvent(DMAEvent(dmaMode,REG_DMA_SOURCE_ADDRESS,addressRegister,REG_DMA_COUNTER_LEN,memType,if dmaMode == DMA_MODE.VRAM_FILL then Some(fillValue) else None))
+    dmaEventListener.onDMAEvent(DMAEvent(dmaMode,REG_DMA_SOURCE_ADDRESS,addressRegister,REG_DMA_COUNTER_LEN,memType,if dmaMode == DMAEventType.FILL then Some(fillValue) else None))
 
   private def performVRAMRead(): Unit =
     var address = addressRegister & ~1 // consider even addresses
@@ -1018,22 +1026,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     props += VDPProperty("Access slot",s"$vdpAccessSlot")
 
     VDPPropertiesDump(props.toArray,(reg,value) => writeRegister(reg,value))
-
-  private def initRegisters(): Unit = {
-    // TODO check if it's correct
-    java.util.Arrays.fill(regs,0)
-    writeRegister(0, 4)
-    writeRegister(1, 20)
-    writeRegister(2, 48)
-    writeRegister(3, 60)
-    writeRegister(4, 7)
-    writeRegister(5, 108)
-    writeRegister(6, 0)
-    writeRegister(7, 0)
-    writeRegister(8, 0)
-    writeRegister(9, 0)
-    writeRegister(10, 255)
-  }
 
   // utility methods to read registers' bits
   // REG #0 |0 0 L IE1 0 1 M3 DE|
@@ -1560,6 +1552,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     rasterLine = 0
     activeDisplayLine = 0
     vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
+    hcounter = hmode.hCounterInitialValue
     //hInterruptCounter = REG_H_INT
 
     if interlaceModeEnabled then
@@ -1843,17 +1836,18 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         generateHInterrupt()
       hInterruptCounter = REG_H_INT
 
+    val v30 = REG_M2
+    val videoType = model.videoType
+
+    if vcounter == videoType.vBlankSetAt(v30) then
+      statusRegister |= STATUS_VB_MASK
+      //println("VB=1")
+    else if vcounter == videoType.vBlankClearedAt then
+      statusRegister &= ~STATUS_VB_MASK
+      //println("VB=0")
 
     vcounter = (vcounter + 1) & 0x1FF // 9-bit counter
     vcounterInc += 1
-
-    val v30 = REG_M2
-    val videoType = model.videoType
-    
-    if vcounter == videoType.vBlankSetAt(v30) then
-      statusRegister |= STATUS_VB_MASK
-    else if vcounter == videoType.vBlankClearedAt then
-      statusRegister &= ~STATUS_VB_MASK
 
   inline private def changeVDPClockDivider(clockDiv:Int): Unit =
     //masterClock.setVDPClockDivider(clockDiv)
@@ -1888,35 +1882,35 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     spriteEvaluationCycles += 1
 
   override final def clock(cycles: Long): Unit =
-      if pendingControlPortRequest then
-        if pendingControlPortRequestLong then
-          pendingControlPortRequestLong = false
-          val next = pendingControlPortCommand >>> 16
-          pendingControlPortCommand &= 0xFFFF
-          processPendingControlPortCommand()
-          pendingControlPortCommand = next
-          processPendingControlPortCommand()
-        else
-          processPendingControlPortCommand()
-      // check if it's time to do sprite evaluation
-      if vdpAccessSlot == SPRITE_PHASE1_ACCESS_SLOT && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IDLE && isSpriteEvaluationEnabled then
-        spriteEvaluationPhaseInProgress = SPRITE_EVAL_IN_PROGRESS
-        spriteEvaluationIndex = 0 // start with sprite #0
-        spriteEvaluationCycles = 0
-      if spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS then
-        spriteEvaluation()
-        if spriteEvaluationPhaseInProgress == SPRITE_EVAL_TERMINATED then
-          sprite1VisibleCurrentIndex = 0
+    if pendingControlPortRequest then
+      if pendingControlPortRequestLong then
+        pendingControlPortRequestLong = false
+        val next = pendingControlPortCommand >>> 16
+        pendingControlPortCommand &= 0xFFFF
+        processPendingControlPortCommand()
+        pendingControlPortCommand = next
+        processPendingControlPortCommand()
+      else
+        processPendingControlPortCommand()
+    // check if it's time to do sprite evaluation
+    if vdpAccessSlot == SPRITE_PHASE1_ACCESS_SLOT && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IDLE && isSpriteEvaluationEnabled then
+      spriteEvaluationPhaseInProgress = SPRITE_EVAL_IN_PROGRESS
+      spriteEvaluationIndex = 0 // start with sprite #0
+      spriteEvaluationCycles = 0
+    if spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS then
+      spriteEvaluation()
+      if spriteEvaluationPhaseInProgress == SPRITE_EVAL_TERMINATED then
+        sprite1VisibleCurrentIndex = 0
 
-      if doAccessSlotRead() then // 4 bytes read
-        vdpAccessSlot += 1
-        if vdpAccessSlot >= hmode.vramAccessMatrix.length then
-          vdpAccessSlot = 0
-        //println(s"raster=$rasterLine vdpAccessSlot=$vdpAccessSlot")
+    if doAccessSlotRead() then // 4 bytes read
+      vdpAccessSlot += 1
+      if vdpAccessSlot >= hmode.vramAccessMatrix.length then
+        vdpAccessSlot = 0
+      //println(s"raster=$rasterLine vdpAccessSlot=$vdpAccessSlot")
 
 
-      if (cycles & 1) == 1 then
-        pixelClock()
+    if (cycles & 1) == 1 then
+      pixelClock()
 
   end clock
 
