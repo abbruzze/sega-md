@@ -67,16 +67,16 @@ class BusArbiter extends SMDComponent:
         z80.requestBUS(false)
 
   final def isZ80BUSAcquiredBy68K: Boolean =
-    z80BusState == M68K_OWNER
+    z80BusState == M68K_OWNER && z80ResetProcess == STOPPED
   final def isZ80StartedResetProcess: Boolean =
     z80ResetProcess == STARTED
   final def z80StartResetProcess(): Unit =
     z80ResetProcess match
-      case STOPPED =>
+      case STOPPED if z80BusState == M68K_OWNER =>
         z80ResetProcess = STARTED
         if z80BusState == Z80_OWNER then
           log.warning("Z80 start reset process without bus requested")
-      case STARTED =>
+      case _ =>
   final def z80StopResetProcess(): Unit =
     z80ResetProcess match
       case STARTED =>
