@@ -125,7 +125,7 @@ enum InstructionType(val mnemonic:String,
   case SGT            extends InstructionType("sgt")
   case SLE            extends InstructionType("sle")
   case SBCD           extends InstructionType("sbcd")
-  case STOP           extends InstructionType("stop")
+  case STOP           extends InstructionType("stop",needsSupervisorMode = true)
   case SUB            extends InstructionType("sub")
   case SUBA           extends InstructionType("suba")
   case SUBI           extends InstructionType("subi")
