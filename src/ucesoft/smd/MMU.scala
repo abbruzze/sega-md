@@ -70,6 +70,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   private var psg : SN76489 = _
   private var fm : FM = _
 
+  private var ssf2Rom : Array[Int] = _
+
   hardReset()
 
   override def reset(): Unit = {
@@ -94,7 +96,14 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   def setCart(cart: Cart): Unit =
     this.cart = cart
-    rom = cart.getROM
+    cart.getSystemType match
+      case Cart.SYSTEM_TYPE.MEGA_DRIVE_SSF_EXT =>
+        ssf2Rom = cart.getROM
+        val len2copy = math.min(ssf2Rom.length,0x40_0000)
+        rom = Array.ofDim[Int](len2copy)
+        System.arraycopy(ssf2Rom,0,rom,0,len2copy)
+      case _ =>
+        rom = cart.getROM
     extraRam = null
     cart.getExtraMemoryInfo match
       case Some(info) =>
@@ -171,9 +180,31 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if address < 0xA1_0020 then writeControllers(address, value, size)
     else if address < 0xA1_1200 then write_68k_BUSREQ(value, size)
     else if address < 0xA1_1300 then write_68k_RESETREQ(value, size)
-    else if address < 0xC0_0000 then {
+    else if address < 0xC0_0000 then
+      if cart.getSystemType == Cart.SYSTEM_TYPE.MEGA_DRIVE_SSF_EXT && address >= 0xA1_30F3 && address <= 0xA1_30FF then
+        val ssf2Address = (value & 0x3F) << 19
+        val romAddress = address & 0xF match
+          case 0x3 => /* 080000-0FFFFF */
+            0x080000
+          case 0x5 => /* 100000-17FFFF */
+            0x100000
+          case 0x7 => /* 180000-1FFFFF */
+            0x180000
+          case 0x9 => /* 200000-27FFFF */
+            0x200000
+          case 0xB => /* 280000-2FFFFF */
+            0x280000
+          case 0xD => /* 300000-37FFFF */
+            0x300000
+          case 0xF => /* 380000-3FFFFF */
+            0x380000
+          case _ =>
+            0
+        if romAddress > 0 then
+          val len = if ssf2Address + 0x80000 < ssf2Rom.length then 0x80000 else ssf2Rom.length - ssf2Address
+          System.arraycopy(ssf2Rom, ssf2Address, rom, romAddress, len)
+        log.info("SSF2 write address %X value = %X",address,value)
       /* ignored */
-    } // TODO check
     else if address < 0xE0_0000 then // VDP
       if (address & 0xE7_00E0) == 0xC0_0000 then
         writeVDP(address & 0x1F, value, size, writeOptions)

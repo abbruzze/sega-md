@@ -1,6 +1,8 @@
 package ucesoft.smd
 
 object Cart:
+  enum SYSTEM_TYPE:
+    case MEGA_DRIVE, MEGA_DRIVE_32X, MEGA_DRIVE_EVERDRIVE_EXT, MEGA_DRIVE_SSF_EXT, MEGA_DRIVE_WIFI_EXT, PICO, TERA_DRIVE68K, TERA_DRIVEX86, UNKNOWN
   enum ExtraMemoryType:
     case RAM_NO_SAVE, RAM_SAVE, ROM, UNKNOWN
   case class ExtraMemory(memType:ExtraMemoryType,startAddress:Int,endAddress:Int)
@@ -11,6 +13,7 @@ object Cart:
  */
 class Cart(val file:String):
   import Cart.*
+  private inline val SYSTEM_TYPE_ADDR = 0x100
   private inline val CHECKSUM_ADDR = 0x18E
   private inline val EXTRA_MEMORY_ADDR = 0x1B0
   private inline val NAME_DOMESTIC_ADDR = 0x120
@@ -19,6 +22,7 @@ class Cart(val file:String):
   private var rom : Array[Int] = _
   private var extraMemory : ExtraMemory = _
   private var cartNameDomestic, cartNameOversea : String = _
+  private var systemType = SYSTEM_TYPE.MEGA_DRIVE
 
   loadROM()
 
@@ -40,6 +44,7 @@ class Cart(val file:String):
 
     cartNameDomestic = getCartName(NAME_DOMESTIC_ADDR)
     cartNameOversea = getCartName(NAME_OVERSEA_ADDR)
+    systemType = _getSystemType
   private def checksum(): Int =
     var cs = 0
     for a <- 0x200 until rom.length by 2 do
@@ -51,6 +56,22 @@ class Cart(val file:String):
     for c <- 0 until 48 do
       sb.append(rom(offset + c).toChar)
     sb.toString.trim
+
+  private def _getSystemType: SYSTEM_TYPE =
+    import SYSTEM_TYPE.*
+    val sb = new StringBuilder()
+    for c <- SYSTEM_TYPE_ADDR until SYSTEM_TYPE_ADDR + 16 do
+      sb.append(rom(c).toChar)
+    sb.toString().trim match
+      case "SEGA MEGA DRIVE" | "SEGA GENESIS" => MEGA_DRIVE
+      case "SEGA 32X" => MEGA_DRIVE_32X
+      case "SEGA EVERDRIVE" => MEGA_DRIVE_EVERDRIVE_EXT
+      case "SEGA SSF" => MEGA_DRIVE_SSF_EXT
+      case "SEGA MEGAWIFI" => MEGA_DRIVE_WIFI_EXT
+      case "SEGA PICO" => PICO
+      case "SEGA TERA68K" => TERA_DRIVE68K
+      case "SEGA TERA286" => TERA_DRIVEX86
+      case _ => UNKNOWN
 
   private def checkExtraMemory(): Boolean =
     if rom(EXTRA_MEMORY_ADDR) == 'R' && rom(EXTRA_MEMORY_ADDR + 1) == 'A' then
@@ -70,3 +91,7 @@ class Cart(val file:String):
 
   def getDomesticName: String = cartNameDomestic
   def getOveseaName: String = cartNameOversea
+  def getSystemType: SYSTEM_TYPE = systemType
+
+  override def toString: String =
+    s"""Cart[file="${new java.io.File(file).getName}" system type=$systemType oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
