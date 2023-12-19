@@ -138,7 +138,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if address < 0x40_0000 then readROM(address,size)
     else if address < 0x80_0000 then readOpenBUS(address,size)
     else if address < 0xA0_0000 then
-      log.warning("Reading from 800000_9FFFFF area: %X. Locking up machine ...",address)
+      log.warning("Reading from 800000_9FFFFF area: %X M68_PC=%X Z80_PC=%X. Locking up machine ...",address,m68k.getLastInstructionPC,z80.getLastPC)
       if lockUpAction != null then
         lockUpAction()
       0
@@ -249,7 +249,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         writeVDP(address, value >>> 16, Size.Word, writeOptions)
         writeVDP(address + 2, value & 0xFFFF, Size.Word, writeOptions)
 
-  inline private def writeROM(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
+  private def writeROM(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
     if extraRam != null && address >= extraRamStartAddress && address <= extraRamEndAddress then
       println(s"Writing extraram: ${address.toHexString} ...")
       val adr = address - extraRamStartAddress
@@ -265,7 +265,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
           extraRam(adr + 2) = (value >> 8) & 0xFF
           extraRam(adr + 3) = value & 0xFF
     else
-      log.warning("Writing to ROM address: %X = %X",address,value)
+      log.warning("Writing to ROM address: %X = %X PC=%X",address,value,m68k.getLastInstructionPC)
 
   private def write_68k_z80_space(address:Int,value:Int,size:Size): Unit =
     m68k.addWaitCycles(M68K_WAIT_CYCLES_Z80_ACCESS)
@@ -356,10 +356,12 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
      Writing 1 to this bit will request the Z80 bus. You can then release
      the bus later on by writing 0.
      */
-    inline private def write_68k_BUSREQ(value:Int,size:Size): Unit =
-      if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
+    inline private def write_68k_BUSREQ(_value:Int,size:Size): Unit =
+      val value = if size == Size.Word then _value >>> 8 else _value
+      val busRequest = (value & 1) != 0
+      if busRequest then
         busArbiter.m68kRequestZ80BUS()
-      else if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
+      else
         busArbiter.m68kReleaseZ80BUS()
 
     /*
@@ -373,10 +375,12 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
      Writing 1 to this bit will stop the reset process. At this point, the Z80
      will start executing from address 0000h onwards.
      */
-    inline private def write_68k_RESETREQ(value:Int,size:Size): Unit =
-      if (size == Size.Byte && (value & 0x1) == 0) || (size == Size.Word && (value & 0x100) == 0x000) then
+    inline private def write_68k_RESETREQ(_value:Int,size:Size): Unit =
+      val value = if size == Size.Word then _value >>> 8 else _value
+      val resetRequest = (value & 1) == 0
+      if resetRequest then
         busArbiter.z80StartResetProcess()
-      else if (size == Size.Byte && (value & 0x1) == 1) || (size == Size.Word && (value & 0x100) == 0x100) then
+      else
         busArbiter.z80StopResetProcess()
 
   inline private def write_68k_RAM(address: Int,value:Int, size: Size): Unit =

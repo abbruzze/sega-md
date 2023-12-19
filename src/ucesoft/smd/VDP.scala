@@ -1403,7 +1403,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           if _2cell < VSRAM.length then
             (VSRAM(_2cell) << 8 | VSRAM(_2cell + 1)) & 0x3FF
           else
-            println(s"VSRAM overflow with EACH_2_CELL mode ${_2cell}")
+            //println(s"VSRAM overflow with EACH_2_CELL mode ${_2cell}")
             0
       if interlaceModeEnabled then
         yscroll(layer) >>= 1

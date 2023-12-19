@@ -325,7 +325,7 @@ enum HMode(val cells:Int,
   final val vIntFlagged = 0
 
   case H32 extends HMode(cells = 32,
-    vCounterIncrement = 0x109,
+    vCounterIncrement = 0x10A,
     hBlankSet = 0x125,
     hBlankCleared = 0x09,
     0x1E7,
@@ -340,7 +340,7 @@ enum HMode(val cells:Int,
     64,
     5)
   case H40 extends HMode(cells = 40,
-    vCounterIncrement = 0x149,
+    vCounterIncrement = 0x14A,
     hBlankSet = 0x165,
     hBlankCleared = 0x0A,
     0x1E7,
