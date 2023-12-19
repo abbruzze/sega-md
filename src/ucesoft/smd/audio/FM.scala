@@ -10,7 +10,6 @@ class FM(sampleRate: Int, override val name: String) extends AudioDevice(sampleR
   private final val LR = Array(0,0)
   private var outputCycles = 0
   private var L, R = 0
-  private var pL, pR = 0
 
   inline private val AUDIO_SCALE = 8
 
@@ -27,7 +26,9 @@ class FM(sampleRate: Int, override val name: String) extends AudioDevice(sampleR
 
   override def reset(): Unit =
     super.reset()
-    chip.reset()
+    ym3438.OPN2_Reset(chip)
+    L = 0
+    R = 0
 
   final def write(address:Int,value:Int): Unit =
     ym3438.OPN2_Write(chip, address, value)
