@@ -489,6 +489,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var layerAEnabled = true
   private var layerBEnabled = true
   private var layerSEnabled = true
+  private var debugRegister = 0
 
   private var dmaEventListener : DMAEventListener = _
   private var debugger : Debugger = _
@@ -681,10 +682,23 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   override def hardReset(): Unit =
     reset()
+    initVRAM()
     for(r <- regs.indices) writeRegister(r,0)
     if model != null then
       vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
     hcounter = hmode.hCounterInitialValue
+
+  private def initVRAM(): Unit =
+    val VRAM_PATTERN = Array(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00)
+    val CRAM_PATTERN = Array(0x0E,0xEE)
+    val VSRAM_PATTERN = Array(0x07,0xFF)
+
+    for m <- VRAM.indices do
+      VRAM(m) = VRAM_PATTERN(m % VRAM_PATTERN.length)
+    for m <- CRAM.indices do
+      CRAM(m) = CRAM_PATTERN(m % CRAM_PATTERN.length)
+    for m <- VSRAM.indices do
+      VSRAM(m) = VSRAM_PATTERN(m % CRAM_PATTERN.length)
 
   override def reset(): Unit =
     for pal <- 0 to 3; mode <- 0 to 2 do
@@ -748,6 +762,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   def setLayerAEnabled(enabled:Boolean): Unit = layerAEnabled = enabled
   def setLayerBEnabled(enabled:Boolean): Unit = layerBEnabled = enabled
   def setLayerSEnabled(enabled:Boolean): Unit = layerSEnabled = enabled
+
+  final def writeDebugRegister(value:Int): Unit =
+    debugRegister = value
+    log.info("Debug register write %X",value)
 
   /*
     writePendingFlag is cleared when the control port is read
@@ -968,7 +986,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         if hmode != mode then
           hmode = mode
           changeVDPClockDivider(hmode.initialClockDiv)
-          log.info("HMode set to %s",hmode)
+          log.info("HMode set to %s", hmode)
           println(s"HMode set to $hmode")
           display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
           vdpAccessSlot = vdpAccessSlot % hmode.vramAccessMatrix.length
@@ -980,7 +998,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         vdpLayerMappingAddress(A).setWindowY(value)
         log.info("Window height set to %X",value)
       case _ =>
-
 
   inline private def getVRAMAccessMode: Int = codeRegister & 0xF
   inline private def getVRAMAccessMode(code:Int): Int = code & 0xF
@@ -1121,6 +1138,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         DMA_MODE.VRAM_FILL
       case 3 =>
         DMA_MODE.VRAM_COPY
+
+  inline private def DEBUG_REG_DISABLE_DISPLAY: Boolean = (debugRegister & (1 << 6)) != 0
+  inline private def DEBUG_REG_PLANES_ACTIVE: Int = (debugRegister >> 7) & 3
 
   // address/counter update methods
   private def updateTargetAddress(): Unit =
@@ -1457,12 +1477,15 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     if vdp4read.readVRAMByte() && spriteIndex != -1 then
       sprite1VisibleSR.dequeueIndex()
-      sprite2Info(sprite1VisibleCurrentIndex).set(spriteIndex,vdp4read.buffer >>> 16,vdp4read.buffer & 0x1FF)
-      val spriteZeroXPos = sprite2Info(sprite1VisibleCurrentIndex).isZeroPos
-      spriteLineRenderingEnabled &= !(!lastSpriteXPosZero && spriteZeroXPos)
-      lastSpriteXPosZero = spriteZeroXPos
-      // go to next sprite
-      sprite1VisibleCurrentIndex += 1
+      if sprite1VisibleCurrentIndex < sprite2Info.length then
+        sprite2Info(sprite1VisibleCurrentIndex).set(spriteIndex,vdp4read.buffer >>> 16,vdp4read.buffer & 0x1FF)
+        val spriteZeroXPos = sprite2Info(sprite1VisibleCurrentIndex).isZeroPos
+        spriteLineRenderingEnabled &= !(!lastSpriteXPosZero && spriteZeroXPos)
+        lastSpriteXPosZero = spriteZeroXPos
+        // go to next sprite
+        sprite1VisibleCurrentIndex += 1
+      else
+        println(s"sprite1VisibleCurrentIndex overflow $sprite1VisibleCurrentIndex")
   end doAccessSlotSpriteMapping
 
   /*
@@ -1593,7 +1616,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     rasterLine += 1
 
     if inYActiveDisplay then
-      activeDisplayLine += vcounterInc
+      activeDisplayLine += 1//vcounterInc
       if activeDisplayLine == (if v30 then 240 else 224) then
         inYActiveDisplay = false
 
@@ -1690,9 +1713,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         var bitB = vdpLayerPatternBuffer(B).dequeueBit()
         var bitS = vdpLayerPatternBuffer(S).dequeueBitAndClear()
 
-        if !layerAEnabled then bitA = 0
-        if !layerBEnabled then bitB = 0
-        if !layerSEnabled then bitS = 0
+        // debug register 7,8: 01 = sprites, 10 = A, 11 = B
+        val debugDisplayDisabled = DEBUG_REG_DISABLE_DISPLAY
+        val debugActivePlanes = DEBUG_REG_PLANES_ACTIVE
+
+        if !layerAEnabled || (debugDisplayDisabled && debugActivePlanes != 1) then bitA = 0
+        if !layerBEnabled || (debugDisplayDisabled && debugActivePlanes != 3) then bitB = 0
+        if !layerSEnabled || (debugDisplayDisabled && debugActivePlanes != 2) then bitS = 0
 
         if !(REG_L && activeDisplayXPos < 8) then
           val priorities = (bitS & 0x40) >> 4 | (bitA & 0x40) >> 5 | (bitB & 0x40) >> 6 // SAB
