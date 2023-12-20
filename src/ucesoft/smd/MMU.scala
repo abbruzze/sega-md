@@ -40,8 +40,71 @@ object MMU:
  *          |    RAM   | 0xF00000
  *          |    (6)   | (6) = The RAM is 64K in size and is repeatedly mirrored throughout the entire
  * 0xFFFFFF +----------+
+ *
+ * 68000 Memory Map
+ * Start address	End address	Description
+  $000000	$3FFFFF	Cartridge ROM/RAM
+  $400000	$7FFFFF	Reserved (used by the Sega CD and 32x)
+  $800000	$9FFFFF	Reserved (used by the 32x?)
+  $A00000	$A0FFFF	Z80 addressing space
+  $A10000	$A10001	Version register (read-only word-long)
+  $A10002	$A10003	Controller 1 data
+  $A10004	$A10005	Controller 2 data
+  $A10006	$A10007	Expansion port data
+  $A10008	$A10009	Controller 1 control
+  $A1000A	$A1000B	Controller 2 control
+  $A1000C	$A1000D	Expansion port control
+  $A1000E	$A1000F	Controller 1 serial transmit
+  $A10010	$A10011	Controller 1 serial receive
+  $A10012	$A10013	Controller 1 serial control
+  $A10014	$A10015	Controller 2 serial transmit
+  $A10016	$A10017	Controller 2 serial receive
+  $A10018	$A10019	Controller 2 serial control
+  $A1001A	$A1001B	Expansion port serial transmit
+  $A1001C	$A1001D	Expansion port serial receive
+  $A1001E	$A1001F	Expansion port serial control
+  $A10020	$A10FFF	Reserved
+  $A11000			    Memory mode register
+  $A11002	$A110FF	Reserved
+  $A11100	$A11101	Z80 bus request
+  $A11102	$A111FF	Reserved
+  $A11200	$A11201	Z80 reset
+  $A11202	$A13FFF	Reserved
+  $A14000	$A14003	TMSS register
+  $A14004	$BFFFFF	Reserved
+  $C00000			    VDP Data Port (W)
+  $C00002			    VDP Data Port (Mirror)
+  $C00004			    VDP Control Port(W)
+  $C00006			    VDP Control Port (Mirror)
+  $C00008			    H/V Counter
+  $C0000A			    H/V Counter (Mirror)
+  $C0000C			    H/V Counter (Mirror)
+  $C0000E			    H/V Counter (Mirror)
+  $C00011			    SN76489 PSG
+  $C00013			    SN76489 PSG (Mirror)
+  $C00015			    SN76489 PSG (Mirror)
+  $C00017			    SN76489 PSG (Mirror)
+  $C0001C			    Disable/Debug register
+  $C0001E			    Disable/Debug register (Mirror)
+  $C0001E	$FEFFFF	Reserved
+  $FF0000	$FFFFFF	68000 RAM
+
+  Z80 Memory Map
+    From	To	Meaning
+  $0000	$1FFF	Sound Ram
+  $2000	$3FFF	Reserved
+  $4000       YM2612 A0
+  $4001       YM2612 D0
+  $4002       YM2612 A1
+  $4003       YM2612 D1
+  $4000	$5FFF	Sound Chip
+  $6000       Bank Register
+  $6000	$7F10	Misc
+  $7F11       PSG 76489
+  $7F12	$7FFF	Misc
+  $8000	$FFFF	68000 Bank
  */
-class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memory:
+class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memory with Z80.IOMemory:
   import Size.*
   import MMU.*
 
@@ -54,10 +117,14 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   private var bankRegisterShifter,bankRegisterBitCounter,bankRegister = 0
   private var allowZ80ToRead68KRam = false
   private var cart : Cart = _
-  private var rom,os_rom : Array[Int] = _
+  private var rom : Array[Int] = _
+  private val os_rom : Array[Int] = loadOSRom()
   private var extraRam : Array[Int] = _
   private var extraRamStartAddress, extraRamEndAddress = 0
   private var osRomEnabled = false
+  private var tmssActive = false
+  private val tmssBuffer = Array(0,0,0,0)
+  private var tmssUnlocked = false
   private var lastWordOnBus = 0
   private var lockUpAction : () => Unit = _
 
@@ -74,6 +141,16 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   hardReset()
 
+  private def loadOSRom(): Array[Int] =
+    val os = getClass.getResource("/resources/rom/Genesis_OS_ROM.bin")
+    if os == null then
+      log.error("Cannot find OS rom")
+      null
+    else
+      val rom = os.openStream().readAllBytes().map(_.toInt & 0xFF)
+      log.info("OS ROM loaded")
+      rom
+
   override def reset(): Unit = {
     // TODO
   }
@@ -81,6 +158,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   override def hardReset(): Unit = {
     reset()
     z80ram(0) = 0x76 // HALT
+
+    tmssActive = osRomEnabled
+    java.util.Arrays.fill(tmssBuffer,0)
   }
 
   def get68KRAM: Array[Int] = m68kram
@@ -121,11 +201,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   def enableZ80ToRead68KRam(enable:Boolean): Unit =
     allowZ80ToRead68KRam = enable
 
-  def setOSROM(os_rom:Array[Int]): Unit =
-    this.os_rom = os_rom
-
   def enableOSROM(enabled:Boolean): Unit =
     osRomEnabled = enabled
+    tmssActive = osRomEnabled
     log.info("OS ROM enabled: %s",enabled)
 
 
@@ -180,6 +258,25 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if address < 0xA1_0020 then writeControllers(address, value, size)
     else if address < 0xA1_1200 then write_68k_BUSREQ(value, size)
     else if address < 0xA1_1300 then write_68k_RESETREQ(value, size)
+    else if address >= 0xA1_4000 && address <= 0xA1_4003 then
+      if osRomEnabled then
+        val offset = address - 0xA1_4000
+        size match
+          case Byte =>
+            tmssBuffer(offset) = value
+          case Word =>
+            tmssBuffer(offset) = value >> 8
+            tmssBuffer(offset + 1) = value & 0xFF
+          case Long =>
+            tmssBuffer(offset) = value >>> 24
+            tmssBuffer(offset + 1) = (value >> 16) & 0xFF
+            tmssBuffer(offset + 2) = (value >> 8) & 0xFF
+            tmssBuffer(offset + 3) = value & 0xFF
+        tmssUnlocked = tmssBuffer(0) == 'S' && tmssBuffer(1) == 'E' && tmssBuffer(2) == 'G' && tmssBuffer(3) == 'A'
+    else if address == 0xA1_4101 then
+      if osRomEnabled then
+        tmssActive = (value & 1) == 0
+        log.info("Writing TMSS bankswitch register: tmssActive=%s",tmssActive)
     else if address < 0xC0_0000 then
       if cart.getSystemType == Cart.SYSTEM_TYPE.MEGA_DRIVE_SSF_EXT && address >= 0xA1_30F3 && address <= 0xA1_30FF then
         val ssf2Address = (value & 0x3F) << 19
@@ -213,6 +310,10 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else write_68k_RAM(address, value, size)
 
   // ========================= Z80 access =========================================
+  override final def in(addressHI:Int,addressLO:Int) : Int = 0xFF
+  override final def out(addressHI:Int,addressLO:Int,value:Int) : Unit =
+    println(s"OUT $addressHI/$addressLO $value")
+  
   override final def read(address: Int): Int =
     val read = if address < 0x4000 then readZ80Memory(address,Byte)
     else if address < 0x6000 then readYM2612(address,Byte)
@@ -243,6 +344,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   // ========================== WRITES ============================================
   private def writeVDP(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
     //log.info(s"Writing VDP register ${address.toHexString} value = $value size = $size writeOptions=$writeOptions")
+
     size match
       /*
        Byte-wide writes
@@ -263,6 +365,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
               lockUpAction()
           case 0x11 | 0x13 | 0x15 | 0x17 =>
             writePSG(value)
+          case 0x1C|0x1E =>
+            vdp.writeDebugRegister(value)
           case _ =>
             log.warning("Unrecognized byte write to VDP register: %X = %X",address,value)
       case Size.Word =>
@@ -274,6 +378,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
               lockUpAction()
           case 0x10 | 0x12 | 0x14 | 0x16 => // If you want to write to the PSG via word-wide writes, the data must be in the LSB
             writePSG(value & 0xFF)
+          case 0x1C|0x1E =>
+            vdp.writeDebugRegister(value)  
           case _ =>
             log.warning("Unrecognized word write to VDP register: %X = %X",address,value)
       case Size.Long =>
@@ -636,6 +742,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         (lastWordOnBus & 0xFF00) << 16 | lastWordOnBus & 0xFF00
 
   inline private def readROM(address: Int, size: Size): Int =
+    val rom = if tmssActive then os_rom else this.rom
+
     if address < rom.length then
       lastWordOnBus = size match
         case Byte =>
