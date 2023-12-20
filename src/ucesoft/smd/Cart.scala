@@ -5,6 +5,8 @@ object Cart:
     case MEGA_DRIVE, MEGA_DRIVE_32X, MEGA_DRIVE_EVERDRIVE_EXT, MEGA_DRIVE_SSF_EXT, MEGA_DRIVE_WIFI_EXT, PICO, TERA_DRIVE68K, TERA_DRIVEX86, UNKNOWN
   enum ExtraMemoryType:
     case RAM_NO_SAVE, RAM_SAVE, ROM, UNKNOWN
+  enum Region:
+    case Japan, Americas, Europe
   case class ExtraMemory(memType:ExtraMemoryType,startAddress:Int,endAddress:Int)
 
 /**
@@ -18,11 +20,13 @@ class Cart(val file:String):
   private inline val EXTRA_MEMORY_ADDR = 0x1B0
   private inline val NAME_DOMESTIC_ADDR = 0x120
   private inline val NAME_OVERSEA_ADDR = 0x150
+  private inline val REGION_ADDR = 0x1F0
 
   private var rom : Array[Int] = _
   private var extraMemory : ExtraMemory = _
   private var cartNameDomestic, cartNameOversea : String = _
   private var systemType = SYSTEM_TYPE.MEGA_DRIVE
+  private var regions : List[Region] = Nil
 
   loadROM()
 
@@ -45,17 +49,47 @@ class Cart(val file:String):
     cartNameDomestic = getCartName(NAME_DOMESTIC_ADDR)
     cartNameOversea = getCartName(NAME_OVERSEA_ADDR)
     systemType = _getSystemType
+    regions = getRegions
   private def checksum(): Int =
     var cs = 0
     for a <- 0x200 until rom.length by 2 do
       cs += rom(a) << 8 | (if a + 1 < rom.length then rom(a + 1) else 0)
     cs & 0xFFFF
 
+  private def getRegions: List[Region] =
+    val regs = (REGION_ADDR until REGION_ADDR + 3).map(rom).filterNot(_ == 32)
+    getRegionOldStyle(regs(0)) match
+      case Some(_) =>
+        regs.flatMap(getRegionOldStyle).toList
+      case _ =>
+        getRegionNewStyle(regs(0))
+
+  private def getRegionOldStyle(c:Int): Option[Region] =
+    c.toChar.toUpper match
+      case 'J' => Some(Region.Japan)
+      case 'E' => Some(Region.Europe)
+      case 'U' => Some(Region.Americas)
+      case _ => None
+
+  private def getRegionNewStyle(c:Int): List[Region] =
+    val digit =
+      try
+        java.lang.Integer.parseInt(c.toChar.toUpper.toString,16)
+      catch
+        case _:NumberFormatException =>
+          0
+    List(0,2,3).map(b => digit & (1 << b)).filter(_ > 0).map {
+      case 1 => Region.Japan
+      case 4 => Region.Americas
+      case 8 => Region.Europe
+    }
+
+
   private def getCartName(offset:Int): String =
     val sb = new StringBuilder()
     for c <- 0 until 48 do
       sb.append(rom(offset + c).toChar)
-    sb.toString.trim
+    sb.toString.trim.split("""\s+""").mkString(" ")
 
   private def _getSystemType: SYSTEM_TYPE =
     import SYSTEM_TYPE.*
@@ -92,6 +126,7 @@ class Cart(val file:String):
   def getDomesticName: String = cartNameDomestic
   def getOveseaName: String = cartNameOversea
   def getSystemType: SYSTEM_TYPE = systemType
+  def getRegionList: List[Region] = regions
 
   override def toString: String =
-    s"""Cart[file="${new java.io.File(file).getName}" system type=$systemType oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
+    s"""Cart[file="${new java.io.File(file).getName}" system type=$systemType regions=${regions.mkString(",")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
