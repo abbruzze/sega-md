@@ -1,8 +1,8 @@
 package ucesoft.smd
 
+import ucesoft.smd.HMode.H32
 import ucesoft.smd.cpu.m68k.{M6800X0, Memory, Size}
 import ucesoft.smd.cpu.z80.Z80
-import ucesoft.smd.debugger.Debugger
 
 import java.awt.RenderingHints
 import scala.collection.mutable
@@ -450,6 +450,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private val vdpLayerPatternBuffer = Array(new PatternBitCache(40 + 2), new PatternBitCache(40 + 2), new PatternBitCache(40 + 2)) // A, B, S
 
   private var hmode : HMode = HMode.H32
+  private var hmodeMustBeInitialized = true
   private val xscroll = Array(0,0)  // xscroll for layer A and B
   private val yscroll = Array(0,0)  // yscroll for layer A and B
   private val firstCellToXScroll = 0
@@ -492,7 +493,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var debugRegister = 0
 
   private var dmaEventListener : DMAEventListener = _
-  private var debugger : Debugger = _
 
   /*
    8 bytes info
@@ -659,8 +659,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   // ============================= Constructor =========================================
   hardReset()
   // ===================================================================================
-  def setDebugger(debugger:Debugger): Unit =
-    this.debugger = debugger
+
   def setDMAEventListener(el:DMAEventListener): Unit =
     this.dmaEventListener = el
   def getMemoryDump: VDPMemoryDump =
@@ -681,6 +680,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     hcounter = hmode.hCounterInitialValue
 
   override def hardReset(): Unit =
+    hmode = H32
+    hmodeMustBeInitialized = true
     reset()
     initVRAM()
     for(r <- regs.indices) writeRegister(r,0)
@@ -887,6 +888,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         //println(s"2nd write: pendingControlPortCommand=${pendingControlPortCommand.toHexString} oldaddress=${oldAdr.toHexString} address=${addressRegister.toHexString}")
         // check DMA bit CD5
         if (codeRegister & 0x20) != 0 && REG_M1_DMA_ENABLED then
+          if REG_DMA_MODE == DMA_MODE.MEMORY_TO_VRAM then
+            if !m68KBUSRequsted then
+              m68KBUSRequsted = true
+              busArbiter.vdpRequest68KBUS()
           statusRegister |= STATUS_DMA_MASK
           if dmaEventListener != null && REG_DMA_MODE != DMA_MODE.VRAM_FILL then
             notifyDMAEventListener()
@@ -983,7 +988,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_BICUBIC)
         else
           display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
-        if hmode != mode then
+        if hmode != mode || hmodeMustBeInitialized then
+          hmodeMustBeInitialized = false
           hmode = mode
           changeVDPClockDivider(hmode.initialClockDiv)
           log.info("HMode set to %s", hmode)
@@ -1311,7 +1317,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private def doDMAMemory(): Unit =
     if !m68KBUSRequsted then
       m68KBUSRequsted = true
-      //m68k.setBUSAvailable(false)
       busArbiter.vdpRequest68KBUS()
     val data = m68KMemory.read(REG_DMA_SOURCE_ADDRESS << 1,Size.Word,MMU.VDP_MEM_OPTION)
     log.info("doDMAMemory: pushing codeRegister=%X address=%X data=%X",codeRegister,addressRegister,data)
