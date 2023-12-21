@@ -7,6 +7,12 @@ object Cart:
     case RAM_NO_SAVE, RAM_SAVE, ROM, UNKNOWN
   enum Region:
     case Japan, Americas, Europe
+  enum Device:
+    case Controller_3, Controller_6, MasterSystemController, AnalogJoystick,
+         Multitap, Lightgun, Activator, Mouse,
+         Trackball, Tablet, Paddle, Keyboard,
+         RS232, Printer, CDROM, FloppyDrive,
+         Download, UNKNOWN
   case class ExtraMemory(memType:ExtraMemoryType,startAddress:Int,endAddress:Int)
 
 /**
@@ -21,12 +27,14 @@ class Cart(val file:String):
   private inline val NAME_DOMESTIC_ADDR = 0x120
   private inline val NAME_OVERSEA_ADDR = 0x150
   private inline val REGION_ADDR = 0x1F0
+  private inline val DEVICE_ADDR = 0x190
 
   private var rom : Array[Int] = _
   private var extraMemory : ExtraMemory = _
   private var cartNameDomestic, cartNameOversea : String = _
   private var systemType = SYSTEM_TYPE.MEGA_DRIVE
   private var regions : List[Region] = Nil
+  private var devices : List[Device] = Nil
 
   loadROM()
 
@@ -50,11 +58,37 @@ class Cart(val file:String):
     cartNameOversea = getCartName(NAME_OVERSEA_ADDR)
     systemType = _getSystemType
     regions = getRegions
+    devices = getDeviceSupport
   private def checksum(): Int =
     var cs = 0
     for a <- 0x200 until rom.length by 2 do
       cs += rom(a) << 8 | (if a + 1 < rom.length then rom(a + 1) else 0)
     cs & 0xFFFF
+
+  private def getDeviceSupport: List[Device] =
+    import Device.*
+    val devices = (DEVICE_ADDR until DEVICE_ADDR + 16).map(rom).filterNot(_ == 32).map(_.toChar).toList
+
+    devices.map {
+      case 'J' => Controller_3
+      case '6' => Controller_6
+      case '0' => MasterSystemController
+      case 'A' => AnalogJoystick
+      case '4' => Multitap
+      case 'G' => Lightgun
+      case 'L' => Activator
+      case 'M' => Mouse
+      case 'B' => Trackball
+      case 'T' => Tablet
+      case 'V' => Paddle
+      case 'K' => Keyboard
+      case 'R' => RS232
+      case 'P' => Printer
+      case 'C' => CDROM
+      case 'F' => FloppyDrive
+      case 'D' => Download
+      case _ => UNKNOWN
+    }
 
   private def getRegions: List[Region] =
     val regs = (REGION_ADDR until REGION_ADDR + 3).map(rom).filterNot(_ == 32)
@@ -127,6 +161,7 @@ class Cart(val file:String):
   def getOveseaName: String = cartNameOversea
   def getSystemType: SYSTEM_TYPE = systemType
   def getRegionList: List[Region] = regions
+  def getDeviceList: List[Device] = devices
 
   override def toString: String =
-    s"""Cart[file="${new java.io.File(file).getName}" system type=$systemType regions=${regions.mkString(",")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
+    s"""Cart[file="${new java.io.File(file).getName}" system type=$systemType regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
