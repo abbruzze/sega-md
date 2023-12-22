@@ -479,6 +479,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   private var vInterruptPending = false
   private var hInterruptPending = false
+  private var vInterruptAsserted = false
+  private var hInterruptAsserted = false
 
   private var display : Display = _
   private var videoPixels : Array[Int] = _
@@ -840,7 +842,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       latchedHVCounter
     else
       val vcounter = if interlaceModeEnabled then (this.vcounter << 1 | (this.vcounter & 0x100) >> 8) & 0xFF else this.vcounter
-      vcounter << 8 | (hcounter >> 1) & 0xFF
+      val counter = vcounter << 8 | (hcounter >> 1) & 0xFF
+      //println(s"readHV = ${vcounter.toHexString} PC=${m68k.getLastInstructionPC.toHexString}")
+      counter
   /*
     Register set
     |1 0 0 RS4 RS3 RS2 RS1 RS0|D7 D6 D5 D4 D3 D2 D1 D0|
@@ -966,7 +970,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         if ((oldValue ^ regs(reg)) & 0x2) > 0 then // M3 changed
           if REG_M3 then
             latchedHVCounter = (vcounter & 0xFF) << 8 | (hcounter >> 1) & 0xFF
-      case 1 =>
+        if ((regs(0) ^ oldValue) & 0x10) != 0 then // IE1 changed
+          if REG_IE1 && hInterruptPending then
+            generateHInterrupt()
+      case 1 => // REG #1 |VR DE IE0 M1 M2 M5 0 0|
+        if ((regs(1) ^ oldValue) & 0x20) != 0 then // IE0 changed
+          if REG_IE0 && vInterruptPending then
+            generateVInterrupt()
         if !REG_M5 then
           println("SMS mode not supported.") // TODO
       case 12 => // REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|
@@ -1818,9 +1828,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   // =============== Interrupt handling ==========================
   private def generateVInterrupt(): Unit =
     statusRegister |= STATUS_F_MASK
+    vInterruptPending = true
     if REG_IE0 then
       m68k.interrupt(VINT_LEVEL)
-      vInterruptPending = true
+      vInterruptAsserted = true
     /*
      The Z80 will receive an IRQ from the VDP on scanline E0h. This happens
      once per frame, every frame, regardless of frame interrupts being
@@ -1830,7 +1841,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   private def generateHInterrupt(): Unit =
     m68k.interrupt(HINT_LEVEL)
-    hInterruptPending = true
+    hInterruptAsserted = true
   // =============================================================
 
   // returns true if vcounter must be incremented
@@ -1864,6 +1875,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     if (statusRegister & STATUS_VB_MASK) != 0 then
       hInterruptCounter = REG_H_INT
     else if hInterruptCounter < 0 then
+      hInterruptPending = true
       if REG_IE1 then
         generateHInterrupt()
       hInterruptCounter = REG_H_INT
@@ -1873,10 +1885,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     if vcounter == videoType.vBlankSetAt(v30) then
       statusRegister |= STATUS_VB_MASK
-      //println("VB=1")
     else if vcounter == videoType.vBlankClearedAt then
       statusRegister &= ~STATUS_VB_MASK
-      //println("VB=0")
 
     vcounter = (vcounter + 1) & 0x1FF // 9-bit counter
     vcounterInc += 1
@@ -1951,16 +1961,18 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     level match
       case HINT_LEVEL =>
         hInterruptPending = false
+        hInterruptAsserted = false
       case VINT_LEVEL =>
         vInterruptPending = false
+        vInterruptAsserted = false
         statusRegister &= ~STATUS_F_MASK
       case _ =>
         log.error("Unknown interrupt ack level: %d",level)
 
     var intLevel = 0
-    if hInterruptPending then
+    if hInterruptAsserted then
       intLevel |= HINT_LEVEL
-    if vInterruptPending then
+    if vInterruptAsserted then
       intLevel |= VINT_LEVEL
 
     log.info("VDP ack interrupt level %d: new level is %d",level,intLevel)
