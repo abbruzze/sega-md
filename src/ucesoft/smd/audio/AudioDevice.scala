@@ -98,6 +98,15 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
 
       val info = new DataLine.Info(classOf[SourceDataLine], format)
       val sourceLine = AudioSystem.getLine(info).asInstanceOf[SourceDataLine]
+      try
+        val name = sourceLine.getClass.getSuperclass.getCanonicalName
+        if name == "com.sun.media.sound.DirectAudioDevice.DirectDL" then
+          val f = sourceLine.getClass.getSuperclass.getDeclaredField("waitTime")
+          f.setAccessible(true)
+          f.set(sourceLine,1)
+      catch
+        case _:Exception =>
+
       sourceLine.open(format)
 
       volumeLine = sourceLine.getControl(FloatControl.Type.MASTER_GAIN).asInstanceOf[FloatControl]
@@ -107,6 +116,7 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
       Some(sourceLine)
     catch
       case t: Throwable =>
+        t.printStackTrace()
         None
 
   def setMasterVolume(v: Int): Unit =
