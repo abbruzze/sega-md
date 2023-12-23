@@ -9,7 +9,6 @@ import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger
 import ucesoft.smd.ui.MessageGlassPane
 
-import java.awt.Color
 import javax.swing.*
 
 /**
@@ -27,6 +26,8 @@ object SMD:
     inline val Z80_CLOCK_DIVIDER = 15
     inline val FM_CLOCK_DIVIDER = M68_CLOCK_DIVIDER * 6
 
+    inline val MEGA_DRIVE_VERSION = 0
+
     Logger.getLogger.setLevel(java.util.logging.Level.SEVERE)
 
     SwingUtilities.invokeAndWait(() => {
@@ -41,7 +42,7 @@ object SMD:
     val busArbiter = new BusArbiter
 
     val vdp = new VDP(busArbiter)
-    val model = Model(ModelType.Oversea, vmodel, 0)
+    val model = Model(ModelType.Oversea, vmodel, MEGA_DRIVE_VERSION)
     vdp.setModel(model)
     vdp.setMasterClock(masterClock)
 
@@ -59,28 +60,30 @@ object SMD:
     vdp.initComponent()
 
     val mmu = new MMU(busArbiter)
+    //mmu.enableOSROM(true)
     val m68k = new M68000(mmu)
-    val z80 = new Z80(mmu,Z80.EmptyIOMemory)
-    z80.setPCMask(0x3FFF)
+    val z80 = new Z80(mmu,mmu)
+    //z80.setPCMask(0x3FFF)
     z80.initComponent()
     vdp.set68KMemory(mmu)
     vdp.setCPUs(m68k,z80)
     mmu.setVDP(vdp)
 
     val fmAudio = new FM(vmodel.clockFrequency / (FM_CLOCK_DIVIDER * 24),"FM")
-    fmAudio.setBufferInMillis(25)
+    fmAudio.setBufferInMillis(15)
 
     val psgAudio = new PSG(44100,"PSG")
     psgAudio.setCPUFrequency(vmodel.clockFrequency / Z80_CLOCK_DIVIDER)
-    psgAudio.setBufferInMillis(25)
+    psgAudio.setBufferInMillis(15)
 
     mmu.setAudioChips(psgAudio.sn76489,fmAudio)
 
     val masterLoop = new Clockable:
-      private final val m68Div = 4.0 / 7.0
-      private final val z80Div = 4.0 / 15.0
-      private var m68Acc = 0.0
-      private var z80Acc = 0.0
+      private inline val MULTIPLIER = 65536
+      private final val m68Div = math.round((4.0 / 7.0) * MULTIPLIER).toInt
+      private final val z80Div = math.round((4.0 / 15.0) * MULTIPLIER).toInt
+      private var m68Acc = 0
+      private var z80Acc = 0
       private val psgSampleCycles = psgAudio.getCyclesPerSample
       private var psgCycles = 0
       private var fmCycles = 0
@@ -89,30 +92,32 @@ object SMD:
 
       override final def clock(cycles: Long): Unit =
         vdp.clock(cycles) // VDP
-        m68Acc += m68Div
-        if m68Acc >= 1 then // M68 clock
-          m68Acc -= 1
-          if m68WaitCycles == 0 then
-            m68WaitCycles = m68k.execute() - 1
-          else
-            m68WaitCycles -= 1
-          fmCycles += 1
-          if fmCycles == 6 then
-            fmCycles = 0
-            fmAudio.clock()
-        end if // M68
-        z80Acc += z80Div
-        if z80Acc >= 1 then // Z80 clock
-          z80Acc -= 1
-          if z80WaitCycles == 0 then
-            z80WaitCycles = z80.clock() - 1
-          else
-            z80WaitCycles -= 1
-          psgCycles += 1
-          if psgCycles == psgSampleCycles then
-            psgCycles = 0
-            psgAudio.clock()
-        end if
+        if m68k.isComponentEnabled then
+          m68Acc += m68Div
+          if m68Acc >= MULTIPLIER then // M68 clock
+            m68Acc -= MULTIPLIER
+            if m68WaitCycles == 0 then
+              m68WaitCycles = m68k.execute() - 1
+            else
+              m68WaitCycles -= 1
+            fmCycles += 1
+            if fmCycles == 6 then
+              fmCycles = 0
+              fmAudio.clock()
+          end if // M68
+        if z80.isComponentEnabled then
+          z80Acc += z80Div
+          if z80Acc >= MULTIPLIER then // Z80 clock
+            z80Acc -= MULTIPLIER
+            if z80WaitCycles == 0 then
+              z80WaitCycles = z80.clock() - 1
+            else
+              z80WaitCycles -= 1
+            psgCycles += 1
+            if psgCycles == psgSampleCycles then
+              psgCycles = 0
+              psgAudio.clock()
+          end if
 
     masterClock.setClockables(masterLoop)
     masterClock.setClockDivider(0,VDP_CLOCK_DIVIDER)
@@ -147,11 +152,12 @@ object SMD:
 
     var glassPane : MessageGlassPane = null
     val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog (USA, Europe).md""")
+    println(cart)
     SwingUtilities.invokeAndWait(() => {
       f.setVisible(true)
       glassPane = new MessageGlassPane(f)
     })
-    glassPane.add(MessageGlassPane.Message(cart.getDomesticName, MessageGlassPane.XPOS.CENTER, MessageGlassPane.YPOS.BOTTOM, 2000, None, Some(2000)))
+    glassPane.add(MessageGlassPane.Message(cart.getOveseaName, MessageGlassPane.XPOS.CENTER, MessageGlassPane.YPOS.BOTTOM, 2000, None, Some(2000)))
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)
@@ -161,5 +167,14 @@ object SMD:
 
     fmAudio.start()
     psgAudio.start()
+
+    m68k.setComponentEnabled(false)
+    z80.setComponentEnabled(false)
+    // The execution delay between the VDP and the M68000
+    // is measured to be approximately 13 milliseconds with a logic analyzer.
+    masterClock.scheduleMillis(13,_ => {
+      m68k.setComponentEnabled(true)
+      z80.setComponentEnabled(true)
+    })
 
     masterClock.start()

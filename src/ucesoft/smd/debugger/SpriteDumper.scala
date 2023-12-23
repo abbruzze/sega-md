@@ -34,17 +34,17 @@ class SpriteDumper(vdp: VDP,
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
       columnIndex match
         case 0 =>
-          sprites(rowIndex).spriteIndex.toString
+          "%02X".format(sprites(rowIndex).spriteIndex)
         case 1 =>
-          sprites(rowIndex).x.toString
+          "%04X".format(sprites(rowIndex).x)
         case 2 =>
-          sprites(rowIndex).y.toString
+          "%04X".format(sprites(rowIndex).y)
         case 3 =>
           sprites(rowIndex).w.toString
         case 4 =>
           sprites(rowIndex).h.toString
         case 5 =>
-          sprites(rowIndex).gfx.toString
+          "%03X".format(sprites(rowIndex).gfx)
         case 6 =>
           java.lang.Boolean.valueOf(sprites(rowIndex).hf)
         case 7 =>
@@ -78,7 +78,7 @@ class SpriteDumper(vdp: VDP,
 
     val sp = new JScrollPane(table)
     table.getTableHeader.setReorderingAllowed(false)
-    table.setPreferredScrollableViewportSize(table.getPreferredSize)
+    //table.setPreferredScrollableViewportSize(table.getPreferredSize)
 
     val mainPanel = new JPanel(new BorderLayout())
     val buttonPanel = makeRefreshButtonPanel()

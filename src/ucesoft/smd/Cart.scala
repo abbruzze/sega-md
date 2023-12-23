@@ -59,10 +59,13 @@ class Cart(val file:String):
     systemType = _getSystemType
     regions = getRegions
     devices = getDeviceSupport
+
   private def checksum(): Int =
     var cs = 0
     for a <- 0x200 until rom.length by 2 do
       cs += rom(a) << 8 | (if a + 1 < rom.length then rom(a + 1) else 0)
+    if (rom.length & 1) == 1 then
+      cs += rom(rom.length - 1)
     cs & 0xFFFF
 
   private def getDeviceSupport: List[Device] =
