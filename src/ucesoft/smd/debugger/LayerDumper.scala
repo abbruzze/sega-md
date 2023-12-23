@@ -2,10 +2,11 @@ package ucesoft.smd.debugger
 
 import ucesoft.smd.{Palette, VDP}
 
-import java.awt.*
+import java.awt.{BorderLayout, Color, Dimension, Graphics, Point, Rectangle}
 import java.awt.event.{MouseEvent, MouseMotionAdapter}
 import java.awt.image.BufferedImage
 import javax.swing.*
+import scala.collection.mutable.ListBuffer
 
 /**
  * @author Alessandro Abbruzzetti
@@ -20,8 +21,11 @@ class LayerDumper(vram:Array[Int],
   private inline val LAYER_A = 0
   private inline val LAYER_B = 1
   private inline val LAYER_W = 2
+  private inline val LAYER_S = 3
 
-  private val layerNames = Array("Layer A","Layer B","Layer Window")
+  private val layerNames = Array("Layer A","Layer B","Layer Window","Sprite")
+
+  private case class Sprite(id:String,rec:Rectangle,gfx:String)
 
   private class LayerCanvas(layer:Int) extends JLabel:
     private var image : BufferedImage = _
@@ -41,27 +45,42 @@ class LayerDumper(vram:Array[Int],
 
     override def paintComponent(g:Graphics): Unit =
       g.drawImage(image,0,0,image.getWidth * zoom,image.getHeight * zoom,getBackground,null)
-      val cellX = mousePoint.x / (8 * zoom)
-      val cellY = mousePoint.y / (8 * zoom)
-      if mousePoint.x < image.getWidth * zoom && mousePoint.y < image.getHeight * zoom then
-        g.setColor(Color.WHITE)
-        g.drawRect(cellX * 8 * zoom, cellY * 8 * zoom, 7 * zoom, 7 * zoom)
-        val layerAddress = layer match
-          case LAYER_A => vdp.getPatternAAddress
-          case LAYER_B => vdp.getPatternBAddress
-          case LAYER_W => vdp.getPatternWindowAddress
-        val (cellWidth,cellHeight) = vdp.getPlayfieldSize
-        val address = layerAddress + (cellY * cellWidth + cellX) * 2
-        setToolTipText(s"($cellX,$cellY,${address.toHexString.toUpperCase()})")
+      if layer != LAYER_S then
+        val cellX = mousePoint.x / (8 * zoom)
+        val cellY = mousePoint.y / (8 * zoom)
+        if mousePoint.x < image.getWidth * zoom && mousePoint.y < image.getHeight * zoom then
+          g.setColor(Color.WHITE)
+          g.drawRect(cellX * 8 * zoom, cellY * 8 * zoom, 7 * zoom, 7 * zoom)
+          val layerAddress = layer match
+            case LAYER_A => vdp.getPatternAAddress
+            case LAYER_B => vdp.getPatternBAddress
+            case LAYER_W => vdp.getPatternWindowAddress
+          val (cellWidth,cellHeight) = vdp.getPlayfieldSize
+          val address = layerAddress + (cellY * cellWidth + cellX) * 2
+          setToolTipText(s"($cellX,$cellY,${address.toHexString.toUpperCase()})")
+        else
+          setToolTipText(null)
       else
-        setToolTipText(null)
+        var sprite = spriteList
+        var found = false
+        while !found && sprite != Nil do
+          val s = sprite.head
+          if s.rec.contains(mousePoint) then
+            found = true
+            setToolTipText(s"#${s.id} gfx=${s.gfx}")
+          else
+            sprite = sprite.tail
+
+        if !found then
+          setToolTipText(null)
 
   private var zoom = 1
-  private val layerLabels = Array(new LayerCanvas(LAYER_A),new LayerCanvas(LAYER_B),new LayerCanvas(LAYER_W))
+  private val layerLabels = Array(new LayerCanvas(LAYER_A),new LayerCanvas(LAYER_B),new LayerCanvas(LAYER_W),new LayerCanvas(LAYER_S))
   private var palette = 0
   private val tabbedPane = new JTabbedPane()
   private val layerAddressLabel = new JLabel("000000")
-  private val layerAddress = Array(0,0,0)
+  private val layerAddress = Array(0,0,0,0)
+  private var spriteList : List[Sprite] = Nil
 
   init()
 
@@ -84,7 +103,7 @@ class LayerDumper(vram:Array[Int],
 
     val buttonPanel = makeRefreshButtonPanel(new JLabel("Zoom:", SwingConstants.RIGHT),zoomCombo,new JLabel("Palette:", SwingConstants.RIGHT),paletteCombo,new JLabel("Address:",SwingConstants.RIGHT),layerAddressLabel)
 
-    for l <- LAYER_A to LAYER_W do
+    for l <- LAYER_A to LAYER_S do
       val sp = new JScrollPane(layerLabels(l))
       tabbedPane.addTab(layerNames(l),sp)
 
@@ -99,10 +118,41 @@ class LayerDumper(vram:Array[Int],
     dialog.getContentPane.add("Center",mainPanel)
     dialog.pack()
 
-
   override protected def updateModel(): Unit =
     for l <- LAYER_A to LAYER_W do
       updateImage(l)
+    updateSpriteImage()
+
+  private def updateSpriteImage(): Unit =
+    val spriteLayer = new BufferedImage(512,512, BufferedImage.TYPE_INT_RGB)
+    var sprite = vdp.getSpritesDump()
+    val screenSize = vdp.getScreenCells
+
+    val g = spriteLayer.getGraphics
+    g.setFont(g.getFont.deriveFont(g.getFont.getSize * 0.8f))
+    val fm = g.getFontMetrics
+    g.setColor(new Color(50,150,7,100))
+    g.fillRect(128,128,screenSize._1 * 8,screenSize._2 * 8)
+    g.setColor(Color.WHITE)
+    var goNext = true
+    val spriteList = new ListBuffer[Sprite]
+    while goNext do
+      val spriteWidth = (sprite.w + 1) << 3
+      val spriteHeight = (sprite.h + 1) << 3
+      g.setColor(Color.WHITE)
+      g.drawRect(sprite.x,sprite.y,spriteWidth,spriteHeight)
+      val id = "%02X".format(sprite.spriteIndex)
+      g.setColor(Color.YELLOW)
+      g.drawString(id,sprite.x + (spriteWidth - fm.stringWidth(id)) / 2,sprite.y + spriteHeight / 2 + fm.getDescent)
+      spriteList += Sprite(id,new Rectangle(sprite.x,sprite.y,spriteWidth,spriteHeight),"%04X".format(sprite.gfx))
+      sprite.next match
+        case Some(next) =>
+          sprite = next
+        case None =>
+          goNext = false
+
+    this.spriteList = spriteList.toList
+    layerLabels(LAYER_S).setImage(spriteLayer)
 
   private def updateImage(layerIndex:Int): Unit =
     layerAddress(layerIndex) = layerIndex match
