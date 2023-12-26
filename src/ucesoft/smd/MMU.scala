@@ -1,6 +1,7 @@
 package ucesoft.smd
 
 import ucesoft.smd.audio.{FM, SN76489}
+import ucesoft.smd.controller.Controller
 import ucesoft.smd.cpu.m68k.{M68000, Memory, Size}
 import ucesoft.smd.cpu.z80.Z80
 

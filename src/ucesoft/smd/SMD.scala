@@ -4,6 +4,7 @@ import com.formdev.flatlaf.FlatLightLaf
 import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.audio.{FM, PSG}
+import ucesoft.smd.controller.{ControllerType, KeyboardPADController, MouseController}
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger
@@ -130,13 +131,15 @@ object SMD:
     })
 
     val c1 = new KeyboardPADController(0,ControllerType.PAD6Buttons,masterClock)
-    val c2 = new KeyboardPADController(1,ControllerType.PAD6Buttons,masterClock)
+    val c2 = new MouseController(1,display)
     val c3 = new KeyboardPADController(2,ControllerType.PAD6Buttons,masterClock)
     mmu.setController(0,c1)
     mmu.setController(1,c2)
     mmu.setController(2,c3)
 
     f.addKeyListener(c1)
+    display.addMouseListener(c2)
+    display.addMouseMotionListener(c2)
 
     val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp)
     deb.enableTracing(true)
@@ -151,7 +154,7 @@ object SMD:
     psgAudio.setLogger(Logger.getLogger)
 
     var glassPane : MessageGlassPane = null
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic The Hedgehog (USA, Europe).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\mouse_test10.bin""")
     println(cart)
     SwingUtilities.invokeAndWait(() => {
       f.setVisible(true)
