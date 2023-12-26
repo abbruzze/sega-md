@@ -2,7 +2,7 @@ package ucesoft.smd.controller
 
 import ucesoft.smd.Display
 
-import java.awt.Robot
+import java.awt.{Point, Robot, Toolkit}
 import java.awt.event.{MouseEvent, MouseListener, MouseMotionListener}
 import javax.swing.SwingUtilities
 
@@ -39,7 +39,7 @@ import javax.swing.SwingUtilities
   would indicate it may get stuck in a certain state.
   All buttons (start, left, middle, right) are active-high logic, so they return '1' when pressed and '0' when released.
  */
-class MouseController(override val index: Int,display:Display,cage:Boolean = true) extends Controller with MouseMotionListener with MouseListener:
+class MouseController(override val index: Int,display:Display) extends Controller with MouseMotionListener with MouseListener:
   private inline val LEFT_BUTTON_MASK = 0x1
   private inline val RIGHT_BUTTON_MASK = 0x2
   private inline val MIDDLE_BUTTON_MASK = 0x4
@@ -53,7 +53,25 @@ class MouseController(override val index: Int,display:Display,cage:Boolean = tru
   private var waitHandshake = 0
   private var resetCounter = 0
   private val robot = new Robot()
-  override def setControllerType(ct: ControllerType): Unit = {}
+  private var cage = false
+  private val emptyCursor = {
+    val cursor = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+    Toolkit.getDefaultToolkit.createCustomCursor(cursor,new Point(0, 0),"null")
+  }
+  private var mouseStartWithCTRLandLeftEnabled = false
+  override def setControllerType(ct: ControllerType): Unit =
+    ct match
+      case ControllerType.MouseStartWithCTRLAndLeft =>
+        mouseStartWithCTRLandLeftEnabled = true
+      case _ =>
+        mouseStartWithCTRLandLeftEnabled = false
+
+  def setCage(enabled:Boolean): Unit =
+    cage = enabled
+    if enabled then
+      SwingUtilities.getWindowAncestor(display).setCursor(emptyCursor)
+    else
+      display.setCursor(new java.awt.Cursor(java.awt.Cursor.DEFAULT_CURSOR))
 
   override def readData(): Int =
     var read = 0
@@ -93,8 +111,8 @@ class MouseController(override val index: Int,display:Display,cage:Boolean = tru
 
     read
 
-  override def writeData(value: Int): Unit =
-    //println(s"Mouse write ${value.toHexString} state=$state")
+  override def writeData(_value: Int): Unit =
+    val value = (state & ~control) | (_value & control)
     if ((state ^ value) & 0x20) != 0 then // TR transition
       if counter > 0 && counter < 9 then
         counter += 1
@@ -122,7 +140,10 @@ class MouseController(override val index: Int,display:Display,cage:Boolean = tru
 
   override def mousePressed(e: MouseEvent): Unit =
     if SwingUtilities.isLeftMouseButton(e) then
-      buttonsState |= LEFT_BUTTON_MASK
+      if e.isControlDown then
+        buttonsState |= START_BUTTON_MASK
+      else
+        buttonsState |= LEFT_BUTTON_MASK
     else if SwingUtilities.isRightMouseButton(e) then
       buttonsState |= RIGHT_BUTTON_MASK
     else if SwingUtilities.isMiddleMouseButton(e) then
@@ -131,6 +152,7 @@ class MouseController(override val index: Int,display:Display,cage:Boolean = tru
   override def mouseReleased(e: MouseEvent): Unit =
     if SwingUtilities.isLeftMouseButton(e) then
       buttonsState &= ~LEFT_BUTTON_MASK
+      buttonsState &= ~START_BUTTON_MASK
     else if SwingUtilities.isRightMouseButton(e) then
       buttonsState &= ~RIGHT_BUTTON_MASK
     else if SwingUtilities.isMiddleMouseButton(e) then
