@@ -4,7 +4,7 @@ import ucesoft.smd.Display
 
 import java.awt.{Point, Robot, Toolkit}
 import java.awt.event.{MouseEvent, MouseListener, MouseMotionListener}
-import javax.swing.SwingUtilities
+import javax.swing.{SwingUtilities, Timer}
 
 /**
  * @author Alessandro Abbruzzetti
@@ -49,11 +49,8 @@ class MouseController(override val index: Int,display:Display) extends Controlle
   private var state = 0x60
   private var counter = 0
   private var mx, my = 0
-  private var lastmx, lastmy = -1
   private var waitHandshake = 0
-  private var resetCounter = 0
   private val robot = new Robot()
-  private var cage = false
   private val emptyCursor = {
     val cursor = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
     Toolkit.getDefaultToolkit.createCustomCursor(cursor,new Point(0, 0),"null")
@@ -66,12 +63,16 @@ class MouseController(override val index: Int,display:Display) extends Controlle
       case _ =>
         mouseStartWithCTRLandLeftEnabled = false
 
-  def setCage(enabled:Boolean): Unit =
-    cage = enabled
+  def mouseEnabled(enabled:Boolean): Unit =
+    val window = SwingUtilities.getWindowAncestor(display)
     if enabled then
-      SwingUtilities.getWindowAncestor(display).setCursor(emptyCursor)
+      window.setCursor(emptyCursor)
+      display.addMouseListener(this)
+      display.addMouseMotionListener(this)
     else
-      display.setCursor(new java.awt.Cursor(java.awt.Cursor.DEFAULT_CURSOR))
+      window.setCursor(new java.awt.Cursor(java.awt.Cursor.DEFAULT_CURSOR))
+      display.removeMouseListener(this)
+      display.removeMouseMotionListener(this)
 
   override def readData(): Int =
     var read = 0
@@ -96,10 +97,6 @@ class MouseController(override val index: Int,display:Display) extends Controlle
         read = (my >> 4) & 0x0F
       case 9 => // Y Axis LSB
         read = my & 0x0F
-        if resetCounter > 0 then
-          resetCounter -= 1
-          if resetCounter == 0 then
-            mx = 0 ; my = 0
 
       if waitHandshake > 0 then
         waitHandshake -= 1
@@ -128,13 +125,14 @@ class MouseController(override val index: Int,display:Display) extends Controlle
   override def mouseDragged(e: MouseEvent): Unit = {}
 
   override def mouseMoved(e: MouseEvent): Unit =
-    if lastmx == -1 then lastmx = e.getX
-    if lastmy == -1 then lastmy = e.getY
-    mx = e.getX - lastmx
-    my = lastmy - e.getY
-    lastmx = e.getX
-    lastmy = e.getY
-    resetCounter = 4
+    val loc = display.getLocationOnScreen
+    val cx = loc.x + (display.getWidth >> 1)
+    val cy = loc.y + (display.getHeight >> 1)
+    mx = e.getX - (display.getWidth >> 1)
+    my = (display.getHeight >> 1) - e.getY
+    val timer = new Timer(1,_ => robot.mouseMove(cx,cy))
+    timer.setRepeats(false)
+    timer.start()
 
   override def mouseClicked(e: MouseEvent): Unit = {}
 
@@ -160,8 +158,6 @@ class MouseController(override val index: Int,display:Display) extends Controlle
 
   override def mouseEntered(e: MouseEvent): Unit = {}
 
-  override def mouseExited(e: MouseEvent): Unit =
-    if cage then
-      val loc = display.getLocationOnScreen
-      robot.mouseMove(loc.x + lastmx,loc.y + lastmy)
+  override def mouseExited(e: MouseEvent): Unit = {}
+
 

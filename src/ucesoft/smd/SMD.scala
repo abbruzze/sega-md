@@ -4,6 +4,7 @@ import com.formdev.flatlaf.FlatLightLaf
 import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.audio.{FM, PSG}
+import ucesoft.smd.controller.ControllerType.MouseStartWithCTRLAndLeft
 import ucesoft.smd.controller.{ControllerType, KeyboardPADController, MouseController}
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
@@ -138,8 +139,8 @@ object SMD:
     mmu.setController(2,c3)
 
     f.addKeyListener(c1)
-    display.addMouseListener(c2)
-    display.addMouseMotionListener(c2)
+    c2.mouseEnabled(true)
+    c2.setControllerType(MouseStartWithCTRLAndLeft)
 
     val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp)
     deb.enableTracing(true)
@@ -181,3 +182,6 @@ object SMD:
     })
 
     masterClock.start()
+
+    Thread.sleep(20000)
+    c2.mouseEnabled(false)
