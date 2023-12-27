@@ -72,7 +72,7 @@ class Cart(val file:String):
     import Device.*
     val devices = (DEVICE_ADDR until DEVICE_ADDR + 16).map(rom).filterNot(_ == 32).map(_.toChar).toList
 
-    devices.map {
+    val unfiltered = devices.map {
       case 'J' => Controller_3
       case '6' => Controller_6
       case '0' => MasterSystemController
@@ -92,6 +92,8 @@ class Cart(val file:String):
       case 'D' => Download
       case _ => UNKNOWN
     }
+    
+    unfiltered.filterNot(_ == UNKNOWN)
 
   private def getRegions: List[Region] =
     val regs = (REGION_ADDR until REGION_ADDR + 3).map(rom).filterNot(_ == 32)
@@ -161,7 +163,7 @@ class Cart(val file:String):
   def getExtraMemoryInfo: Option[ExtraMemory] = Option(extraMemory)
 
   def getDomesticName: String = cartNameDomestic
-  def getOveseaName: String = cartNameOversea
+  def getOverseaName: String = cartNameOversea
   def getSystemType: SYSTEM_TYPE = systemType
   def getRegionList: List[Region] = regions
   def getDeviceList: List[Device] = devices

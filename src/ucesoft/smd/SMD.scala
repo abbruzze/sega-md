@@ -9,8 +9,9 @@ import ucesoft.smd.controller.{ControllerType, KeyboardPADController, MouseContr
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger
-import ucesoft.smd.ui.MessageGlassPane
+import ucesoft.smd.ui.{MessageBoard, MessageGlassPane}
 
+import java.awt.Color
 import javax.swing.*
 
 /**
@@ -46,7 +47,6 @@ object SMD:
     val vdp = new VDP(busArbiter)
     val model = Model(ModelType.Oversea, vmodel, MEGA_DRIVE_VERSION)
     vdp.setModel(model)
-    vdp.setMasterClock(masterClock)
 
     val f = new JFrame("Test SMD")
 
@@ -80,10 +80,10 @@ object SMD:
 
     mmu.setAudioChips(psgAudio.sn76489,fmAudio)
 
-    val masterLoop = new Clockable:
+    val masterLoop = new Clockable with VDP.VDPChangeClockRateListener:
       private inline val MULTIPLIER = 65536
-      private final val m68Div = math.round((4.0 / 7.0) * MULTIPLIER).toInt
-      private final val z80Div = math.round((4.0 / 15.0) * MULTIPLIER).toInt
+      private final var m68Div = 0
+      private final var z80Div = 0
       private var m68Acc = 0
       private var z80Acc = 0
       private val psgSampleCycles = psgAudio.getCyclesPerSample
@@ -91,6 +91,14 @@ object SMD:
       private var fmCycles = 0
       private var m68WaitCycles = 0
       private var z80WaitCycles = 0
+
+      clockRateChanged(VDP_CLOCK_DIVIDER)
+
+      override final def clockRateChanged(rate: Int): Unit =
+        if m68Div != 0 then
+          masterClock.setClockDivider(0,rate)
+        m68Div = math.round((rate / 7.0) * MULTIPLIER).toInt
+        z80Div = math.round((rate / 15.0) * MULTIPLIER).toInt
 
       override final def clock(cycles: Long): Unit =
         vdp.clock(cycles) // VDP
@@ -121,8 +129,9 @@ object SMD:
               psgAudio.clock()
           end if
 
+    vdp.setClockRateChangeListener(masterLoop)
     masterClock.setClockables(masterLoop)
-    masterClock.setClockDivider(0,VDP_CLOCK_DIVIDER)
+    masterClock.setClockDivider(0, VDP_CLOCK_DIVIDER)
     // *******************************************************************
     busArbiter.set(m68k,z80,fmAudio)
 
@@ -139,7 +148,7 @@ object SMD:
     mmu.setController(2,c3)
 
     f.addKeyListener(c1)
-    c2.mouseEnabled(true)
+    //c2.mouseEnabled(true)
     c2.setControllerType(MouseStartWithCTRLAndLeft)
 
     val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp)
@@ -155,13 +164,25 @@ object SMD:
     psgAudio.setLogger(Logger.getLogger)
 
     var glassPane : MessageGlassPane = null
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\mouse_test10.bin""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Mega Turrican (USA).md""")
     println(cart)
     SwingUtilities.invokeAndWait(() => {
       f.setVisible(true)
       glassPane = new MessageGlassPane(f)
     })
-    glassPane.add(MessageGlassPane.Message(cart.getOveseaName, MessageGlassPane.XPOS.CENTER, MessageGlassPane.YPOS.BOTTOM, 2000, None, Some(2000)))
+    glassPane.addMessage(MessageBoard.builder.message("SCALA").xcenter().ycenter().yoffset(-1).delay(500).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())
+    glassPane.addMessage(MessageBoard.builder.message("MEGA DRIVE").xcenter().ycenter().delay(500).fadingMilliseconds(500).color(Color.YELLOW).build())
+    glassPane.addMessage(MessageBoard.builder.message("EMULATOR").xcenter().ycenter().yoffset(1).delay(500).fadingMilliseconds(500).color(Color.YELLOW).build())
+    glassPane.addMessage(MessageBoard.builder.
+      message(cart.getOverseaName).
+      xcenter().
+      ybottom().
+      delay(2000).
+      fadingMilliseconds(2000).
+      hideLogo().
+      build()
+    )
+    glassPane.addMessage(MessageBoard.builder.hideLogo().build())
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)
@@ -183,5 +204,5 @@ object SMD:
 
     masterClock.start()
 
-    Thread.sleep(20000)
-    c2.mouseEnabled(false)
+//    Thread.sleep(20000)
+//    c2.mouseEnabled(false)

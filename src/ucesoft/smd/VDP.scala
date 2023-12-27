@@ -41,6 +41,11 @@ object VDP:
 
   trait DMAEventListener:
     def onDMAEvent(event:DMAEvent): Unit
+    
+  trait VDPChangeClockRateListener:
+    def clockRateChanged(rate:Int): Unit
+    
+end VDP
 
 
 /**
@@ -495,6 +500,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var debugRegister = 0
 
   private var dmaEventListener : DMAEventListener = _
+  
+  private var clockRateListener : VDPChangeClockRateListener = _
 
   /*
    8 bytes info
@@ -656,11 +663,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   // references to other components
   private var m68KMemory : Memory = _
   private var m68KBUSRequsted = false
-  private var masterClock : Clock = _
 
   // ============================= Constructor =========================================
   hardReset()
   // ===================================================================================
+  
+  def setClockRateChangeListener(l:VDPChangeClockRateListener): Unit =
+    clockRateListener = l
 
   def setDMAEventListener(el:DMAEventListener): Unit =
     this.dmaEventListener = el
@@ -673,9 +682,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   def set68KMemory(mem:Memory): Unit =
     m68KMemory = mem
-
-  def setMasterClock(clock:Clock): Unit =
-    masterClock = clock
 
   override def init(): Unit =
     vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
@@ -723,8 +729,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     vdpLayerPatternBuffer(S).reset()
     //sprite1VisibleCurrentIndex = 0
     //java.util.Arrays.fill(sprite1VisibleIndexes,-1)
-    if masterClock != null then
-      changeVDPClockDivider(hmode.initialClockDiv)
+    changeVDPClockDivider(hmode.initialClockDiv)
     verticalBlanking = true
     frameCount = 0
 
@@ -1892,8 +1897,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     vcounterInc += 1
 
   inline private def changeVDPClockDivider(clockDiv:Int): Unit =
-    //masterClock.setVDPClockDivider(clockDiv)
-    masterClock.setClockDivider(0,clockDiv)
+    if clockRateListener != null then
+      clockRateListener.clockRateChanged(clockDiv)
 
   /*
    Every VDP cycle 2 sprites are checked, that means one sprite every pixel.
