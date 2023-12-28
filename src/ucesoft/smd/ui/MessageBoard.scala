@@ -17,7 +17,17 @@ object MessageBoard:
   enum LOGO:
     case SHOW, HIDE, IGNORE
 
-  case class Message(text: String, xpos: XPOS, ypos: YPOS, millis: Int, color: Option[Color], fadingMillis: Option[Int], font: Option[Font], showLogo: LOGO, yoffset: Int)  
+  case class Message(text: String, 
+                     xpos: XPOS, 
+                     ypos: YPOS, 
+                     millis: Int, 
+                     color: Option[Color], 
+                     fadingMillis: Option[Int], 
+                     font: Option[String], 
+                     showLogo: LOGO, 
+                     yoffset: Int,
+                     bold:Boolean,
+                     italic:Boolean)  
   
   trait MessageBoardListener:
     def addMessage(msg:Message): Unit
@@ -30,10 +40,12 @@ object MessageBoard:
     private var ypos = YPOS.CENTER
     private var color : Option[Color] = None
     private var fadingMillis : Option[Int] = None
-    private var font : Option[Font] = None
+    private var font : Option[String] = None
     private var delay = 0
     private var showLogoImage = LOGO.IGNORE
     private var yoffset = 0
+    private var boldFont = false
+    private var italicFont = false
     
     def showLogo(): MessageBuilder =
       showLogoImage = LOGO.SHOW ; this
@@ -58,7 +70,7 @@ object MessageBoard:
       this
     def color(color:Color): MessageBuilder =
       this.color = Some(color) ; this
-    def font(font:Font): MessageBuilder =
+    def font(font:String): MessageBuilder =
       this.font = Some(font) ; this
     def fadingMilliseconds(millis:Int): MessageBuilder =
       this.fadingMillis = Some(millis) ; this  
@@ -66,6 +78,10 @@ object MessageBoard:
       this.delay = millis ; this
     def yoffset(offset:Int): MessageBuilder =
       yoffset = offset ; this
-    def build(): Message = Message(text,xpos,ypos,delay,color,fadingMillis,font,showLogoImage,yoffset)
+    def bold(): MessageBuilder =
+      boldFont = true ; this
+    def italic(): MessageBuilder =
+      italicFont = true ; this
+    def build(): Message = Message(text,xpos,ypos,delay,color,fadingMillis,font,showLogoImage,yoffset,boldFont,italicFont)
       
     

@@ -19,12 +19,11 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
   private var enabled = true
   private val queue = new LinkedBlockingDeque[Message]
   private val thread = new Thread(this,"MessageGlassThread")
-  private var messageOnScreenLock = new CountDownLatch(1)
+  private val panelReadyWait = new CountDownLatch(1)
   private val messageTimerExecutor = Executors.newFixedThreadPool(1)
   private val font = new JLabel().getFont
   private val logoImage = new ImageIcon(getClass.getResource("/resources/sonic_ring.png")).getImage
   private var showLogo = false
-  private var label : JLabel = _
   private val glassPane = new JPanel:
     setOpaque(false)
     override def paintComponent(g: Graphics): Unit =
@@ -47,8 +46,8 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
   thread.start()
 
   def run(): Unit =
+    panelReadyWait.await()
     while true do
-      messageOnScreenLock.await()
       msg = queue.take()
       msg.showLogo match
         case LOGO.SHOW =>
@@ -56,8 +55,6 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
         case LOGO.HIDE =>
           showLogo = false
         case LOGO.IGNORE =>
-      messageOnScreenLock = new CountDownLatch(1)
-      //SwingUtilities.invokeAndWait(() => renderMessage(startTimer = true))
       renderMessage(startTimer = true)
 
 
@@ -66,24 +63,32 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
 
   private def initPane(): Unit =
     val insets = frame.getContentPane.getBounds
-    //val glassPane = frame.getGlassPane.asInstanceOf[JPanel]
     frame.setGlassPane(glassPane)
     glassPane.setLayout(null)
     glassPane.setVisible(true)
     xoff = insets.x
     yoff = insets.y
-    messageOnScreenLock.countDown()
+    panelReadyWait.countDown()
 
   private def renderMessage(startTimer:Boolean = false): Unit =
-    val glassPane = frame.getGlassPane.asInstanceOf[JPanel]
     glassPane.removeAll()
 
     if msg != null then
       val fsize = frame.getSize
       val fontSize = fsize.width / FONT_WINDOW_WIDTH_RATIO
-      label = new JLabel(msg.text)
+      val label = new JLabel(msg.text)
       label.setForeground(msg.color.getOrElse(Color.WHITE))
-      label.setFont(msg.font.getOrElse(font).deriveFont(fontSize).deriveFont(Font.BOLD))
+      var labelFont = msg.font match
+        case Some(f) =>
+          Font.decode(f)
+        case None =>
+          font
+      labelFont = labelFont.deriveFont(fontSize)
+      if msg.bold then
+        labelFont = labelFont.deriveFont(Font.BOLD)
+      if msg.italic then
+        labelFont = labelFont.deriveFont(Font.ITALIC)
+      label.setFont(labelFont)
       val fm = label.getFontMetrics(label.getFont)
       glassPane.add(label)
 
@@ -108,24 +113,22 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
       glassPane.repaint()
 
       if startTimer then
-        messageTimerExecutor.execute(() => {
-          Thread.sleep(msg.millis)
-          val fadingMillis = msg.fadingMillis.getOrElse(0)
-          if fadingMillis > 0 then
-            val sleep = fadingMillis / 256
-            var color = label.getForeground
-            var c = 255
-            while c >= 0 do
-              color = new Color(color.getRed, color.getGreen, color.getBlue, c)
-              label.setForeground(color)
-              Thread.sleep(sleep)
-              c -= 1
-          messageOnScreenLock.countDown()
-          msg = null
-          SwingUtilities.invokeAndWait(() => {
-            glassPane.removeAll()
-            glassPane.repaint()
-          })
+        Thread.sleep(msg.millis)
+        val fadingMillis = msg.fadingMillis.getOrElse(0)
+        if fadingMillis > 0 then
+          val sleep = fadingMillis / 256
+          var color = label.getForeground
+          var c = 255
+          while c >= 0 do
+            color = new Color(color.getRed, color.getGreen, color.getBlue, c)
+            label.setForeground(color)
+            Thread.sleep(sleep)
+            c -= 1
+        panelReadyWait.countDown()
+        msg = null
+        SwingUtilities.invokeAndWait(() => {
+          glassPane.removeAll()
+          glassPane.repaint()
         })
   def setGlassPaneEnabled(enabled:Boolean): Unit =
     this.enabled = enabled
