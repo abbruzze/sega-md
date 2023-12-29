@@ -44,6 +44,9 @@ object VDP:
     
   trait VDPChangeClockRateListener:
     def clockRateChanged(rate:Int): Unit
+
+  trait VDPNewFrameListener:
+    def onNewFrame(): Unit
     
 end VDP
 
@@ -476,7 +479,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var hcounter = 0          // internal 9 bit h-counter
   private var vcounter = 0          // internal 9 bit v-counter
   private var latchedHVCounter = 0  // latched value of hcounter + vcounter
-  private var vcounterInc = 0
   private var hInterruptCounter = 0 // horizontal interrupt counter
 
   private val layerPixels = Array(0,0,0) // pixels from A, B and S
@@ -502,6 +504,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var dmaEventListener : DMAEventListener = _
   
   private var clockRateListener : VDPChangeClockRateListener = _
+  private var newFrameListener : VDPNewFrameListener = _
 
   /*
    8 bytes info
@@ -644,6 +647,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var sprite1VisibleSR,sprite1VisibleNextLineSR = new SpriteVisibleSR
   private var sprite1VisibleCurrentIndex = 0
   private var sprite1FirstFetch = true
+  private var spritesLinePixels = 0
   // for sprite phase 2
   private final val sprite2Info = Array.fill[SpriteInfo](MAX_SPRITES_PER_ROW)(new SpriteInfo)
   private var sprite2CurrentIndex,sprite2Size = 0
@@ -667,7 +671,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   // ============================= Constructor =========================================
   hardReset()
   // ===================================================================================
-  
+  def setNewFrameListener(l:VDPNewFrameListener): Unit =
+    newFrameListener = l
   def setClockRateChangeListener(l:VDPChangeClockRateListener): Unit =
     clockRateListener = l
 
@@ -886,13 +891,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       if !writePendingFlag then
         writePendingFlag = true
         codeRegister = codeRegister & 0x3C | (pendingControlPortCommand >> 14) & 3 // update CD0-CD1 only
-        val oldAdr = addressRegister
+        //val oldAdr = addressRegister
         addressRegister = addressRegister & 0xC000 | pendingControlPortCommand & 0x3FFF // update A0-A13 only
         //println(s"1st write: pendingControlPortCommand=${pendingControlPortCommand.toHexString} oldaddress=${oldAdr.toHexString} address=${addressRegister.toHexString}")
       else
         writePendingFlag = false
         codeRegister = (pendingControlPortCommand & 0x00F0) >> 2 | codeRegister & 3
-        val oldAdr = addressRegister
+        //val oldAdr = addressRegister
         addressRegister = (pendingControlPortCommand & 3) << 14 | addressRegister & 0x3FFF
         //println(s"2nd write: pendingControlPortCommand=${pendingControlPortCommand.toHexString} oldaddress=${oldAdr.toHexString} address=${addressRegister.toHexString}")
         // check DMA bit CD5
@@ -1492,6 +1497,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       vdp4read.set(REG_SPRITE_ATTR_ADDRESS + (spriteIndex << 3) + 4) // ignores first 4 bytes
       if sprite1FirstFetch then
         sprite2CurrentIndex = 0
+        spritesLinePixels = 0
         sprite2Size = sprite1VisibleSR.getSize
         sprite1FirstFetch = false
 
@@ -1530,7 +1536,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         while bit < 8 do
           val patternBit = (buffer >>> 28) & 0x0F
           buffer <<= 4
-          if patternBit != 0 && xpos >= 0 && xpos < activeWidth then // ok sprite is visible
+          if patternBit != 0 && xpos >= 0 && xpos < activeWidth && spritesLinePixels < activeWidth then // ok sprite is visible
             val pattern = vdpLayerPatternBuffer(S).get(xpos)
             if (pattern & 0xF) == 0 then
               vdpLayerPatternBuffer(S).put(xpos,prpl | patternBit)
@@ -1538,6 +1544,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
               statusRegister |= STATUS_C_MASK
           bit += 1
           xpos += 1
+          spritesLinePixels += 1
         end while
       if spriteInfo.incCell() then
         sprite2CurrentIndex += 1
@@ -1616,6 +1623,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     sprite1VisibleSR.reset()
     sprite1VisibleNextLineSR.reset()
 
+    if newFrameListener != null then
+      newFrameListener.onNewFrame()
+
   private def endOfLine(): Unit =
     val videoType = model.videoType
     val v30 = REG_M2
@@ -1637,10 +1647,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     if inYActiveDisplay then
       activeDisplayLine += 1//vcounterInc
-      if activeDisplayLine == (if v30 then 240 else 224) then
+      if activeDisplayLine >= (if v30 then 240 else 224) then
         inYActiveDisplay = false
-
-    vcounterInc = 0
 
     verticalBlanking = rasterLine < videoType.topBlankingPixels || rasterLine >= bottomBorderPos + videoType.bottomBorderPixels
     isVerticalBorder = !verticalBlanking && (rasterLine >= bottomBorderPos || rasterLine < videoType.topBlankingPixels + videoType.topBorderPixels)
@@ -1894,8 +1902,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       statusRegister &= ~STATUS_VB_MASK
 
     vcounter = (vcounter + 1) & 0x1FF // 9-bit counter
-    vcounterInc += 1
-
   inline private def changeVDPClockDivider(clockDiv:Int): Unit =
     if clockRateListener != null then
       clockRateListener.clockRateChanged(clockDiv)

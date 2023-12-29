@@ -2,7 +2,7 @@ package ucesoft.smd.ui
 
 import ucesoft.smd.ui.MessageBoard.XPOS.CENTER
 
-import java.awt.{Color, Font}
+import java.awt.Color
 
 /**
  * @author Alessandro Abbruzzetti
@@ -16,21 +16,30 @@ object MessageBoard:
     case LEFT, CENTER, RIGHT
   enum LOGO:
     case SHOW, HIDE, IGNORE
+  enum MessageLevel(val severity: Int):
+    case ADMIN extends MessageLevel(1)
+    case NORMAL extends MessageLevel(0)
+    
+    def accept(t:MessageLevel): Boolean =
+      severity <= t.severity
 
-  case class Message(text: String, 
-                     xpos: XPOS, 
-                     ypos: YPOS, 
-                     millis: Int, 
-                     color: Option[Color], 
-                     fadingMillis: Option[Int], 
-                     font: Option[String], 
-                     showLogo: LOGO, 
+  case class Message(text: String,
+                     xpos: XPOS,
+                     ypos: YPOS,
+                     millis: Int,
+                     color: Option[Color],
+                     fadingMillis: Option[Int],
+                     font: Option[String],
+                     showLogo: LOGO,
                      yoffset: Int,
                      bold:Boolean,
-                     italic:Boolean)  
+                     italic:Boolean,
+                     messageLevel: MessageLevel)  
   
   trait MessageBoardListener:
     def addMessage(msg:Message): Unit
+    def enableMessages(enabled: Boolean): Unit
+    def setLevel(level:MessageLevel): Unit
     
   def builder: MessageBuilder = new MessageBuilder
     
@@ -46,6 +55,7 @@ object MessageBoard:
     private var yoffset = 0
     private var boldFont = false
     private var italicFont = false
+    private var messageType = MessageLevel.NORMAL
     
     def showLogo(): MessageBuilder =
       showLogoImage = LOGO.SHOW ; this
@@ -82,6 +92,8 @@ object MessageBoard:
       boldFont = true ; this
     def italic(): MessageBuilder =
       italicFont = true ; this
-    def build(): Message = Message(text,xpos,ypos,delay,color,fadingMillis,font,showLogoImage,yoffset,boldFont,italicFont)
+    def adminLevel(): MessageBuilder =
+      messageType = MessageLevel.ADMIN ; this
+    def build(): Message = Message(text,xpos,ypos,delay,color,fadingMillis,font,showLogoImage,yoffset,boldFont,italicFont,messageType)
       
     

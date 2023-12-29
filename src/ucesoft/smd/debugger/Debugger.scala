@@ -5,6 +5,8 @@ import org.fife.ui.rtextarea.RTextScrollPane
 import ucesoft.smd.cpu.m68k.*
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.DebuggerUI.*
+import ucesoft.smd.ui.MessageBoard
+import ucesoft.smd.ui.MessageBoard.MessageBoardListener
 import ucesoft.smd.{Cart, Logger, VDP}
 
 import java.awt.event.{MouseAdapter, MouseEvent}
@@ -33,12 +35,13 @@ object Debugger:
  * @author Alessandro Abbruzzetti
  *         Created on 15/10/2023 14:44
  */
-class Debugger(m68k:M6800X0,
+class Debugger(m68k:M68000,
                m68kMemory:Memory,
                m68kRAM:Array[Int],
                z80:Z80,
                z80Ram:Array[Int],
-               vdp:VDP):
+               vdp:VDP,
+               messageBoard: MessageBoardListener) extends VDP.VDPNewFrameListener:
   import Debugger.*
   private enum StepState:
     case NoStep, WaitReturn, WaitTarget
@@ -70,6 +73,12 @@ class Debugger(m68k:M6800X0,
   private val onOffButton = new JToggleButton(new ImageIcon(getClass.getResource("/resources/trace/on.png")))
   private val vdpMemDump = vdp.getMemoryDump
 
+  private var layersDialogActive = false
+  private var frameByFrameMode = false
+  private val frameByFrameLock = new Object
+  private var frameByFrameCond = false
+  private var frameCount = 0
+
   private val vramMemoryDumpItem = new JCheckBoxMenuItem("VDP VRAM")
   private val cramMemoryDumpItem = new JCheckBoxMenuItem("VDP CRAM")
   private val vsramMemoryDumpItem = new JCheckBoxMenuItem("VDP VSRAM")
@@ -80,7 +89,8 @@ class Debugger(m68k:M6800X0,
   private val vdpVRAMDialog = new MemoryDumper(vdpMemDump.ram, 0, "VRAM", frame, () => vramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val vdpVSRAMDialog = new MemoryDumper(vdpMemDump.vsram, 0, "VSRAM", frame, () => vsramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val vdpCRAMDialog = new MemoryDumper(vdpMemDump.cram, 0, "CRAM", frame, () => cramMemoryDumpItem.setSelected(false), withColorDumper = true).dialog
-  private val patternLayersDialog = new LayerDumper(vdpMemDump.ram, vdpMemDump.cram, "Pattern Layers", vdp, frame, () => layerDumpItem.setSelected(false)).dialog
+  private val patternLayers = new LayerDumper(vdpMemDump.ram, vdpMemDump.cram, "Pattern Layers", vdp, frame, () => layerDumpItem.setSelected(false),active => { layersDialogActive = active ; checkVDPNewFrameState() })
+  private val patternLayersDialog = patternLayers.dialog
   private val m68KramDialog = new MemoryDumper(m68kRAM, 0xFF0000, "68K RAM", frame, () => m68kramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val z80RamDialog = new MemoryDumper(z80Ram, 0x0000, "Z80 RAM", frame, () => z80RamMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val romDumpItem = new JCheckBoxMenuItem("Cart's ROM")
@@ -137,6 +147,9 @@ class Debugger(m68k:M6800X0,
     private var breakOnHalt = false
 
     init()
+
+    override protected def onCPUEnabled(enabled:Boolean): Unit =
+      z80.setComponentEnabled(enabled)
 
     private def existsBreakPending: Boolean =
       breaks.nonEmpty || breakOnReset || breakOnInterrupt || breakOnHalt
@@ -284,6 +297,9 @@ class Debugger(m68k:M6800X0,
       new Default68KDisassembleAnnotator)
     private val vdpTableMode = new VDPPropertiesTableModel(vdp,frame)
     private val distable = new JTable(disassembledTableModel)
+
+    override protected def onCPUEnabled(enabled:Boolean): Unit =
+      m68k.setComponentEnabled(enabled)
 
     override def hasBreakAt(address: Int): Boolean = debugger.hasBreakAt(address)
     override def addExecuteBreakAt(address: Int): Unit = debugger.addExecuteBreakAt(address)
@@ -561,12 +577,26 @@ class Debugger(m68k:M6800X0,
     writeButton.addActionListener(_ => memoryGUI())
     writeButton.setToolTipText("Memory")
 
+    val nextFrame = new JToggleButton(new ImageIcon(getClass.getResource("/resources/trace/nextFrame.png")))
+    nextFrame.addActionListener(_ => advanceByOneFrame())
+    nextFrame.setToolTipText("Advance by one frame")
+    nextFrame.setEnabled(false)
+
+    val frameByFrameMode = new JToggleButton(new ImageIcon(getClass.getResource("/resources/trace/frameByFrameMode.png")))
+    frameByFrameMode.addActionListener(_ => {
+      nextFrame.setEnabled(frameByFrameMode.isSelected)
+      setFrameByFrameMode(frameByFrameMode.isSelected)
+    })
+    frameByFrameMode.setToolTipText("Frame by frame mode")
+
     toolBar.add(onOffButton)
     toolBar.add(stepInButton)
     toolBar.add(stepOverButton)
     toolBar.add(stepOutButton)
     toolBar.add(disaButton)
     toolBar.add(writeButton)
+    toolBar.add(frameByFrameMode)
+    toolBar.add(nextFrame)
 
     // log panel
     logPanel.setEditable(false)
@@ -719,6 +749,35 @@ class Debugger(m68k:M6800X0,
     logPanel.append(msg)
     logPanel.append("\n")
   }
+
+  private def checkVDPNewFrameState(): Unit =
+    if frameByFrameMode || layersDialogActive then
+      vdp.setNewFrameListener(this)
+    else
+      vdp.setNewFrameListener(null)
+      advanceByOneFrame()
+
+  override def onNewFrame(): Unit =
+    patternLayers.onNewFrame()
+    if frameByFrameMode then
+      frameByFrameLock.synchronized {
+        while frameByFrameCond do
+          frameByFrameLock.wait(1000)
+      }
+      frameByFrameCond = true
+
+  private def setFrameByFrameMode(on:Boolean): Unit =
+    frameByFrameMode = on
+    frameByFrameCond = on
+    frameCount = 0
+    checkVDPNewFrameState()
+  private def advanceByOneFrame(): Unit =
+    frameByFrameLock.synchronized {
+      frameByFrameCond = false
+      frameByFrameLock.notify()
+    }
+    frameCount += 1
+    messageBoard.addMessage(MessageBoard.builder.message(s"$frameCount  ").ytop().xright().delay(500).fadingMilliseconds(100).adminLevel().build())
 
 
 

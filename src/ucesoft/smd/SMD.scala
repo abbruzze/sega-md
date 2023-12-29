@@ -141,17 +141,23 @@ object SMD:
     })
 
     val c1 = new KeyboardPADController(0,ControllerType.PAD6Buttons,masterClock)
-    val c2 = new MouseController(1,display)
-    val c3 = new KeyboardPADController(2,ControllerType.PAD6Buttons,masterClock)
+    val c2 = new MouseController(2,display)
+    val c3 = new KeyboardPADController(1,ControllerType.PAD6Buttons,masterClock)
     mmu.setController(0,c1)
-    mmu.setController(1,c2)
-    mmu.setController(2,c3)
+    mmu.setController(2,c2)
+    mmu.setController(1,c3)
 
     f.addKeyListener(c1)
     //c2.mouseEnabled(true)
     c2.setControllerType(MouseStartWithCTRLAndLeft)
 
-    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp)
+    var glassPane: MessageGlassPane = null
+    SwingUtilities.invokeAndWait(() => {
+      f.setVisible(true)
+      glassPane = new MessageGlassPane(f)
+    })
+
+    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp,glassPane)
     deb.enableTracing(true)
     val logger = Logger.setLogger(deb.log)
     logger.setLevel(java.util.logging.Level.INFO)
@@ -163,18 +169,15 @@ object SMD:
     fmAudio.setLogger(Logger.getLogger)
     psgAudio.setLogger(Logger.getLogger)
 
-    var glassPane : MessageGlassPane = null
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Mega Turrican (USA).md""")
+
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\TiTAN - Overdrive (Rev1.1-106-Final) (Hardware).bi.""")
     println(cart)
-    SwingUtilities.invokeAndWait(() => {
-      f.setVisible(true)
-      glassPane = new MessageGlassPane(f)
-    })
-    glassPane.addMessage(MessageBoard.builder.message("SCALA").xcenter().ycenter().yoffset(-1).delay(500).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())
-    glassPane.addMessage(MessageBoard.builder.message("MEGA DRIVE").xcenter().ycenter().delay(500).fadingMilliseconds(500).color(Color.YELLOW).build())
-    glassPane.addMessage(MessageBoard.builder.message("EMULATOR").xcenter().ycenter().yoffset(1).delay(500).fadingMilliseconds(500).color(Color.YELLOW).build())
+
+    glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())
     glassPane.addMessage(MessageBoard.builder.
       message(cart.getOverseaName).
+      adminLevel().
+      bold().
       xcenter().
       ybottom().
       delay(2000).
@@ -197,7 +200,7 @@ object SMD:
     z80.setComponentEnabled(false)
     // The execution delay between the VDP and the M68000
     // is measured to be approximately 13 milliseconds with a logic analyzer.
-    masterClock.scheduleMillis(13,_ => {
+    masterClock.scheduleMillis(10,_ => {
       m68k.setComponentEnabled(true)
       z80.setComponentEnabled(true)
     })

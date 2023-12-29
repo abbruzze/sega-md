@@ -2,7 +2,7 @@ package ucesoft.smd.debugger
 
 import ucesoft.smd.{Palette, VDP}
 
-import java.awt.{BorderLayout, Color, Dimension, Graphics, Point, Rectangle}
+import java.awt.{BorderLayout, Color, Dimension, FlowLayout, Graphics, Point, Rectangle}
 import java.awt.event.{MouseEvent, MouseMotionAdapter}
 import java.awt.image.BufferedImage
 import javax.swing.*
@@ -17,7 +17,8 @@ class LayerDumper(vram:Array[Int],
                   override val title:String,
                   vdp:VDP,
                   override val frame:JFrame,
-                  override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame,title,windowCloseOperation):
+                  override val windowCloseOperation: () => Unit,
+                  activeListener: Boolean => Unit) extends RefreshableDialog(frame,title,windowCloseOperation) with VDP.VDPNewFrameListener with Runnable:
   private inline val LAYER_A = 0
   private inline val LAYER_B = 1
   private inline val LAYER_W = 2
@@ -81,11 +82,35 @@ class LayerDumper(vram:Array[Int],
   private val layerAddressLabel = new JLabel("000000")
   private val layerAddress = Array(0,0,0,0)
   private var spriteList : List[Sprite] = Nil
+  private val thread = new Thread(this,"LayerDumper")
+  private val lock = new Object
+  private var frameCount = 0
+  private var frameCountLimit = 15
 
   init()
 
+  override def windowActive(on: Boolean): Unit =
+    super.windowActive(on)
+    activeListener(on)
+
+  override def onNewFrame(): Unit =
+    frameCount += 1
+    if frameCount >= frameCountLimit then
+      frameCount = 0
+      lock.synchronized {
+        lock.notify()
+      }
+
+  override def run(): Unit =
+    while true do
+      lock.synchronized {
+        lock.wait()
+      }
+      updateModel()
+
   override protected def init(): Unit =
     super.init()
+    thread.start()
 
     val mainPanel = new JPanel(new BorderLayout())
     val paletteCombo = new JComboBox[String](Array("Palette 0","Palette 1","Palette 2","Palette 3"))
@@ -101,7 +126,20 @@ class LayerDumper(vram:Array[Int],
       updateModel()
     })
 
-    val buttonPanel = makeRefreshButtonPanel(new JLabel("Zoom:", SwingConstants.RIGHT),zoomCombo,new JLabel("Palette:", SwingConstants.RIGHT),paletteCombo,new JLabel("Address:",SwingConstants.RIGHT),layerAddressLabel)
+    val buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+    buttonPanel.add(new JLabel("Zoom:", SwingConstants.RIGHT))
+    buttonPanel.add(zoomCombo)
+    buttonPanel.add(new JLabel("Palette:", SwingConstants.RIGHT))
+    buttonPanel.add(paletteCombo)
+    buttonPanel.add(new JLabel("Address:",SwingConstants.RIGHT))
+    buttonPanel.add(layerAddressLabel)
+    val spinner = new JSpinner(new SpinnerNumberModel(frameCountLimit,1,20,1))
+    buttonPanel.add(new JLabel("Update every frame number:", SwingConstants.RIGHT))
+    buttonPanel.add(spinner)
+    spinner.addChangeListener(_ => {
+      frameCountLimit = spinner.getValue.asInstanceOf[Int]
+      println(frameCountLimit)
+    })
 
     for l <- LAYER_A to LAYER_S do
       val sp = new JScrollPane(layerLabels(l))
@@ -144,7 +182,7 @@ class LayerDumper(vram:Array[Int],
       val id = "%02X".format(sprite.spriteIndex)
       g.setColor(Color.YELLOW)
       g.drawString(id,sprite.x + (spriteWidth - fm.stringWidth(id)) / 2,sprite.y + spriteHeight / 2 + fm.getDescent)
-      spriteList += Sprite(id,new Rectangle(sprite.x,sprite.y,spriteWidth,spriteHeight),"%04X".format(sprite.gfx))
+      spriteList += Sprite(id,new Rectangle(sprite.x,sprite.y,spriteWidth,spriteHeight),"%X".format(sprite.gfx << 5))
       sprite.next match
         case Some(next) =>
           sprite = next

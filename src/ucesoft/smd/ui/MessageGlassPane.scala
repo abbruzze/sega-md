@@ -24,6 +24,7 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
   private val font = new JLabel().getFont
   private val logoImage = new ImageIcon(getClass.getResource("/resources/sonic_ring.png")).getImage
   private var showLogo = false
+  private var level = MessageLevel.ADMIN
   private val glassPane = new JPanel:
     setOpaque(false)
     override def paintComponent(g: Graphics): Unit =
@@ -57,9 +58,12 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
         case LOGO.IGNORE =>
       renderMessage(startTimer = true)
 
+  override def setLevel(level: MessageLevel): Unit =
+    this.level = level
 
   override def addMessage(msg:Message): Unit =
-    queue.offer(msg)
+    if level.accept(msg.messageLevel) then
+      queue.offer(msg)
 
   private def initPane(): Unit =
     val insets = frame.getContentPane.getBounds
@@ -104,9 +108,9 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
         case XPOS.LEFT =>
           0
         case XPOS.RIGHT =>
-          fsize.width - (fm.charsWidth(msg.text.toCharArray,0,msg.text.length) * 1.3).toInt
+          fsize.width - (fm.stringWidth(msg.text) * 1.3).toInt
         case XPOS.CENTER =>
-          (fsize.width - fm.charsWidth(msg.text.toCharArray,0,msg.text.length)) / 2
+          (fsize.width - fm.stringWidth(msg.text)) / 2
 
       val msgSize = label.getPreferredSize
       label.setBounds(xoff + x,yoff + y,msgSize.width,msgSize.height)
@@ -130,7 +134,7 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
           glassPane.removeAll()
           glassPane.repaint()
         })
-  def setGlassPaneEnabled(enabled:Boolean): Unit =
+  override def enableMessages(enabled:Boolean): Unit =
     this.enabled = enabled
     frame.getGlassPane.asInstanceOf[JPanel].setVisible(enabled)
 
