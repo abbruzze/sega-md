@@ -55,7 +55,7 @@ class SpriteDumper(vdp: VDP,
           java.lang.Boolean.valueOf(sprites(rowIndex).priority)
 
     def update(): Unit =
-      var spriteDump = vdp.getSpritesDump()
+      var spriteDump = vdp.getSpritesDump
       val buffer = new ListBuffer[VDP.VDPSpriteCacheDump]
       buffer += spriteDump
       while spriteDump.next.isDefined do

@@ -3,6 +3,8 @@ package ucesoft.smd
 import ucesoft.smd.HMode.H32
 import ucesoft.smd.cpu.m68k.{M6800X0, Memory, Size}
 import ucesoft.smd.cpu.z80.Z80
+import ucesoft.smd.ui.MessageBoard
+import ucesoft.smd.ui.MessageBoard.MessageBoardListener
 
 import java.awt.RenderingHints
 import scala.collection.mutable
@@ -519,6 +521,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   
   private var clockRateListener : VDPChangeClockRateListener = _
   private var newFrameListener : VDPNewFrameListener = _
+  private var messageListener : MessageBoardListener = _
 
   /*
    8 bytes info
@@ -685,6 +688,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   // ============================= Constructor =========================================
   hardReset()
   // ===================================================================================
+  def setMessageListener(l:MessageBoardListener): Unit =
+    messageListener = l
   def setNewFrameListener(l:VDPNewFrameListener): Unit =
     newFrameListener = l
   def setClockRateChangeListener(l:VDPChangeClockRateListener): Unit =
@@ -773,7 +778,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   def getPlayfieldSize: (Int,Int) = (REG_HSCROLL_SIZE.cell,REG_VSCROLL_SIZE.cell)
   def getScreenCells: (Int,Int) = (hmode.cells,if REG_M2 then 30 else 28)
 
-  def getSpritesDump(): VDPSpriteCacheDump = getSpritesDump(0,new mutable.HashSet[Int]).get
+  def getSpritesDump: VDPSpriteCacheDump = getSpritesDump(0,new mutable.HashSet[Int]).get
   private def getSpritesDump(i:Int,indexes:mutable.HashSet[Int]): Option[VDPSpriteCacheDump] =
     if indexes.contains(i) then None
     else
@@ -1005,18 +1010,22 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           println("SMS mode not supported.") // TODO
       case 12 => // REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|
         val h32 = REG_H32
-        interlaceMode = INTERLACE_MODE.fromOrdinal((value >> 1) & 3)
-        interlaceMode match
-          case INTERLACE_MODE.INTERLACE_2 =>
-            interlaceModeEnabled = true
-            display.setInterlaceMode(true)
-            videoPixels = display.displayMem
-            display.setClipArea(model.videoType.getClipArea(h40 = !h32).getInterlacedTuple)
-          case _ =>
-            display.setInterlaceMode(false)
-            display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
-            videoPixels = display.displayMem
-            interlaceModeEnabled = false
+        val imode = INTERLACE_MODE.fromOrdinal((value >> 1) & 3)
+        if imode != interlaceMode then
+          interlaceMode = imode
+          interlaceMode match
+            case INTERLACE_MODE.INTERLACE_2 =>
+              interlaceModeEnabled = true
+              display.setInterlaceMode(true)
+              videoPixels = display.displayMem
+              display.setClipArea(model.videoType.getClipArea(h40 = !h32).getInterlacedTuple)
+              sendMessage("Interlace mode on")
+            case _ =>
+              display.setInterlaceMode(false)
+              display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
+              videoPixels = display.displayMem
+              interlaceModeEnabled = false
+              sendMessage("Interlace mode off")
         val mode = if h32 then HMode.H32 else HMode.H40
         if h32 then
           display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_BICUBIC)
@@ -1028,6 +1037,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           changeVDPClockDivider(hmode.initialClockDiv)
           log.info("HMode set to %s", hmode)
           println(s"HMode set to $hmode")
+          sendMessage(s"HMode set to $hmode")
           display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
           vdpAccessSlot = vdpAccessSlot % hmode.vramAccessMatrix.length
           // TODO avoid index out of bound errors
@@ -1042,6 +1052,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   inline private def getVRAMAccessMode: Int = codeRegister & 0xF
   inline private def getVRAMAccessMode(code:Int): Int = code & 0xF
   inline private def isDMAInProgress: Boolean = (statusRegister & STATUS_DMA_MASK) != 0
+
+  private def sendMessage(msg:String): Unit =
+    if messageListener != null then
+      messageListener.addMessage(MessageBoard.builder.message(msg).bold().ybottom().xleft().delay(1000).fadingMilliseconds(500).build())
 
   def getProperties: VDPPropertiesDump =
     val props = new ListBuffer[VDPProperty]

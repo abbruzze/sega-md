@@ -9,6 +9,7 @@ import ucesoft.smd.controller.{ControllerType, KeyboardPADController, MouseContr
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger
+import ucesoft.smd.ui.MessageBoard.MessageLevel.NORMAL
 import ucesoft.smd.ui.{MessageBoard, MessageGlassPane}
 
 import java.awt.Color
@@ -157,6 +158,9 @@ object SMD:
       glassPane = new MessageGlassPane(f)
     })
 
+    glassPane.setLevel(NORMAL)
+    vdp.setMessageListener(glassPane)
+
     val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp,glassPane)
     deb.enableTracing(true)
     val logger = Logger.setLogger(deb.log)
@@ -170,7 +174,7 @@ object SMD:
     psgAudio.setLogger(Logger.getLogger)
 
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\TiTAN - Overdrive (Rev1.1-106-Final) (Hardware).bi.""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\Direct-Color-DMA.bin""")
     println(cart)
 
     glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())

@@ -11,7 +11,7 @@ class FM(sampleRate: Int, override val name: String) extends AudioDevice(sampleR
   private var outputCycles = 0
   private var L, R = 0
 
-  inline private val AUDIO_SCALE = 8
+  inline private val AUDIO_SCALE_SHIFT = 3
 
   override final def isStereo: Boolean = true
 
@@ -41,8 +41,8 @@ class FM(sampleRate: Int, override val name: String) extends AudioDevice(sampleR
     R = (R + pL) >> 1
     pL = L
     pR = R*/
-    LR(0) = L * AUDIO_SCALE
-    LR(1) = R * AUDIO_SCALE
+    LR(0) = L << AUDIO_SCALE_SHIFT
+    LR(1) = R << AUDIO_SCALE_SHIFT
     L = 0
     R = 0
 

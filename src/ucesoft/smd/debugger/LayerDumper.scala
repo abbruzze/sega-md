@@ -163,7 +163,7 @@ class LayerDumper(vram:Array[Int],
 
   private def updateSpriteImage(): Unit =
     val spriteLayer = new BufferedImage(512,512, BufferedImage.TYPE_INT_RGB)
-    var sprite = vdp.getSpritesDump()
+    var sprite = vdp.getSpritesDump
     val screenSize = vdp.getScreenCells
 
     val g = spriteLayer.getGraphics

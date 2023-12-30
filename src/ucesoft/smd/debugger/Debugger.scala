@@ -397,10 +397,10 @@ class Debugger(m68k:M68000,
       import InstructionType.*
       import StepState.*
       stepInstruction.instructionType match
-        case JSR | TRAP | TRAPV | ILLEGAL =>
+        /*case JSR | TRAP | TRAPV | ILLEGAL =>
           stepOverPending = WaitReturn
-          debugger.setStepAlways(true)
-        case DBRA | DBCC | DBCS | DBEQ | DBGE | DBGT | DBHI | DBLE | DBLS | DBMI | DBNE | DBPL | DBVC | DBVS =>
+          debugger.setStepAlways(true)*/
+        case JSR | TRAP | TRAPV | ILLEGAL | BSR | DBRA | DBCC | DBCS | DBEQ | DBGE | DBGT | DBHI | DBLE | DBLS | DBMI | DBNE | DBPL | DBVC | DBVS =>
           stepOverTargetAddress = stepDisassemble.address + stepDisassemble.size
           stepOverPending = WaitTarget
           debugger.setStepAlways(true)

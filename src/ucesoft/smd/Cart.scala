@@ -97,11 +97,14 @@ class Cart(val file:String):
 
   private def getRegions: List[Region] =
     val regs = (REGION_ADDR until REGION_ADDR + 3).map(rom).filterNot(_ == 32)
-    getRegionOldStyle(regs(0)) match
-      case Some(_) =>
-        regs.flatMap(getRegionOldStyle).toList
-      case _ =>
-        getRegionNewStyle(regs(0))
+    if regs.nonEmpty then
+      getRegionOldStyle(regs(0)) match
+        case Some(_) =>
+          regs.flatMap(getRegionOldStyle).toList
+        case _ =>
+          getRegionNewStyle(regs(0))
+    else
+      Nil
 
   private def getRegionOldStyle(c:Int): Option[Region] =
     c.toChar.toUpper match
