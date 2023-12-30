@@ -338,6 +338,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private val cache = Array.ofDim[Int](cells * 8) // max size 40 + 1 cells of 8 bits
     private var readIndex, writeIndex = 0
     private var skipFirst = 0
+    private var lastSkipFirst = 0
 
     final def reset(): Unit =
       readIndex = 0
@@ -348,8 +349,18 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       java.util.Arrays.fill(cache,0)
       reset()
 
+    final def align8(): Unit =
+      if lastSkipFirst > 0 then
+        var c = lastSkipFirst
+        while c > 0 do
+          if writeIndex < cache.length then
+            cache(writeIndex) = 0
+          writeIndex += 1
+          c -= 1
+
     final def skip(skipFirst: Int): Unit =
       this.skipFirst = skipFirst
+      lastSkipFirst = skipFirst
 
     final def put(index:Int,v:Int): Unit =
       cache(index) = v
@@ -380,6 +391,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         bit
       else
         0
+  end PatternBitCache
 
   private class VDPLayerAddress(layer:Int):
     private var baseAddress = 0
@@ -451,6 +463,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     final def incCellX(): Unit =
       cellx += 1
+  end VDPLayerAddress
 
   private val vdpLayer2CellMappingBuffer = Array(0,0)   // each entry contains 2 entry of 16 bits
   private val vdpLayerMappingAddress = Array(new VDPLayerAddress(A),new VDPLayerAddress(B))       // each entry reference the current x-cell position (0 - 32/40)
@@ -462,6 +475,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private val xscroll = Array(0,0)  // xscroll for layer A and B
   private val yscroll = Array(0,0)  // yscroll for layer A and B
   private val firstCellToXScroll = 0
+  private var lastIsInWindow = false
 
   private var activeDisplayLine = 0 // scanline within active raster lines (0 - V28 or V30 * 8)
   private var activeDisplayXPos = 0 // current pixel position within active scan line (256/320)
@@ -1415,8 +1429,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           hscrollSize,
           vscrollSize
         )
-        if xscrollFine > 0 && !vdpLayerMappingAddress(layer).isInsideWindow(activeDisplayLine >> 3) then
-          vdpLayerPatternBuffer(layer).skip(8 - xscrollFine)
+        if layer == A then
+          lastIsInWindow = vdpLayerMappingAddress(layer).isInsideWindow(activeDisplayLine >> 3)
+
+        if xscrollFine > 0 && !lastIsInWindow then
+          vdpLayerPatternBuffer(layer).skip(7 ^ xscrollFine)
 
         layer += 1
 
@@ -1453,7 +1470,19 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       if interlaceModeEnabled then
         yscroll(layer) >>= 1
 
-      if vdpLayerMappingAddress(layer).setCellY(activeDisplayLine,yscroll(layer)) then yscroll(layer) = 0
+      val isInWindow = vdpLayerMappingAddress(layer).setCellY(activeDisplayLine, yscroll(layer))
+      if isInWindow then
+        yscroll(layer) = 0
+      if layer == A then
+        val xscrollFine = xscroll(layer) & 7
+        if xscrollFine > 0 then
+          if lastIsInWindow && !isInWindow then
+            vdpLayerPatternBuffer(layer).skip(7 ^ xscrollFine)
+          else if !lastIsInWindow && isInWindow then
+            vdpLayerPatternBuffer(layer).align8()
+
+        lastIsInWindow = isInWindow
+
       vdp4read.set(vdpLayerMappingAddress(layer).address)
     end if
     if vdp4read.readVRAMByte() then
