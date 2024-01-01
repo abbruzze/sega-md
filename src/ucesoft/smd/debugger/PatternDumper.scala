@@ -1,6 +1,7 @@
 package ucesoft.smd.debugger
 
 import ucesoft.smd.Palette
+import ucesoft.smd.ui.JCustomTooltip
 
 import java.awt.*
 import java.awt.event.{MouseEvent, MouseMotionAdapter, WindowAdapter, WindowEvent}
@@ -64,12 +65,16 @@ class PatternDumper(vram:Array[Int],
     private var screenPoint : Point = _
     private val patternModel = new PatternTableModel
     private val table = new JTable(patternModel)
-    private val windowTip = new JWindow()
+    private val panelTip = new JPanel(new BorderLayout())
 
     init()
 
+    override def createToolTip(): JToolTip =
+      new JCustomTooltip(this,panelTip)
+
     private def init(): Unit =
       val sp = new JScrollPane(table)
+      setToolTipText("")
       table.setDefaultRenderer(classOf[String], new PatternCellRenderer)
       table.getTableHeader.setReorderingAllowed(false)
       val colModel = table.getColumnModel
@@ -84,15 +89,14 @@ class PatternDumper(vram:Array[Int],
       addressPanel.add(new JLabel("Address:",SwingConstants.RIGHT))
       addressPanel.add(addressLabel)
       panel.add("North",addressPanel)
-      windowTip.getContentPane.add("Center",panel)
-      windowTip.pack()
+      panelTip.add("Center",panel)
 
     addMouseMotionListener(new MouseMotionAdapter {
       override def mouseMoved(e: MouseEvent): Unit =
         mousePoint.x = e.getX
         mousePoint.y = e.getY
         screenPoint = e.getLocationOnScreen
-        windowTip.setVisible(false)
+        setToolTipText("")
         repaint()
     })
     def setImage(image:BufferedImage): Unit =
@@ -100,8 +104,6 @@ class PatternDumper(vram:Array[Int],
       setPreferredSize(new Dimension(image.getWidth * zoom,image.getHeight * zoom))
       invalidate()
       repaint()
-    def hideWindow(): Unit =
-      windowTip.setVisible(false)
 
     override def paintComponent(g:Graphics): Unit =
       g.drawImage(image,0,0,image.getWidth * zoom,image.getHeight * zoom,getBackground,null)
@@ -110,12 +112,7 @@ class PatternDumper(vram:Array[Int],
       if mousePoint.x < image.getWidth * zoom && mousePoint.y < image.getHeight * zoom then
         g.setColor(Color.WHITE)
         g.drawRect(cellX * 8 * zoom, cellY * 8 * zoom, 7 * zoom, 7 * zoom)
-        if screenPoint != null then
-          windowTip.setLocation(screenPoint)
         patternModel.update(cellX,cellY)
-        windowTip.setVisible(true)
-      else
-        windowTip.setVisible(false)
 
   private var zoom = 1
   private val canvas = new PatternCanvas
@@ -149,10 +146,6 @@ class PatternDumper(vram:Array[Int],
     updateModel()
     dialog.getContentPane.add("Center",mainPanel)
     dialog.pack()
-    dialog.addWindowListener(new WindowAdapter:
-      override def windowDeactivated(e: WindowEvent): Unit =
-        canvas.hideWindow()
-    )
 
 
   override protected def updateModel(): Unit =

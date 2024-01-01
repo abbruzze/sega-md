@@ -17,12 +17,12 @@ import javax.swing.text.DefaultCaret
 
 object Debugger:
   sealed trait BreakType
-  case class AddressBreakType(address:Int,execute:Boolean = false,read:Boolean = false,write:Boolean = false) extends BreakType:
+  case class AddressBreakType(address:Int,execute:Boolean = false,read:Boolean = false,write:Boolean = false,var enabled : Boolean = true) extends BreakType:
     override def toString: String =
       val sb = new StringBuilder()
-      if execute then sb += 'E'
       if read then sb += 'R'
       if write then sb += 'W'
+      if execute then sb += 'E'
       sb.toString()
 
   case object ResetBreak extends BreakType
@@ -308,7 +308,7 @@ class Debugger(m68k:M68000,
 
     private val debugger = new AbstractDebugger with GenericDebugger {
       override def hasBreakAt(address: Int): Boolean = m68kAddressBreaks.contains(address)
-      override def addExecuteBreakAt(address: Int): Unit = m68kAddressBreaks += address -> AddressBreak(BreakType.EXECUTE, address)
+      override def addExecuteBreakAt(address: Int): Unit = m68kAddressBreaks += address -> AddressBreak(BreakType(execute = true), address)
       override def removeBreakAt(address: Int): Unit = m68kAddressBreaks -= address
       override def getBreakStringAt(address: Int): Option[String] = m68kAddressBreaks.get(address).map(_.toString.substring(0, 1))
 
@@ -589,6 +589,10 @@ class Debugger(m68k:M68000,
     })
     frameByFrameMode.setToolTipText("Frame by frame mode")
 
+    val breakPoint = new JButton(new ImageIcon(getClass.getResource("/resources/trace/red_breakpoint.png")))
+    breakPoint.addActionListener(_ => breakGUI())
+    breakPoint.setToolTipText("Breakpoints")
+
     toolBar.add(onOffButton)
     toolBar.add(stepInButton)
     toolBar.add(stepOverButton)
@@ -597,6 +601,7 @@ class Debugger(m68k:M68000,
     toolBar.add(writeButton)
     toolBar.add(frameByFrameMode)
     toolBar.add(nextFrame)
+    toolBar.add(breakPoint)
 
     // log panel
     logPanel.setEditable(false)
@@ -778,6 +783,8 @@ class Debugger(m68k:M68000,
     }
     frameCount += 1
     messageBoard.addMessage(MessageBoard.builder.message(s"$frameCount  ").ytop().xright().delay(500).fadingMilliseconds(100).adminLevel().build())
+
+  private def breakGUI(): Unit = {}
 
 
 

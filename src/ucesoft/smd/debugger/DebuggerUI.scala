@@ -525,4 +525,104 @@ object DebuggerUI {
       mainPanel.add("South",southPanel)
 
       dialog.pack()
+
+  private class BreaksTableModel(addressPaddingLen:Int) extends AbstractTableModel:
+    import Debugger.AddressBreakType
+    private val breaks = new ArrayBuffer[AddressBreakType]
+
+    override def getColumnName(column: Int): String = column match
+      case 0 => "Enabled"
+      case 1 => "Address"
+      case 2 => "Type"
+
+    override def isCellEditable(row: Int, col: Int): Boolean = col == 0
+    override def setValueAt(aValue: Any, rowIndex: Int, columnIndex: Int): Unit =
+      breaks(rowIndex).enabled = aValue.isInstanceOf[java.lang.Boolean].booleanValue()
+    override def getRowCount: Int = breaks.size
+    override def getColumnCount: Int = 3
+    override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
+      columnIndex match
+        case 0 =>
+          java.lang.Boolean.valueOf(breaks(rowIndex).enabled)
+        case 1 =>
+          s"%0${addressPaddingLen}X".format(breaks(rowIndex).address)
+        case 2 =>
+          breaks(rowIndex).toString
+
+    def removeBreakAtRow(rows: Array[Int]): Unit =
+      val orderedRows = rows.sortWith((r1, r2) => r1 > r2)
+      for (r <- orderedRows) breaks.remove(r)
+      fireTableDataChanged()
+
+    def getBreakAtRow(row: Int): AddressBreakType = breaks(row)
+
+    def setBreakAtRow(row: Int, b: AddressBreakType): Unit =
+      breaks(row) = b
+      fireTableRowsUpdated(row, row)
+
+    def getBreaks: List[AddressBreakType] = breaks.toList
+
+    override def getColumnClass(columnIndex: Int): Class[_] =
+      columnIndex match
+        case 0 => classOf[java.lang.Boolean]
+        case _ => classOf[String]
+
+    def contentChanged(breaks: List[AddressBreakType]): Unit =
+      this.breaks.clear()
+      this.breaks.addAll(breaks)
+      fireTableDataChanged()
+
+    def contentUpdated(): Unit = fireTableDataChanged()
+
+    def addBreak(b: AddressBreakType): Unit =
+      breaks += b
+      fireTableDataChanged()
+
+    def clear(): Unit =
+      breaks.clear()
+      fireTableDataChanged()
+  end BreaksTableModel
+
+  class BreakpointPanel(addressPaddingLen:Int, removeBreakHandler: Debugger.AddressBreakType => Unit, addBreakHandler: Debugger.AddressBreakType => Unit) extends JPanel:
+    import Debugger.AddressBreakType
+    private val model = new BreaksTableModel(addressPaddingLen)
+    private val table = new JTable(model)
+
+    init()
+
+    private def init(): Unit =
+      setLayout(new BorderLayout())
+      table.setAutoCreateRowSorter(true)
+      table.setFillsViewportHeight(true)
+      val sp = new JScrollPane(table)
+      add("Center",sp)
+      val buttonPanel = new JPanel(new FlowLayout())
+      val addBreakButton = new JButton(new ImageIcon(getClass.getResource("/resources/trace/plus.png")))
+      val delBreakButton = new JButton(new ImageIcon(getClass.getResource("/resources/trace/minus.png")))
+      buttonPanel.add(addBreakButton)
+      buttonPanel.add(delBreakButton)
+      add("South",buttonPanel)
+
+      addBreakButton.addActionListener(_ => editBreak(None) )
+      delBreakButton.addActionListener(_ => removeSelectedBreaks() )
+
+      table.addMouseListener(new MouseAdapter:
+        override def mouseClicked(e: MouseEvent): Unit =
+          if e.getClickCount == 2 then
+            val break = model.getBreakAtRow(table.getSelectedRow)
+            editBreak(Some(break))
+      )
+
+      table.getSelectionModel.addListSelectionListener(e => 
+        if !e.getValueIsAdjusting then
+          val selected = table.getSelectedRowCount > 0
+          delBreakButton.setEnabled(selected)
+      )
+
+    private def editBreak(break:Option[AddressBreakType]): Unit = {}
+    private def removeSelectedBreaks(): Unit =
+      for r <- table.getSelectedRows do
+        removeBreakHandler(model.getBreakAtRow(r))
+
+      model.removeBreakAtRow(table.getSelectedRows)
 }

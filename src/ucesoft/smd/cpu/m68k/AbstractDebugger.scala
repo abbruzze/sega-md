@@ -3,8 +3,13 @@ package ucesoft.smd.cpu.m68k
 import ucesoft.smd.cpu.m68k.M6800X0.Snapshot
 
 abstract class AbstractDebugger extends M6800X0.EventListener:
-  protected enum BreakType:
-    case READ, WRITE, EXECUTE
+  case class BreakType(read:Boolean = false,write:Boolean = false,execute:Boolean = false):
+    override def toString: String =
+      val sb = new StringBuilder()
+      if read then sb += 'R'
+      if write then sb += 'W'
+      if execute then sb += 'E'
+      sb.toString()
   protected case class AddressBreak(breakType:BreakType,address:Int):
     override def toString: String = s"$breakType break on address ${address.toHexString}"
 
@@ -66,7 +71,7 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
     m68kAddressBreaks.get(address) match
       case None =>
       case Some(break) =>
-        if (read && break.breakType == BreakType.READ) || (!read && break.breakType == BreakType.WRITE) then
+        if (read && break.breakType.read) || (!read && break.breakType.write) then
           setStepByStep(true)
           onRw(cpu,address,size,read,value)
 
@@ -75,7 +80,7 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
       case None =>
         false
       case Some(break) =>
-        if break.breakType == BreakType.EXECUTE then
+        if break.breakType.execute then
           setStepByStep(true)
           true
         else
