@@ -1008,6 +1008,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
             generateVInterrupt()
         if !REG_M5 then
           println("SMS mode not supported.") // TODO
+        if ((regs(1) ^ oldValue) & 0x8) != 0 then
+          println(s"V30=$REG_M2")
       case 12 => // REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|
         val h32 = REG_H32
         val imode = INTERLACE_MODE.fromOrdinal((value >> 1) & 3)
@@ -1945,6 +1947,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       statusRegister &= ~STATUS_VB_MASK
 
     vcounter = (vcounter + 1) & 0x1FF // 9-bit counter
+    
   inline private def changeVDPClockDivider(clockDiv:Int): Unit =
     if clockRateListener != null then
       clockRateListener.clockRateChanged(clockDiv)
@@ -1957,7 +1960,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     var c = 0
     val line = activeDisplayLine + 1 // check if some sprite is visible on next line
     // 2 sprites per cycle
-    while c < 2 && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS do
+    while c < 2 && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS && REG_DE do
       val spriteIndex = spriteEvaluationIndex
       val sy = spriteCache(spriteIndex).y - 128
       val height = (spriteCache(spriteIndex).h + 1) << 3 // 8 * sprite height pixels

@@ -41,7 +41,7 @@ object SMD:
       UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarculaLaf")
     })
 
-    val vmodel = VideoType.NTSC
+    val vmodel = VideoType.PAL
     val masterClock = new Clock("master",vmodel.clockFrequency)
     val busArbiter = new BusArbiter
 
@@ -175,7 +175,7 @@ object SMD:
     psgAudio.setLogger(Logger.getLogger)
 
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Combat Cars (USA, Europe).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\TiTAN - Overdrive (Rev1.1-106-Final) (Hardware).bin""")
     println(cart)
 
     glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())
