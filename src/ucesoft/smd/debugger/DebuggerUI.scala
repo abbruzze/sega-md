@@ -3,8 +3,10 @@ package ucesoft.smd.debugger
 import ucesoft.smd.VDP
 import ucesoft.smd.cpu.m68k.*
 import ucesoft.smd.cpu.z80.Z80
+import ucesoft.smd.debugger.Debugger.AddressBreakType
+import ucesoft.smd.debugger.DebuggerUI.DisassemblerBreakHandler
 
-import java.awt.event.{FocusEvent, FocusListener, MouseAdapter, MouseEvent}
+import java.awt.event.{ActionEvent, FocusEvent, FocusListener, MouseAdapter, MouseEvent}
 import java.awt.{BorderLayout, Color, Component, FlowLayout}
 import javax.swing.*
 import javax.swing.border.EmptyBorder
@@ -213,17 +215,27 @@ object DebuggerUI {
   class DisassembledCellRenderer extends DefaultTableCellRenderer:
     import java.awt.Font
 
+    private final val BREAK_BG_COLOR = new Color(167,28,12)
     private val fontSize = getFont.getSize
     private val font = Font.decode(s"monospaced-italic-$fontSize")
     private val fontSel = Font.decode(s"monospaced-bold-$fontSize")
+    private var breakRow = false
     setHorizontalAlignment(SwingConstants.LEFT)
 
     override def getTableCellRendererComponent(table: JTable, value: Any, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int): Component =
       val c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
+      if column == 0 then
+        breakRow = value.toString.nonEmpty
       if column == 4 && value.toString.nonEmpty then
         setToolTipText(value.toString)
       else
         setToolTipText(null)
+
+      if breakRow && !isSelected then
+        c.setBackground(BREAK_BG_COLOR)
+      else if !isSelected then
+        c.setBackground(table.getBackground)
+      else c.setBackground(table.getSelectionBackground)
 
       if isSelected then
         c.setFont(fontSel)
@@ -354,28 +366,52 @@ object DebuggerUI {
       fireTableDataChanged()
   end VDPPropertiesTableModel
 
+  trait BreakListener:
+    def addBreak(break: AddressBreakType): Unit
+    def removeBreak(address: Int): Unit
+
   trait DisassemblerBreakHandler:
+    protected var breakListener : List[BreakListener] = Nil
+
+    def addBreakListener(l:BreakListener): Unit =
+      breakListener = l :: breakListener
+    
     def hasBreakAt(address:Int): Boolean
-    def addExecuteBreakAt(address:Int): Unit
+    def addExecuteBreakAt(address:Int): Unit = addBreakAt(address,execute = true)
+    def addBreakAt(address:Int,read:Boolean = false,write:Boolean = false,execute:Boolean = false): Unit
     def removeBreakAt(address:Int): Unit
     def getBreakStringAt(address:Int): Option[String]
+    def getBreakEvent(eventName:String): Option[AnyRef]
+    def addBreakEvent(eventName:String,value:AnyRef): Unit
+    def removeBreakEvent(eventName:String): Unit
+    
+    protected def notifyBreakAdded(b:AddressBreakType): Unit =
+      for l <- breakListener do 
+        l.addBreak(b)
+    protected def notifyBreakRemoved(address:Int): Unit =
+      for l <- breakListener do
+        l.removeBreak(address)
 
   class DisassemblerPanel(name:String,
                           m68k: M6800X0, // set to null to use z80 instead
                           z80: Z80,
                           frame:JFrame,
                           disassemblerBreakHandler: DisassemblerBreakHandler,
-                          override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame, s"$name Disassembler", windowCloseOperation):
+                          override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame, s"$name Disassembler", windowCloseOperation) with BreakListener:
     private val model = new DisassembledTableModel(m68k,null,z80,disassemblerBreakHandler.getBreakStringAt,EmptyAnnotator, true)
-
+    private var isAdjusting = false
+    
     init()
+
+    override def addBreak(break: AddressBreakType): Unit = if !isAdjusting then model.update()
+    override def removeBreak(address: Int): Unit = if !isAdjusting then model.update()
 
     private def initTable(table: JTable, model: DisassembledTableModel): Unit =
       table.getTableHeader.setReorderingAllowed(false)
       table.setDefaultRenderer(classOf[String], new DisassembledCellRenderer)
       val colModel = table.getColumnModel
-      colModel.getColumn(0).setMinWidth(25)
-      colModel.getColumn(0).setMaxWidth(30)
+      colModel.getColumn(0).setMinWidth(45)
+      colModel.getColumn(0).setMaxWidth(50)
       colModel.getColumn(1).setMinWidth(70)
       colModel.getColumn(1).setMaxWidth(80)
       colModel.getColumn(2).setMinWidth(130)
@@ -387,10 +423,12 @@ object DebuggerUI {
           if e.getClickCount == 2 then
             val row = table.rowAtPoint(e.getPoint)
             val address = model.getAddressAt(row)
+            isAdjusting = true
             if disassemblerBreakHandler.hasBreakAt(address) then
               disassemblerBreakHandler.removeBreakAt(address)
             else
               disassemblerBreakHandler.addExecuteBreakAt(address)
+            isAdjusting = false
             model.update()
       })
 
@@ -420,6 +458,7 @@ object DebuggerUI {
 
     override protected def init(): Unit =
       super.init()
+      disassemblerBreakHandler.addBreakListener(this)
       val mainPanel = new JPanel(new BorderLayout())
       dialog.getContentPane.add("Center", mainPanel)
       val buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
@@ -526,9 +565,13 @@ object DebuggerUI {
 
       dialog.pack()
 
-  private class BreaksTableModel(addressPaddingLen:Int) extends AbstractTableModel:
+  private class BreaksTableModel(addressPaddingLen:Int,breakHandler:DisassemblerBreakHandler) extends AbstractTableModel:
     import Debugger.AddressBreakType
     private val breaks = new ArrayBuffer[AddressBreakType]
+    private var adjusting = false
+
+    def setAdjusting(adjusting:Boolean): Unit =
+      this.adjusting = adjusting
 
     override def getColumnName(column: Int): String = column match
       case 0 => "Enabled"
@@ -537,7 +580,14 @@ object DebuggerUI {
 
     override def isCellEditable(row: Int, col: Int): Boolean = col == 0
     override def setValueAt(aValue: Any, rowIndex: Int, columnIndex: Int): Unit =
-      breaks(rowIndex).enabled = aValue.isInstanceOf[java.lang.Boolean].booleanValue()
+      adjusting = true
+      breaks(rowIndex).enabled ^= true
+      if breaks(rowIndex).enabled then
+        breakHandler.addBreakAt(breaks(rowIndex).address,read = breaks(rowIndex).read, write = breaks(rowIndex).write, execute = breaks(rowIndex).execute)
+      else
+        breakHandler.removeBreakAt(breaks(rowIndex).address)
+      adjusting = false
+      fireTableCellUpdated(rowIndex,columnIndex)
     override def getRowCount: Int = breaks.size
     override def getColumnCount: Int = 3
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
@@ -550,15 +600,28 @@ object DebuggerUI {
           breaks(rowIndex).toString
 
     def removeBreakAtRow(rows: Array[Int]): Unit =
-      val orderedRows = rows.sortWith((r1, r2) => r1 > r2)
-      for (r <- orderedRows) breaks.remove(r)
-      fireTableDataChanged()
+      if !adjusting then
+        val orderedRows = rows.sortWith((r1, r2) => r1 > r2)
+        for (r <- orderedRows) breaks.remove(r)
+        fireTableDataChanged()
 
+    def removeBreak(b:AddressBreakType): Unit =
+      if !adjusting then
+        breaks -= b
+        fireTableDataChanged()
+
+    def removeBreak(address:Int): Unit =
+      if !adjusting then
+        val index = breaks.indexWhere(_.address == address)
+        if index != -1 then
+          breaks.remove(index)
+          fireTableDataChanged()
     def getBreakAtRow(row: Int): AddressBreakType = breaks(row)
 
     def setBreakAtRow(row: Int, b: AddressBreakType): Unit =
-      breaks(row) = b
-      fireTableRowsUpdated(row, row)
+      if !adjusting then
+        breaks(row) = b
+        fireTableRowsUpdated(row, row)
 
     def getBreaks: List[AddressBreakType] = breaks.toList
 
@@ -566,26 +629,24 @@ object DebuggerUI {
       columnIndex match
         case 0 => classOf[java.lang.Boolean]
         case _ => classOf[String]
-
     def contentChanged(breaks: List[AddressBreakType]): Unit =
       this.breaks.clear()
       this.breaks.addAll(breaks)
       fireTableDataChanged()
-
     def contentUpdated(): Unit = fireTableDataChanged()
-
     def addBreak(b: AddressBreakType): Unit =
-      breaks += b
-      fireTableDataChanged()
+      if !adjusting then
+        breaks += b
+        fireTableDataChanged()
 
     def clear(): Unit =
       breaks.clear()
       fireTableDataChanged()
   end BreaksTableModel
 
-  class BreakpointPanel(addressPaddingLen:Int, removeBreakHandler: Debugger.AddressBreakType => Unit, addBreakHandler: Debugger.AddressBreakType => Unit) extends JPanel:
+  private class BreakpointPanel(addressPaddingLen:Int, breakHandler:DisassemblerBreakHandler) extends JPanel:
     import Debugger.AddressBreakType
-    private val model = new BreaksTableModel(addressPaddingLen)
+    val model = new BreaksTableModel(addressPaddingLen,breakHandler)
     private val table = new JTable(model)
 
     init()
@@ -595,10 +656,13 @@ object DebuggerUI {
       table.setAutoCreateRowSorter(true)
       table.setFillsViewportHeight(true)
       val sp = new JScrollPane(table)
+      sp.setBorder(BorderFactory.createTitledBorder("Addresses"))
       add("Center",sp)
       val buttonPanel = new JPanel(new FlowLayout())
       val addBreakButton = new JButton(new ImageIcon(getClass.getResource("/resources/trace/plus.png")))
       val delBreakButton = new JButton(new ImageIcon(getClass.getResource("/resources/trace/minus.png")))
+      addBreakButton.setToolTipText("Add a new breakpoint")
+      delBreakButton.setToolTipText("Remove selected breakpoints")
       buttonPanel.add(addBreakButton)
       buttonPanel.add(delBreakButton)
       add("South",buttonPanel)
@@ -619,10 +683,156 @@ object DebuggerUI {
           delBreakButton.setEnabled(selected)
       )
 
-    private def editBreak(break:Option[AddressBreakType]): Unit = {}
+    private def editBreak(break:Option[AddressBreakType]): Unit =
+      val panel = new JPanel(new BorderLayout())
+      val readCheckBox = new JCheckBox("Read")
+      val writeCheckBox = new JCheckBox("Write")
+      val executeCheckBox = new JCheckBox("Execute")
+      executeCheckBox.setSelected(true)
+      val northPanel = new JPanel(new FlowLayout())
+      northPanel.add(readCheckBox)
+      northPanel.add(writeCheckBox)
+      northPanel.add(executeCheckBox)
+      panel.add("North",northPanel)
+      val addressPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      addressPanel.add(new JLabel("Address:",SwingConstants.RIGHT))
+      val addressTF = new JTextField(addressPaddingLen)
+      addressPanel.add(addressTF)
+      panel.add("Center",addressPanel)
+      val okPanel = new JPanel(new FlowLayout())
+      val okButton = new JButton("Ok")
+      val cancelButton = new JButton("Cancel")
+      okPanel.add(okButton)
+      okPanel.add(cancelButton)
+      panel.add("South",okPanel)
+      break match
+        case Some(b) =>
+          addressTF.setText(s"%0${addressPaddingLen}X".format(b.address))
+          readCheckBox.setSelected(b.read)
+          writeCheckBox.setSelected(b.write)
+          executeCheckBox.setSelected(b.execute)
+        case None =>
+      val dialog = new JDialog(SwingUtilities.getWindowAncestor(this).asInstanceOf[JDialog],"Edit breakpoint",true)
+      dialog.getContentPane.add("Center",panel)
+      cancelButton.addActionListener(_ => dialog.dispose())
+      val okAction : ActionEvent => Unit = _ => {
+        try
+          val newBreak = AddressBreakType(Integer.parseInt(addressTF.getText(),16),read = readCheckBox.isSelected,write = writeCheckBox.isSelected,execute = executeCheckBox.isSelected)
+          if !newBreak.read && !newBreak.write && !newBreak.execute then
+            throw new IllegalArgumentException()
+          break match
+            case Some(b) =>
+              model.removeBreak(b)
+              model.setAdjusting(true)
+              breakHandler.removeBreakAt(b.address)
+              model.setAdjusting(false)
+            case None =>
+          model.addBreak(newBreak)
+
+          model.setAdjusting(true)
+          breakHandler.addBreakAt(newBreak.address,read = newBreak.read, write = newBreak.write, execute = newBreak.execute)
+          model.setAdjusting(false)
+          dialog.dispose()
+        catch
+          case _:IllegalArgumentException =>
+            JOptionPane.showMessageDialog(dialog,"Select one break mode","Invalid break mode",JOptionPane.ERROR_MESSAGE)
+          case _:NumberFormatException =>
+            JOptionPane.showMessageDialog(dialog, "Insert a valid hex address", "Invalid address format", JOptionPane.ERROR_MESSAGE)
+      }
+      okButton.addActionListener(e => okAction(e))
+      addressTF.addActionListener(e => okAction(e))
+      dialog.pack()
+      addressTF.requestFocusInWindow()
+      dialog.setLocationRelativeTo(SwingUtilities.getWindowAncestor(this))
+      dialog.setVisible(true)
     private def removeSelectedBreaks(): Unit =
-      for r <- table.getSelectedRows do
-        removeBreakHandler(model.getBreakAtRow(r))
+      val orderedRows = table.getSelectedRows.sortWith((r1, r2) => r1 > r2)
+      for r <- orderedRows do
+        breakHandler.removeBreakAt(model.getBreakAtRow(r).address)
 
       model.removeBreakAtRow(table.getSelectedRows)
+  end BreakpointPanel
+
+  class BreakMasterPanel(frame: JFrame,
+                         addressPaddingLen:Int,
+                         removeBreakHandler: Debugger.AddressBreakType => Unit,
+                         addBreakHandler: Debugger.AddressBreakType => Unit,
+                         northPanel: JPanel,
+                         breakHandler:DisassemblerBreakHandler,
+                         override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame, "Breakpoints", windowCloseOperation) with BreakListener:
+    private val breakPanel = new BreakpointPanel(addressPaddingLen,breakHandler)
+    init()
+
+    override protected def init(): Unit =
+      breakHandler.addBreakListener(this)
+      dialog.getContentPane.add("North", northPanel)
+      dialog.getContentPane.add("Center",breakPanel)
+      dialog.pack()
+
+    override def addBreak(break: AddressBreakType): Unit =
+      breakPanel.model.addBreak(break)
+    override def removeBreak(address: Int): Unit =
+      breakPanel.model.removeBreak(address)
+  end BreakMasterPanel
+  
+  class M68KBreakEventPanel(breakHandler:DisassemblerBreakHandler) extends JPanel:
+    init()
+    private def init(): Unit =
+      setLayout(new FlowLayout())
+      val resetCB = new JCheckBox("reset")
+      val haltCB = new JCheckBox("halt")
+      val stopCB = new JCheckBox("stop")
+      val intCB = new JCheckBox("interrupt")
+      val exCB = new JCheckBox("exception")
+      val intTF = new JTextField(3)
+      val exTF = new JTextField(3)
+      
+      intTF.setEnabled(false)
+      exTF.setEnabled(false)
+      
+      resetCB.addActionListener(_ => if resetCB.isSelected then breakHandler.addBreakEvent("reset",null) else breakHandler.removeBreakEvent("reset"))
+      haltCB.addActionListener(_ => if haltCB.isSelected then breakHandler.addBreakEvent("halt", null) else breakHandler.removeBreakEvent("halt"))
+      stopCB.addActionListener(_ => if stopCB.isSelected then breakHandler.addBreakEvent("stop", null) else breakHandler.removeBreakEvent("stop"))
+      intCB.addActionListener(_ => {
+        intTF.setEnabled(intCB.isSelected)
+        if !intCB.isSelected then breakHandler.removeBreakEvent("interrupt")
+      })
+      exCB.addActionListener(_ => {
+        exTF.setEnabled(exCB.isSelected)
+        if !exCB.isSelected then breakHandler.removeBreakEvent("exception")
+      })
+      intTF.setToolTipText("insert interrupt number and press ENTER")
+      exTF.setToolTipText("insert exception number and press ENTER")
+
+      intTF.addActionListener(_ => {
+        try
+          val i = intTF.getText.toInt
+          if i < 0 || i > 7 then throw new IllegalArgumentException()
+          breakHandler.addBreakEvent("interrupt",Integer.valueOf(i))
+        catch
+          case _:IllegalArgumentException =>
+            JOptionPane.showMessageDialog(this,"Interrupt number must be >= 0 and < 8","Invalid interrupt",JOptionPane.ERROR_MESSAGE)
+          case _:NumberFormatException =>
+            JOptionPane.showMessageDialog(this, "Interrupt must be a decimal number", "Invalid interrupt", JOptionPane.ERROR_MESSAGE)
+      })
+      exTF.addActionListener(_ => {
+        try
+          val i = exTF.getText.toInt
+          if i < 0 || i > 255 then throw new IllegalArgumentException()
+          breakHandler.addBreakEvent("exception", Integer.valueOf(i))
+        catch
+          case _: IllegalArgumentException =>
+            JOptionPane.showMessageDialog(this, "Interrupt number must be >= 0 and < 256", "Invalid interrupt", JOptionPane.ERROR_MESSAGE)
+          case _: NumberFormatException =>
+            JOptionPane.showMessageDialog(this, "Interrupt must be a decimal number", "Invalid interrupt", JOptionPane.ERROR_MESSAGE)
+      })
+      
+      add(resetCB)
+      add(haltCB)
+      add(stopCB)
+      add(intCB)
+      add(intTF)
+      add(exCB)
+      add(exTF)
+      setBorder(BorderFactory.createTitledBorder("Events"))
 }

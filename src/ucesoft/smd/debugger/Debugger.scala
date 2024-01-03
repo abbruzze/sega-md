@@ -3,13 +3,14 @@ package ucesoft.smd.debugger
 import org.fife.ui.rsyntaxtextarea.{RSyntaxTextArea, SyntaxConstants}
 import org.fife.ui.rtextarea.RTextScrollPane
 import ucesoft.smd.cpu.m68k.*
+import ucesoft.smd.cpu.m68k.RegisterType.PC
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.DebuggerUI.*
 import ucesoft.smd.ui.MessageBoard
 import ucesoft.smd.ui.MessageBoard.MessageBoardListener
 import ucesoft.smd.{Cart, Logger, VDP}
 
-import java.awt.event.{MouseAdapter, MouseEvent}
+import java.awt.event.{MouseAdapter, MouseEvent, WindowAdapter, WindowEvent}
 import java.awt.{BorderLayout, Dimension, FlowLayout, GridLayout}
 import java.util.concurrent.Semaphore
 import javax.swing.*
@@ -41,7 +42,8 @@ class Debugger(m68k:M68000,
                z80:Z80,
                z80Ram:Array[Int],
                vdp:VDP,
-               messageBoard: MessageBoardListener) extends VDP.VDPNewFrameListener:
+               messageBoard: MessageBoardListener,
+               windowCloseOperation: () => Unit) extends VDP.VDPNewFrameListener:
   import Debugger.*
   private enum StepState:
     case NoStep, WaitReturn, WaitTarget
@@ -122,6 +124,17 @@ class Debugger(m68k:M68000,
 
   private var selectedDebugger : InternalDebugger = m68kDebugger
 
+  private val m68kBreakItem = new JCheckBoxMenuItem("68k breaks")
+  private val m68kBreakDialog = new BreakMasterPanel(
+    frame,
+    6,
+    break => m68kDebugger.removeBreakAt(break.address),
+    break => m68kDebugger.addBreakAt(break.address,read = break.read,write = break.write,execute = break.execute),
+    new M68KBreakEventPanel(m68kDebugger),
+    m68kDebugger,
+    () => m68kBreakItem.setSelected(false)
+  ).dialog
+
 
   private val tabbedPane = new JTabbedPane()
 
@@ -143,7 +156,7 @@ class Debugger(m68k:M68000,
     private var stepDisassemble : Z80.DisassembledInfo = _
     private val breaks = new collection.mutable.HashMap[Int,AddressBreakType]
     private var breakOnReset = false
-    private var breakOnInterrupt = false
+    private var breakOnInt,breakOnNMI = false
     private var breakOnHalt = false
 
     init()
@@ -151,15 +164,38 @@ class Debugger(m68k:M68000,
     override protected def onCPUEnabled(enabled:Boolean): Unit =
       z80.setComponentEnabled(enabled)
 
+    override def getBreakEvent(eventName: String): Option[AnyRef] =
+      eventName match
+        case "reset" => if breakOnReset then Some(java.lang.Boolean.TRUE) else None
+        case "halt" => if breakOnHalt then Some(java.lang.Boolean.TRUE) else None
+        case "int" => if breakOnInt then Some(java.lang.Boolean.TRUE) else None
+        case "nmi" => if breakOnNMI then Some(java.lang.Boolean.TRUE) else None
+        case _ => None
+    override def addBreakEvent(eventName: String, value: AnyRef): Unit =
+      eventName match
+        case "reset" => breakOnReset = true
+        case "halt" => breakOnHalt = true
+        case "int" => breakOnInt = true
+        case "nmi" => breakOnNMI = true
+        case _ =>
+    override def removeBreakEvent(eventName: String): Unit =
+      eventName match
+        case "reset" => breakOnReset = false
+        case "halt" => breakOnHalt = false
+        case "int" => breakOnInt = false
+        case "nmi" => breakOnNMI = false
+        case _ =>
+
     private def existsBreakPending: Boolean =
-      breaks.nonEmpty || breakOnReset || breakOnInterrupt || breakOnHalt
+      breaks.nonEmpty || breakOnReset || breakOnInt || breakOnNMI || breakOnHalt
 
     override def nextStep(): Unit =
       semaphore.release()
 
     override def hasBreakAt(address: Int): Boolean = breaks.contains(address)
 
-    override def addExecuteBreakAt(address: Int): Unit = breaks += address -> AddressBreakType(address,execute = true)
+    override def addBreakAt(address:Int,r:Boolean,w:Boolean,e:Boolean): Unit =
+      breaks += address -> AddressBreakType(address, execute = e, read = r, write = w)
 
     override def removeBreakAt(address: Int): Unit = breaks -= address
 
@@ -174,19 +210,22 @@ class Debugger(m68k:M68000,
         case None =>
 
       if !stepAlways && stepByStep then
-        onOffButton.setSelected(true)
         disassembledTableModel.clear()
-        var adr = address
-        for a <- 1 to 25 do
-          val dis = z80.getDisassembledInfo(adr)
-          if a == 1 then
-            stepDisassemble = dis
-          disassembledTableModel.add(dis)
-          adr += dis.size
+        updateDisassembly(z80,address)
 
+        checkTracingState(true)
         updateModels()
         semaphore.acquire()
     end fetch
+
+    private def updateDisassembly(z80:Z80,address:Int = -1): Unit =
+      var adr = if address == -1 then z80.ctx.PC else address
+      for a <- 1 to 25 do
+        val dis = z80.getDisassembledInfo(adr)
+        if a == 1 then
+          stepDisassemble = dis
+        disassembledTableModel.add(dis)
+        adr += dis.size
     override def interrupted(z80: Z80, mode: Int, isNMI: Boolean): Unit = {/* TODO */}
     override def reset(z80: Z80): Unit = {/* TODO */}
     override def halt(z80: Z80, isHalted: Boolean): Unit = {/* TODO */}
@@ -293,24 +332,59 @@ class Debugger(m68k:M68000,
     private val disassembledTableModel = new DisassembledTableModel(m68k,
       m68kMemory,
       null,
-      address => getBreakStringAt(address).map(_.substring(0,1)),
+      address => getBreakStringAt(address),
       new Default68KDisassembleAnnotator)
     private val vdpTableMode = new VDPPropertiesTableModel(vdp,frame)
     private val distable = new JTable(disassembledTableModel)
 
     override protected def onCPUEnabled(enabled:Boolean): Unit =
       m68k.setComponentEnabled(enabled)
-
+    override def getBreakEvent(eventName: String): Option[AnyRef] = debugger.getBreakEvent(eventName)
+    override def addBreakEvent(eventName: String, value: AnyRef): Unit = debugger.addBreakEvent(eventName, value)
+    override def removeBreakEvent(eventName: String): Unit = debugger.removeBreakEvent(eventName)
     override def hasBreakAt(address: Int): Boolean = debugger.hasBreakAt(address)
-    override def addExecuteBreakAt(address: Int): Unit = debugger.addExecuteBreakAt(address)
-    override def removeBreakAt(address: Int): Unit = debugger.removeBreakAt(address)
+    override def addBreakAt(address:Int,read:Boolean,write:Boolean,execute:Boolean): Unit =
+      debugger.addBreakAt(address,read,write,execute)
+      notifyBreakAdded(AddressBreakType(address,read = read,write = write, execute = execute))
+      disassembledTableModel.update()
+    override def removeBreakAt(address: Int): Unit =
+      debugger.removeBreakAt(address)
+      notifyBreakRemoved(address)
+      disassembledTableModel.update()
     override def getBreakStringAt(address: Int): Option[String] = debugger.getBreakStringAt(address)
 
     private val debugger = new AbstractDebugger with GenericDebugger {
+      override def getBreakEvent(eventName: String): Option[AnyRef] =
+        eventName match
+          case "reset" => if isBreakOnReset then Some(java.lang.Boolean.TRUE) else None
+          case "halt" => if isBreakOnHalt then Some(java.lang.Boolean.TRUE) else None
+          case "stop" => if isBreakOnStop then Some(java.lang.Boolean.TRUE) else None
+          case "interrupt" =>
+            val interrupt = getBreakOnInterruptLevel
+            if interrupt == -1 then None else Some(Integer.valueOf(interrupt))
+          case "exception" =>
+            val ex = getBreakOnExceptionNumber
+            if ex == -1 then None else Some(Integer.valueOf(ex))
+          case _ => None
+      override def addBreakEvent(eventName: String, value: AnyRef): Unit =
+        eventName match
+          case "reset" => setBreakOnReset(true)
+          case "halt" => setBreakOnHalt(true)
+          case "stop" => setBreakOnStop(true)
+          case "interrupt" => setBreakOnInterrupt(value.asInstanceOf[Integer].intValue())
+          case "exception" => setBreakOnExceptionNumber(value.asInstanceOf[Integer].intValue())
+      override def removeBreakEvent(eventName: String): Unit =
+        eventName match
+          case "reset" => setBreakOnReset(false)
+          case "halt" => setBreakOnHalt(false)
+          case "stop" => setBreakOnStop(false)
+          case "interrupt" => setBreakOnInterrupt(-1)
+          case "exception" => setBreakOnExceptionNumber(-1)
       override def hasBreakAt(address: Int): Boolean = m68kAddressBreaks.contains(address)
-      override def addExecuteBreakAt(address: Int): Unit = m68kAddressBreaks += address -> AddressBreak(BreakType(execute = true), address)
+      override def addBreakAt(address:Int,r:Boolean,w:Boolean,e:Boolean): Unit =
+        m68kAddressBreaks += address -> AddressBreak(BreakType(execute = e,read = r, write = w), address)
       override def removeBreakAt(address: Int): Unit = m68kAddressBreaks -= address
-      override def getBreakStringAt(address: Int): Option[String] = m68kAddressBreaks.get(address).map(_.toString.substring(0, 1))
+      override def getBreakStringAt(address: Int): Option[String] = m68kAddressBreaks.get(address).map(_.breakType.toString)
 
       override def nextStep(): Unit =
         semaphore.release()
@@ -320,11 +394,60 @@ class Debugger(m68k:M68000,
       override def onStepByStepChange(stepByStepEnabled: Boolean): Unit =
         if stepByStepEnabled then
           m68k.addEventListener(this)
-          frame.setVisible(true)
+          checkTracingState(true)
         else
           nextStep()
           if !existsBreakPending then
             m68k.removeEventListener(this)
+
+      override protected def onInterrupted(cpu: M6800X0, level: Int): Unit =
+        log(s"Break on 68K interrupt $level")
+        stepOutPending = StepState.NoStep
+        stepOverPending = StepState.NoStep
+        checkTracingState(true)
+        updateDisassembly(cpu)
+        updateModels()
+        breakEpilogue(cpu)
+      override protected def onException(cpu: M6800X0, level: Int): Unit =
+        log(s"Break on 68K exception $level")
+        stepOutPending = StepState.NoStep
+        stepOverPending = StepState.NoStep
+        checkTracingState(true)
+        updateDisassembly(cpu)
+        updateModels()
+        breakEpilogue(cpu)
+      override protected def onReset(cpu: M6800X0): Unit =
+        log(s"Break on 68K RESET")
+        stepOutPending = StepState.NoStep
+        stepOverPending = StepState.NoStep
+        checkTracingState(true)
+        updateDisassembly(cpu)
+        updateModels()
+        breakEpilogue(cpu)
+      override protected def onHalt(cpu: M6800X0): Unit =
+        log(s"Break on 68K HALT")
+        stepOutPending = StepState.NoStep
+        stepOverPending = StepState.NoStep
+        checkTracingState(true)
+        updateDisassembly(cpu)
+        updateModels()
+        breakEpilogue(cpu)
+      override protected def onStop(cpu: M6800X0): Unit =
+        log(s"Break on 68K STOP")
+        stepOutPending = StepState.NoStep
+        stepOverPending = StepState.NoStep
+        checkTracingState(true)
+        updateDisassembly(cpu)
+        updateModels()
+        breakEpilogue(cpu)
+      override protected def onRw(cpu: M6800X0, address: Int, size: Size, read: Boolean, value: Int): Unit =
+        log(s"Break on M68K ${if read then "READ" else "WRITE"} with size $size${if read then s"value=$value" else ""}")
+        stepOutPending = StepState.NoStep
+        stepOverPending = StepState.NoStep
+        checkTracingState(true)
+        updateDisassembly(cpu)
+        updateModels()
+        breakEpilogue(cpu)
 
       override protected def onFetch(cpu: M6800X0, address: Int, opcode: Int, i: Instruction, busNotAvailable: Boolean, wasBreak: Boolean): Unit =
         if stepOverOutStopPending then
@@ -342,18 +465,23 @@ class Debugger(m68k:M68000,
           stepOverPending = StepState.NoStep
 
         if !isStepAlways then
-          onOffButton.setSelected(true)
+          checkTracingState(true)
           disassembledTableModel.clear()
-          var adr = address
-          for a <- 1 to 25 do
-            val dis = cpu.disassemble(adr)
-            if a == 1 then
-              stepDisassemble = dis
-            disassembledTableModel.add(dis, busNotAvailable)
-            adr += dis.size
-
+          updateDisassembly(cpu,address)
           updateModels()
           breakEpilogue(cpu)
+        end if
+      end onFetch
+
+      private def updateDisassembly(cpu: M6800X0,address:Int = -1): Unit =
+        disassembledTableModel.clear()
+        var adr = if address == -1 then cpu.getRegister(PC).get() else address
+        for a <- 1 to 25 do
+          val dis = cpu.disassemble(adr)
+          if a == 1 then
+            stepDisassemble = dis
+          disassembledTableModel.add(dis, false)
+          adr += dis.size
 
       private def checkStepOverOut(instruction: Instruction, address: Int): Unit =
         import InstructionType.*
@@ -423,6 +551,10 @@ class Debugger(m68k:M68000,
     init()
 
     private def init(): Unit =
+      frame.addWindowListener(new WindowAdapter:
+        override def windowClosing(e: WindowEvent): Unit =
+          windowCloseOperation()
+      )
       setLayout(new BorderLayout())
       val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
       northPanel.add(cpuEnabled)
@@ -658,6 +790,7 @@ class Debugger(m68k:M68000,
     val disMenu = new JMenu("Disassembler")
     val spriteMenu = new JMenu("Sprite")
     val dmaMenu = new JMenu("DMA")
+    val breakMenu = new JMenu("Breaks")
 
     vramMemoryDumpItem.addActionListener(_ => vdpVRAMDialog.setVisible(vramMemoryDumpItem.isSelected) )
     cramMemoryDumpItem.addActionListener(_ => vdpCRAMDialog.setVisible(cramMemoryDumpItem.isSelected) )
@@ -691,13 +824,6 @@ class Debugger(m68k:M68000,
     layerMenu.add(layerSEnabledItem)
     menu.add(layerMenu)
 
-    m68KDisassemblerItem.addActionListener(_ => m68kDisassemblerDialog.setVisible(m68KDisassemblerItem.isSelected) )
-    z80DisassemblerItem.addActionListener(_ => z80DisassemblerDialog.setVisible(z80DisassemblerItem.isSelected) )
-    disMenu.add(m68KDisassemblerItem)
-    disMenu.add(z80DisassemblerItem)
-
-    menu.add(disMenu)
-
     spriteDumpItem.addActionListener(_ => spriteDumpDialog.setVisible(spriteDumpItem.isSelected) )
     spriteMenu.add(spriteDumpItem)
 
@@ -709,6 +835,18 @@ class Debugger(m68k:M68000,
     dmaMenu.add(dmaItem)
     menu.add(dmaMenu)
 
+    m68KDisassemblerItem.addActionListener(_ => m68kDisassemblerDialog.setVisible(m68KDisassemblerItem.isSelected))
+    z80DisassemblerItem.addActionListener(_ => z80DisassemblerDialog.setVisible(z80DisassemblerItem.isSelected))
+    disMenu.add(m68KDisassemblerItem)
+    disMenu.add(z80DisassemblerItem)
+
+    menu.add(disMenu)
+
+    m68kBreakItem.addActionListener(_ => m68kBreakDialog.setVisible(m68kBreakItem.isSelected))
+    breakMenu.add(m68kBreakItem)
+
+    menu.add(breakMenu)
+
     frame.setJMenuBar(menu)
 
     frame.getContentPane.add("Center",splitPane)
@@ -717,12 +855,17 @@ class Debugger(m68k:M68000,
 
   def enableTracing(enabled: Boolean): Unit =
     selectedDebugger.enableTracing(enabled)
+    checkTracingState(enabled)
 
+  def showDebugger(show:Boolean): Unit =
+    frame.setVisible(show)
+
+  private def checkTracingState(enabled: Boolean): Unit =
     if enabled then
       onOffButton.setToolTipText("Disable tracing")
+      frame.setVisible(true)
     else
       onOffButton.setToolTipText("Enable tracing")
-
     onOffButton.setSelected(enabled)
 
   private def stepIn(): Unit =
@@ -784,7 +927,12 @@ class Debugger(m68k:M68000,
     frameCount += 1
     messageBoard.addMessage(MessageBoard.builder.message(s"$frameCount  ").ytop().xright().delay(500).fadingMilliseconds(100).adminLevel().build())
 
-  private def breakGUI(): Unit = {}
+  private def breakGUI(): Unit =
+    if tabbedPane.getSelectedIndex == 1 then
+      {}
+    else
+      m68kBreakItem.setSelected(true)
+      m68kBreakDialog.setVisible(true)
 
 
 

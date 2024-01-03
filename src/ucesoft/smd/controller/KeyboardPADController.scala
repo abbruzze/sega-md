@@ -10,21 +10,39 @@ import java.awt.event.{KeyEvent, KeyListener}
  */
 class KeyboardPADController(override val index: Int, override val ctype: ControllerType, override val clock: Clock) extends PadController(index, ctype, clock) with KeyListener:
   import java.awt.event.KeyEvent.*
-
-  private var keyMap = Map(
-    VK_A -> A,
-    VK_B -> B,
-    VK_C -> C,
-    VK_S -> S,
-    VK_X -> X,
-    VK_Y -> Y,
-    VK_Z -> Z,
-    VK_M -> M,
-    VK_UP -> U,
-    VK_DOWN -> D,
-    VK_RIGHT -> R,
-    VK_LEFT -> L
+  
+  private val DEFAULT_KEYMAPS = Array(
+    Map(
+      VK_A -> A,
+      VK_S -> B,
+      VK_D -> C,
+      VK_ENTER -> S,
+      VK_Q -> X,
+      VK_W -> Y,
+      VK_E -> Z,
+      VK_R -> M,
+      VK_UP -> U,
+      VK_DOWN -> D,
+      VK_RIGHT -> R,
+      VK_LEFT -> L
+    ),
+    Map(
+      VK_J -> A,
+      VK_K -> B,
+      VK_L -> C,
+      VK_BACK_SPACE -> S,
+      VK_U -> X,
+      VK_I -> Y,
+      VK_O -> Z,
+      VK_P -> M,
+      VK_Y -> U,
+      VK_DOWN -> D,
+      VK_H -> R,
+      VK_B -> L
+    )
   )
+
+  private var keyMap = DEFAULT_KEYMAPS(index)
 
   def setKeyMap(map: Map[Int, Int]): Unit =
     keyMap = map

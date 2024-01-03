@@ -149,6 +149,7 @@ object SMD:
     mmu.setController(1,c3)
 
     f.addKeyListener(c1)
+    f.addKeyListener(c3)
     //c2.mouseEnabled(true)
     c2.setControllerType(MouseStartWithCTRLAndLeft)
 
@@ -161,7 +162,7 @@ object SMD:
     glassPane.setLevel(NORMAL)
     vdp.setMessageListener(glassPane)
 
-    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp,glassPane)
+    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp,glassPane,() => {})
     deb.enableTracing(true)
     val logger = Logger.setLogger(deb.log)
     logger.setLevel(java.util.logging.Level.INFO)
@@ -174,7 +175,7 @@ object SMD:
     psgAudio.setLogger(Logger.getLogger)
 
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\Direct-Color-DMA.bin""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Combat Cars (USA, Europe).md""")
     println(cart)
 
     glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())

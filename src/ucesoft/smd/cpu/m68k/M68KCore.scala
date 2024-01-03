@@ -112,7 +112,6 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
       mem.write(address & model.addressBUSMask, value, size)
 
     override def raiseException(number:Int): Unit =
-      if notifyEventListeners then fireExceptionEvent(number)
       M68KCore.this.raiseException(number)
 
     override def branch(pc:Int): Unit =
@@ -428,7 +427,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
     if state == CPUState.STOPPED then
       changeState(CPUState.EXECUTING)
       if notifyEventListeners then fireStopEvent(stopped = false)
-
+    if notifyEventListeners then fireExceptionEvent(n)
   // =============================================================================
   override def getLastInstructionPC : Int = pc0
   

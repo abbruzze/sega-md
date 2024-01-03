@@ -39,6 +39,17 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
 
   def stepByStepEnabled(enabled:Boolean): Unit =
     stepByStep = enabled
+    
+  def setBreakOnReset(on:Boolean): Unit = breakOnReset = on
+  def isBreakOnReset: Boolean = breakOnReset
+  def setBreakOnHalt(on: Boolean): Unit = breakOnHalt = on
+  def isBreakOnHalt: Boolean = breakOnHalt
+  def setBreakOnStop(on: Boolean): Unit = breakOnStop = on
+  def isBreakOnStop: Boolean = breakOnStop
+  def setBreakOnInterrupt(level:Int): Unit = breakOnInterruptLevel = level
+  def getBreakOnInterruptLevel: Int = breakOnInterruptLevel
+  def setBreakOnExceptionNumber(number: Int): Unit = breakOnExceptionNumber = number
+  def getBreakOnExceptionNumber: Int = breakOnExceptionNumber
 
   def reset(): Unit =
     lastSnap = null
