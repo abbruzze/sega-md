@@ -25,6 +25,7 @@ class BusArbiter extends SMDComponent:
   private var z80ResetProcess = STOPPED
   private var z80BusState = Z80_OWNER
   private var m68kBusState = M68KBusState.M68K_OWNER
+  private var z80Waiting68KBUS = false
 
   override def reset(): Unit = {
     z80ResetProcess = STOPPED
@@ -41,6 +42,12 @@ class BusArbiter extends SMDComponent:
     
   final def isVDPRequestedBUS: Boolean = m68kBusState == M68KBusState.VDP_OWNER
   
+  final def z80Request68KBUS(): Unit =
+    m68kBusState match
+      case M68KBusState.VDP_OWNER =>
+        z80.requestBUS(true)
+        z80Waiting68KBUS = true
+      case _ =>
   final def vdpRequest68KBUS(): Unit =
     m68kBusState match
       case M68KBusState.M68K_OWNER =>
@@ -52,6 +59,9 @@ class BusArbiter extends SMDComponent:
       case M68KBusState.VDP_OWNER =>
         m68k.setBUSAvailable(true)
         m68kBusState = M68KBusState.M68K_OWNER
+        if z80Waiting68KBUS then
+          z80Waiting68KBUS = false
+          z80.requestBUS(false)
       case _ =>
   final def m68kRequestZ80BUS(): Unit =
     z80BusState match
