@@ -473,7 +473,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private val vdpLayerPatternBuffer = Array(new PatternBitCache(40 + 2), new PatternBitCache(40 + 2), new PatternBitCache(40 + 2)) // A, B, S
 
   private var hmode : HMode = HMode.H32
-  private var hmodeMustBeInitialized = true
   private val xscroll = Array(0,0)  // xscroll for layer A and B
   private val yscroll = Array(0,0)  // yscroll for layer A and B
   private val firstCellToXScroll = 0
@@ -683,7 +682,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   // references to other components
   private var m68KMemory : Memory = _
-  private var m68KBUSRequsted = false
+  private var m68KBUSRequested = false
 
   // ============================= Constructor =========================================
   hardReset()
@@ -703,6 +702,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   def setDisplay(display:Display): Unit =
     this.display = display
     videoPixels = display.displayMem
+    writeRegister(12, regs(12))
 
   def set68KMemory(mem:Memory): Unit =
     m68KMemory = mem
@@ -713,10 +713,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   override def hardReset(): Unit =
     hmode = H32
-    hmodeMustBeInitialized = true
-    reset()
     initVRAM()
-    for(r <- regs.indices) writeRegister(r,0)
+    for (r <- regs.indices) writeRegister(r, 0)
+    reset()
     if model != null then
       vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
     hcounter = hmode.hCounterInitialValue
@@ -737,7 +736,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     for pal <- 0 to 3; mode <- 0 to 2 do
       java.util.Arrays.fill(CRAM_COLORS(pal)(mode),Palette.getColor(0))
 
-    m68KBUSRequsted = false
+    m68KBUSRequested = false
     statusRegister = STATUS_FIFO_EMPTY_MASK | (statusRegister & 1) | STATUS_VB_MASK // preserve PAL/NTSC flag
     readCopyCache = -1
     writePendingFlag = false
@@ -751,8 +750,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     vdpLayerPatternBuffer(A).reset()
     vdpLayerPatternBuffer(B).reset()
     vdpLayerPatternBuffer(S).reset()
-    //sprite1VisibleCurrentIndex = 0
-    //java.util.Arrays.fill(sprite1VisibleIndexes,-1)
+    writeRegister(1, 4) // start in MD mode
+    if display != null then
+      writeRegister(12,0) // H32
     changeVDPClockDivider(hmode.initialClockDiv)
     verticalBlanking = true
     frameCount = 0
@@ -798,6 +798,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   final def writeDebugRegister(value:Int): Unit =
     debugRegister = value
     log.info("Debug register write %X",value)
+    // debug register 7,8: 01 = sprites, 10 = A, 11 = B
+    val debugDisplayDisabled = DEBUG_REG_DISABLE_DISPLAY
+    val debugActivePlanes = DEBUG_REG_PLANES_ACTIVE
 
   /*
     writePendingFlag is cleared when the control port is read
@@ -922,8 +925,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         // check DMA bit CD5
         if (codeRegister & 0x20) != 0 && REG_M1_DMA_ENABLED then
           if REG_DMA_MODE == DMA_MODE.MEMORY_TO_VRAM then
-            if !m68KBUSRequsted then
-              m68KBUSRequsted = true
+            if !m68KBUSRequested then
+              m68KBUSRequested = true
               busArbiter.vdpRequest68KBUS()
           statusRegister |= STATUS_DMA_MASK
           if dmaEventListener != null && REG_DMA_MODE != DMA_MODE.VRAM_FILL then
@@ -1033,8 +1036,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_BICUBIC)
         else
           display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
-        if hmode != mode || hmodeMustBeInitialized then
-          hmodeMustBeInitialized = false
+        if hmode != mode then
           hmode = mode
           changeVDPClockDivider(hmode.initialClockDiv)
           log.info("HMode set to %s", hmode)
@@ -1042,7 +1044,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           sendMessage(s"HMode set to $hmode")
           display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
           vdpAccessSlot = vdpAccessSlot % hmode.vramAccessMatrix.length
-          // TODO avoid index out of bound errors
       case 17 => // REG #17 |RIGT 0 0 WHP5 WHP4 WHP3 WHP2 WHP1|
         vdpLayerMappingAddress(A).setWindowX(value)
         log.info("Window width set to %X",value)
@@ -1242,8 +1243,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       //codeRegister &= 0x1F // clear CD5
       statusRegister &= ~STATUS_DMA_MASK
       dmaFillWriteDone = false
-      if m68KBUSRequsted then
-        m68KBUSRequsted = false
+      if m68KBUSRequested then
+        m68KBUSRequested = false
         //m68k.setBUSAvailable(true)
         busArbiter.vdpRelease68KBUS()
       log.info("DMA %s finished",REG_DMA_MODE)
@@ -1365,8 +1366,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       true
 
   private def doDMAMemory(): Unit =
-    if !m68KBUSRequsted then
-      m68KBUSRequsted = true
+    if !m68KBUSRequested then
+      m68KBUSRequested = true
       busArbiter.vdpRequest68KBUS()
     val data = m68KMemory.read(REG_DMA_SOURCE_ADDRESS << 1,Size.Word,MMU.VDP_MEM_OPTION)
     log.info("doDMAMemory: pushing codeRegister=%X address=%X data=%X",codeRegister,addressRegister,data)
@@ -1646,9 +1647,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     vdpLayerPatternBuffer(S).clear()
     rasterLine = 0
     activeDisplayLine = 0
+    inYActiveDisplay = false
     vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
     hcounter = hmode.hCounterInitialValue
-    //hInterruptCounter = REG_H_INT
 
     if interlaceModeEnabled then
       if frameCount == 0 then
@@ -1692,7 +1693,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     if inYActiveDisplay then
       activeDisplayLine += 1//vcounterInc
-      if activeDisplayLine >= (if v30 then 240 else 224) then
+      if activeDisplayLine == (if v30 then 240 else 224) then
         inYActiveDisplay = false
 
     verticalBlanking = rasterLine < videoType.topBlankingPixels || rasterLine >= bottomBorderPos + videoType.bottomBorderPixels
@@ -1700,9 +1701,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     if rasterLine == model.videoType.totalLines then
       endOfFrame()
-
-    //if rasterLine > 224 then
-    //  hInterruptCounter = REG_H_INT
 
     vdpAccessSlot = 0
     spriteLineRenderingEnabled = true
@@ -1763,9 +1761,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     recheckPixels
 
   inline private def pixelClock(): Unit =
-    val videoType = model.videoType
-    val v30 = REG_M2
-    val bottomBorderPos = videoType.bottomBorderPos(v30)
     val isBlanking = verticalBlanking || (!inXActiveDisplay && xborderCount == 0) || REG_DE_BLACK_SCREEN
 
     if isBlanking then
@@ -1790,9 +1785,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         val debugDisplayDisabled = DEBUG_REG_DISABLE_DISPLAY
         val debugActivePlanes = DEBUG_REG_PLANES_ACTIVE
 
-        if !layerAEnabled || (debugDisplayDisabled && debugActivePlanes != 1) then bitA = 0
+        if !layerAEnabled || (debugDisplayDisabled && debugActivePlanes != 2) then bitA = 0
         if !layerBEnabled || (debugDisplayDisabled && debugActivePlanes != 3) then bitB = 0
-        if !layerSEnabled || (debugDisplayDisabled && debugActivePlanes != 2) then bitS = 0
+        if !layerSEnabled || (debugDisplayDisabled && debugActivePlanes != 1) then bitS = 0
 
         if !(REG_L && activeDisplayXPos < 8) then
           val priorities = (bitS & 0x40) >> 4 | (bitA & 0x40) >> 5 | (bitB & 0x40) >> 6 // SAB
@@ -1853,6 +1848,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
                   palette = backgroundPalette
           end while
         end if
+        if !debugDisplayDisabled && debugActivePlanes > 0 then
+          debugActivePlanes match
+            case 1 => color &= bitS
+            case 2 => color &= bitA
+            case 3 => color &= bitB
       end if
 
       setPixel(xpos, rasterLine, CRAM_COLORS(palette)(colorMode.ordinal)(color)) // TODO
@@ -2015,14 +2015,21 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   // interrupt ack from M68000
   override final def intAcknowledged(level:Int): Unit =
-    level match
-      case HINT_LEVEL =>
-        hInterruptPending = false
-        hInterruptAsserted = false
+    var ackLevel = 0
+    if hInterruptAsserted then
+      ackLevel |= HINT_LEVEL
+    if vInterruptAsserted then
+      ackLevel |= VINT_LEVEL
+    ackLevel |= level
+
+    ackLevel match
       case VINT_LEVEL =>
         vInterruptPending = false
         vInterruptAsserted = false
         statusRegister &= ~STATUS_F_MASK
+      case HINT_LEVEL =>
+        hInterruptPending = false
+        hInterruptAsserted = false
       case _ =>
         log.error("Unknown interrupt ack level: %d",level)
 
