@@ -5,7 +5,7 @@ import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.audio.{FM, PSG}
 import ucesoft.smd.controller.ControllerType.MouseStartWithCTRLAndLeft
-import ucesoft.smd.controller.{ControllerType, KeyboardPADController, MouseController}
+import ucesoft.smd.controller.{ControllerType, EmptyController, KeyboardPADController, MouseController, USBPadController}
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger
@@ -13,6 +13,7 @@ import ucesoft.smd.ui.MessageBoard.MessageLevel.NORMAL
 import ucesoft.smd.ui.{MessageBoard, MessageGlassPane}
 
 import java.awt.Color
+import java.util.Properties
 import javax.swing.*
 
 /**
@@ -41,7 +42,7 @@ object SMD:
       UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarculaLaf")
     })
 
-    val vmodel = VideoType.PAL
+    val vmodel = VideoType.NTSC
     val masterClock = new Clock("master",vmodel.clockFrequency)
     val busArbiter = new BusArbiter
 
@@ -141,17 +142,18 @@ object SMD:
       sys.exit(1)
     })
 
-    val c1 = new KeyboardPADController(0,ControllerType.PAD6Buttons,masterClock)
-    val c2 = new MouseController(2,display)
-    val c3 = new KeyboardPADController(1,ControllerType.PAD6Buttons,masterClock)
-    mmu.setController(0,c1)
-    mmu.setController(2,c2)
-    mmu.setController(1,c3)
+    val keyController = new KeyboardPADController(f,new Properties(),0,ControllerType.PAD6Buttons,masterClock)
+    val empty1Controller = new EmptyController(1)//new MouseController(2,display)
+    val empty2Controller = new EmptyController(2)
+    //val usbProp = new Properties
+    //usbProp.setProperty("controller.0.name","USB Joystick")
+    //val c3 = new USBPadController(usbProp,0,ControllerType.PAD6Buttons,masterClock)//new KeyboardPADController(f,new Properties(),1,ControllerType.PAD6Buttons,masterClock)
+    mmu.setController(0,keyController)
+    mmu.setController(1,empty1Controller)
+    mmu.setController(2,empty2Controller)
 
-    f.addKeyListener(c1)
-    f.addKeyListener(c3)
     //c2.mouseEnabled(true)
-    c2.setControllerType(MouseStartWithCTRLAndLeft)
+    //c2.setControllerType(MouseStartWithCTRLAndLeft)
 
     var glassPane: MessageGlassPane = null
     SwingUtilities.invokeAndWait(() => {
@@ -169,13 +171,13 @@ object SMD:
     vdp.setLogger(Logger.getLogger)
     mmu.setLogger(Logger.getLogger)
     m68k.setLogger(Logger.getLogger)
-    c1.setLogger(Logger.getLogger)
+    keyController.setLogger(Logger.getLogger)
     busArbiter.setLogger(Logger.getLogger)
     fmAudio.setLogger(Logger.getLogger)
     psgAudio.setLogger(Logger.getLogger)
 
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\testrom\TiTAN - Overdrive (Rev1.1-106-Final) (Hardware).bin""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Vectorman (USA, Europe).md""")
     println(cart)
 
     glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())

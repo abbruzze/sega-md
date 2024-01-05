@@ -3,12 +3,57 @@ package ucesoft.smd.controller
 import ucesoft.smd.Clock
 import ucesoft.smd.Clock.EventID
 
+object PadController:
+  import Controller.*
+  
+  inline val A = 0
+  inline val B = 1
+  inline val C = 2
+  inline val S = 3
+  inline val X = 4
+  inline val Y = 5
+  inline val Z = 6
+  inline val M = 7
+  inline val U = 8
+  inline val D = 9
+  inline val L = 10
+  inline val R = 11
+
+  final val BUTTONS_NAMES = Array("A","B","C","START","X","Y","Z","MODE","UP","DOWN","LEFT","RIGHT")
+  
+  inline val CONTROLLER_BUTTON_A = CONTROLLER_PROP + "button.A"
+  inline val CONTROLLER_BUTTON_B = CONTROLLER_PROP + "button.B"
+  inline val CONTROLLER_BUTTON_C = CONTROLLER_PROP + "button.C"
+  inline val CONTROLLER_BUTTON_START = CONTROLLER_PROP + "button.START"
+  inline val CONTROLLER_BUTTON_X = CONTROLLER_PROP + "button.X"
+  inline val CONTROLLER_BUTTON_Y = CONTROLLER_PROP + "button.Y"
+  inline val CONTROLLER_BUTTON_Z = CONTROLLER_PROP + "button.Z"
+  inline val CONTROLLER_BUTTON_M = CONTROLLER_PROP + "button.M"
+  inline val CONTROLLER_BUTTON_UP = CONTROLLER_PROP + "dir.UP"
+  inline val CONTROLLER_BUTTON_DOWN = CONTROLLER_PROP + "dir.DOWN"
+  inline val CONTROLLER_BUTTON_RIGHT = CONTROLLER_PROP + "dir.RIGHT"
+  inline val CONTROLLER_BUTTON_LEFT = CONTROLLER_PROP + "dir.LEFT"
+
+  final val buttonsPropNames: List[String] = List(
+    CONTROLLER_BUTTON_A,
+    CONTROLLER_BUTTON_B,
+    CONTROLLER_BUTTON_C,
+    CONTROLLER_BUTTON_START,
+    CONTROLLER_BUTTON_X,
+    CONTROLLER_BUTTON_Y,
+    CONTROLLER_BUTTON_Z,
+    CONTROLLER_BUTTON_M
+  )
+  final val buttonAndDirectionsPropNames: List[String] = buttonsPropNames ++ List(CONTROLLER_BUTTON_UP, CONTROLLER_BUTTON_DOWN, CONTROLLER_BUTTON_RIGHT, CONTROLLER_BUTTON_LEFT)
+
+  def formatProp(s: String, index: Int): String = s.format(index)
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 29/08/2023 20:16  
  */
 abstract class PadController(override val index: Int, val ctype: ControllerType, val clock: Clock) extends Controller:
   import ControllerType.*
+  import PadController.*
 
   private inline val RESET_COUNTER_TIMEOUT_MILLIS = 1.7f // verified with Joystick Test Program
 
@@ -18,18 +63,7 @@ abstract class PadController(override val index: Int, val ctype: ControllerType,
   protected var lastWrite = 0x40
 
   protected final val buttons = Array.fill[Int](12)(1) // U,D,L,R,A,B,C,S,X,Y,Z,M
-  protected inline val A = 0
-  protected inline val B = 1
-  protected inline val C = 2
-  protected inline val S = 3
-  protected inline val X = 4
-  protected inline val Y = 5
-  protected inline val Z = 6
-  protected inline val M = 7
-  protected inline val U = 8
-  protected inline val D = 9
-  protected inline val L = 10
-  protected inline val R = 11
+
 
   override def reset(): Unit =
     java.util.Arrays.fill(buttons, 1)

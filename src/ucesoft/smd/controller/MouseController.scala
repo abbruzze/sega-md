@@ -74,6 +74,9 @@ class MouseController(override val index: Int,display:Display) extends Controlle
       display.removeMouseListener(this)
       display.removeMouseMotionListener(this)
 
+  override def disconnect(): Unit =
+    mouseEnabled(false)
+
   override def readData(): Int =
     var read = 0
     counter match

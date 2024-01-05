@@ -1,7 +1,7 @@
 
 name := "Sega-MD"
 
-version := "0.1"
+version := "0.9"
 
 scalaVersion := "3.3.1"
 

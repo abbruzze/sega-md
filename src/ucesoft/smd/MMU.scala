@@ -338,7 +338,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if address >= 0x8000 then
       write_z80_bank(address, value)
     else {
-      println(s"Z80 is writing at ${address.toHexString}")
+      println(s"Z80 is writing at ${address.toHexString} PC=${z80.getLastPC.toHexString}")
       // TODO
     }
 
@@ -546,6 +546,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   inline private def write_z80_bank(address: Int,value:Int): Unit =
     m68k.addWaitCycles(M68K_WAIT_CYCLES_Z80_ACCESS_BANK)
     z80.ctx.setAdditionalClockCycles(Z80_WAIT_CYCLES_ACCESS_BANK)
+    busArbiter.z80Request68KBUS()
     val _68kAddress = bankRegister << 15 | address & 0x7FFF
     if (_68kAddress & 0xFF0000) == 0xA00000 then
       log.warning("Writing to A00000_A0FFFF area from Z80 while bank accessing. Locking up machine ...")
@@ -646,6 +647,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   inline private def read_z80_bank(address:Int): Int =
     m68k.addWaitCycles(M68K_WAIT_CYCLES_Z80_ACCESS_BANK)
     z80.ctx.setAdditionalClockCycles(Z80_WAIT_CYCLES_ACCESS_BANK)
+    busArbiter.z80Request68KBUS()
     val _68kAddress = bankRegister << 15 | address & 0x7FFF
     if (_68kAddress & 0xFF0000) == 0xA00000 then
       log.info("Reading from A00000_A0FFFF area from Z80 while bank accessing. Locking up machine ...")

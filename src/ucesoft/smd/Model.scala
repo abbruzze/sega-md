@@ -157,7 +157,7 @@ enum VideoType(val clockFrequency:Int,
                              bottomBorderPixels = 32,
                              bottomBlankingPixels = 3,
                              totalLines = 312,
-                             maxActiveLines = 8 * 30)
+                             maxActiveLines = 8 * 28) // TODO must handle V30
 
 enum VRAMAccess:
   case
