@@ -1,6 +1,7 @@
 package ucesoft.smd
 
 import ucesoft.smd.audio.{FM, SN76489}
+import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.controller.Controller
 import ucesoft.smd.cpu.m68k.{M68000, Memory, Size}
 import ucesoft.smd.cpu.z80.Z80
@@ -213,6 +214,11 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   def setVDP(vdp:VDP): Unit =
     this.vdp = vdp
+    
+  def patchROM(patch:CheatCode): Unit =
+    patch.patchROM(rom)
+  def restoreROM(patch:CheatCode): Unit =
+    patch.restoreROM(rom)
 
   // ========================= M68000 access ======================================
   override final def read(address: Int, size: Size, readOptions: Int): Int =

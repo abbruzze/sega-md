@@ -145,9 +145,9 @@ object SMD:
     val keyController = new KeyboardPADController(f,new Properties(),0,ControllerType.PAD6Buttons,masterClock)
     val empty1Controller = new EmptyController(1)//new MouseController(2,display)
     val empty2Controller = new EmptyController(2)
-    //val usbProp = new Properties
-    //usbProp.setProperty("controller.0.name","USB Joystick")
-    //val c3 = new USBPadController(usbProp,0,ControllerType.PAD6Buttons,masterClock)//new KeyboardPADController(f,new Properties(),1,ControllerType.PAD6Buttons,masterClock)
+    val usbProp = new Properties
+    usbProp.setProperty("controller.0.name","USB Joystick")
+    val usbController = new USBPadController(usbProp,0,ControllerType.PAD6Buttons,masterClock)//new KeyboardPADController(f,new Properties(),1,ControllerType.PAD6Buttons,masterClock)
     mmu.setController(0,keyController)
     mmu.setController(1,empty1Controller)
     mmu.setController(2,empty2Controller)
