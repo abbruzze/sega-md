@@ -126,6 +126,7 @@ class Debugger(m68k:M68000,
 
   private val m68kBreakItem = new JCheckBoxMenuItem("68k breaks")
   private val m68kBreakDialog = new BreakMasterPanel(
+    "M68K",
     frame,
     6,
     break => m68kDebugger.removeBreakAt(break.address),
@@ -133,6 +134,18 @@ class Debugger(m68k:M68000,
     new M68KBreakEventPanel(m68kDebugger),
     m68kDebugger,
     () => m68kBreakItem.setSelected(false)
+  ).dialog
+
+  private val z80BreakItem = new JCheckBoxMenuItem("z80 breaks")
+  private val z80BreakDialog = new BreakMasterPanel(
+    "Z80",
+    frame,
+    4,
+    break => z80Debugger.removeBreakAt(break.address),
+    break => z80Debugger.addBreakAt(break.address, read = break.read, write = break.write, execute = break.execute),
+    new Z80BreakEventPanel(z80Debugger),
+    z80Debugger,
+    () => z80BreakItem.setSelected(false)
   ).dialog
 
 
@@ -194,20 +207,37 @@ class Debugger(m68k:M68000,
 
     override def hasBreakAt(address: Int): Boolean = breaks.contains(address)
 
-    override def addBreakAt(address:Int,r:Boolean,w:Boolean,e:Boolean): Unit =
-      breaks += address -> AddressBreakType(address, execute = e, read = r, write = w)
+    override def addBreakAt(address:Int,read:Boolean,write:Boolean,execute:Boolean): Unit =
+      breaks += address -> AddressBreakType(address, execute = execute, read = read, write = write)
+      notifyBreakAdded(AddressBreakType(address, read = read, write = write, execute = execute))
+      disassembledTableModel.update()
 
-    override def removeBreakAt(address: Int): Unit = breaks -= address
+    override def removeBreakAt(address: Int): Unit =
+      breaks -= address
+      notifyBreakRemoved(address)
+      disassembledTableModel.update()
 
     override def getBreakStringAt(address: Int): Option[String] = breaks.get(address).map(_.toString)
 
-    override def rw(z80: Z80, address: Int, isRead: Boolean, value: Int = 0): Unit = {/* TODO */}
+    override def rw(z80: Z80, address: Int, isRead: Boolean, value: Int = 0): Unit =
+      breaks.get(address) match
+        case Some(break) if (break.read && isRead) || (break.write && !isRead) =>
+          log(s"Break on Z80 ${if isRead then "READ" else "WRITE"} on address ${address.toHexString}")
+          stepByStep = true
+          disassembledTableModel.clear()
+          updateDisassembly(z80, address)
+
+          checkTracingState(true)
+          updateModels()
+          semaphore.acquire()
+        case _ =>
+
     override def fetch(z80: Z80, address: Int, opcode: Int): Unit =
       breaks.get(address) match
-        case Some(break) =>
+        case Some(break) if break.execute =>
           log(s"Break $break on address ${address.toHexString}")
           stepByStep = true
-        case None =>
+        case _ =>
 
       if !stepAlways && stepByStep then
         disassembledTableModel.clear()
@@ -226,9 +256,33 @@ class Debugger(m68k:M68000,
           stepDisassemble = dis
         disassembledTableModel.add(dis)
         adr += dis.size
-    override def interrupted(z80: Z80, mode: Int, isNMI: Boolean): Unit = {/* TODO */}
-    override def reset(z80: Z80): Unit = {/* TODO */}
-    override def halt(z80: Z80, isHalted: Boolean): Unit = {/* TODO */}
+    override def interrupted(z80: Z80, mode: Int, isNMI: Boolean): Unit =
+      log(s"Break on Z80 ${if isNMI then "NMI" else "INT"}")
+      stepByStep = true
+      stepOutPending = StepState.NoStep
+      stepOverPending = StepState.NoStep
+      checkTracingState(true)
+      updateDisassembly(z80)
+      updateModels()
+      semaphore.acquire()
+    override def reset(z80: Z80): Unit =
+      log(s"Break on Z80 RESET")
+      stepByStep = true
+      stepOutPending = StepState.NoStep
+      stepOverPending = StepState.NoStep
+      checkTracingState(true)
+      updateDisassembly(z80)
+      updateModels()
+      semaphore.acquire()
+    override def halt(z80: Z80, isHalted: Boolean): Unit =
+      log(s"Break on Z80 HALT")
+      stepByStep = true
+      stepOutPending = StepState.NoStep
+      stepOverPending = StepState.NoStep
+      checkTracingState(true)
+      updateDisassembly(z80)
+      updateModels()
+      semaphore.acquire()
 
     override def enableTracing(enabled: Boolean): Unit = {
       if stepByStep != enabled then
@@ -843,7 +897,9 @@ class Debugger(m68k:M68000,
     menu.add(disMenu)
 
     m68kBreakItem.addActionListener(_ => m68kBreakDialog.setVisible(m68kBreakItem.isSelected))
+    z80BreakItem.addActionListener(_ => z80BreakDialog.setVisible(z80BreakItem.isSelected))
     breakMenu.add(m68kBreakItem)
+    breakMenu.add(z80BreakItem)
 
     menu.add(breakMenu)
 
@@ -929,7 +985,8 @@ class Debugger(m68k:M68000,
 
   private def breakGUI(): Unit =
     if tabbedPane.getSelectedIndex == 1 then
-      {}
+      z80BreakItem.setSelected(true)
+      z80BreakDialog.setVisible(true)
     else
       m68kBreakItem.setSelected(true)
       m68kBreakDialog.setVisible(true)

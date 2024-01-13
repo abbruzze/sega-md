@@ -753,17 +753,19 @@ object DebuggerUI {
       model.removeBreakAtRow(table.getSelectedRows)
   end BreakpointPanel
 
-  class BreakMasterPanel(frame: JFrame,
+  class BreakMasterPanel(name:String,
+                         frame: JFrame,
                          addressPaddingLen:Int,
                          removeBreakHandler: Debugger.AddressBreakType => Unit,
                          addBreakHandler: Debugger.AddressBreakType => Unit,
                          northPanel: JPanel,
                          breakHandler:DisassemblerBreakHandler,
-                         override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame, "Breakpoints", windowCloseOperation) with BreakListener:
+                         override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame, s"$name breakpoints", windowCloseOperation) with BreakListener:
     private val breakPanel = new BreakpointPanel(addressPaddingLen,breakHandler)
     init()
 
     override protected def init(): Unit =
+      super.init()
       breakHandler.addBreakListener(this)
       dialog.getContentPane.add("North", northPanel)
       dialog.getContentPane.add("Center",breakPanel)
@@ -834,5 +836,27 @@ object DebuggerUI {
       add(intTF)
       add(exCB)
       add(exTF)
+      setBorder(BorderFactory.createTitledBorder("Events"))
+  end M68KBreakEventPanel
+
+  class Z80BreakEventPanel(breakHandler: DisassemblerBreakHandler) extends JPanel:
+    init()
+
+    private def init(): Unit =
+      setLayout(new FlowLayout())
+      val resetCB = new JCheckBox("reset")
+      val haltCB = new JCheckBox("halt")
+      val intCB = new JCheckBox("int")
+      val nmiCB = new JCheckBox("nmi")
+
+      resetCB.addActionListener(_ => if resetCB.isSelected then breakHandler.addBreakEvent("reset", null) else breakHandler.removeBreakEvent("reset"))
+      haltCB.addActionListener(_ => if haltCB.isSelected then breakHandler.addBreakEvent("halt", null) else breakHandler.removeBreakEvent("halt"))
+      intCB.addActionListener(_ => if intCB.isSelected then breakHandler.addBreakEvent("int", null) else breakHandler.removeBreakEvent("int"))
+      nmiCB.addActionListener(_ => if nmiCB.isSelected then breakHandler.addBreakEvent("nmi", null) else breakHandler.removeBreakEvent("nmi"))
+
+      add(resetCB)
+      add(haltCB)
+      add(intCB)
+      add(nmiCB)
       setBorder(BorderFactory.createTitledBorder("Events"))
 }

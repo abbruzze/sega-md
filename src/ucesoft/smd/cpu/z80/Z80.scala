@@ -2794,7 +2794,7 @@ class Z80(_mem:Memory,
 
   private val mem = new Memory {
     override final def read(address: Int): Int = {
-      if (notifyEventListeners) onRWEvent(address,isRead = true)
+      if (notifyEventListeners && !dummyRead) onRWEvent(address,isRead = true)
       _mem.read(address)
     }
     override final def write(address: Int, value: Int): Unit = {
@@ -2838,7 +2838,7 @@ class Z80(_mem:Memory,
   }
 
   private def onRWEvent(address:Int,isRead:Boolean,value:Int = 0): Unit = {
-    val listeners = eventListeners.iterator
+    val listeners = eventListeners.toList.iterator
     while (listeners.hasNext) {
       listeners.next().rw(this,address,isRead,value)
     }
