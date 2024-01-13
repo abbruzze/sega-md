@@ -1,5 +1,7 @@
 package ucesoft.smd
 
+import java.util.zip.CRC32
+
 object Cart:
   enum SYSTEM_TYPE:
     case MEGA_DRIVE, MEGA_DRIVE_32X, MEGA_DRIVE_EVERDRIVE_EXT, MEGA_DRIVE_SSF_EXT, MEGA_DRIVE_WIFI_EXT, PICO, TERA_DRIVE68K, TERA_DRIVEX86, UNKNOWN
@@ -13,13 +15,13 @@ object Cart:
          Trackball, Tablet, Paddle, Keyboard,
          RS232, Printer, CDROM, FloppyDrive,
          Download, UNKNOWN
-  case class ExtraMemory(memType:ExtraMemoryType,startAddress:Int,endAddress:Int)
+  case class ExtraMemory(memType:ExtraMemoryType,startAddress:Int,endAddress:Int,extraRAM:Array[Int])
 
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 28/08/2023 19:10  
  */
-class Cart(val file:String):
+class Cart(val file:String,fixChecksum: Boolean = false):
   import Cart.*
   private inline val SYSTEM_TYPE_ADDR = 0x100
   private inline val CHECKSUM_ADDR = 0x18E
@@ -35,6 +37,8 @@ class Cart(val file:String):
   private var systemType = SYSTEM_TYPE.MEGA_DRIVE
   private var regions : List[Region] = Nil
   private var devices : List[Device] = Nil
+  private var crc32 = ""
+  private var checksumOK = false
 
   loadROM()
 
@@ -45,12 +49,17 @@ class Cart(val file:String):
     if !f.exists() then
       throw new IllegalArgumentException(s"Cartridge $file does not exist")
     rom = Files.readAllBytes(f.toPath).map(_.toInt & 0xFF)
-    Logger.getLogger.info(s"Loaded ${rom.length} from cartridge $file")
+    Logger.getLogger.info(s"Loaded ${rom.length} bytes from cartridge $file")
 
     val fileChecksum = rom(CHECKSUM_ADDR) << 8 | rom(CHECKSUM_ADDR + 1)
     val calculatedChecksum = checksum()
-    if fileChecksum != calculatedChecksum then
+    checksumOK = fileChecksum == calculatedChecksum
+    if !checksumOK then
       Logger.getLogger.warning("ROM checksum %X is different from calculated one %X",fileChecksum,calculatedChecksum)
+      if fixChecksum then
+        rom(CHECKSUM_ADDR) = calculatedChecksum >> 8
+        rom(CHECKSUM_ADDR + 1) = calculatedChecksum & 0xFF
+        Logger.getLogger.info(s"Checksum fixed to ${calculatedChecksum.toHexString}")
     if checkExtraMemory() then
       Logger.getLogger.info("Found extra memory: %s [%X,%X]",extraMemory.memType,extraMemory.startAddress,extraMemory.endAddress)
 
@@ -59,6 +68,11 @@ class Cart(val file:String):
     systemType = _getSystemType
     regions = getRegions
     devices = getDeviceSupport
+    
+    val crc = new CRC32
+    for i <- rom.indices do
+      crc.update(rom(i))
+    crc32 = crc.getValue.toHexString
 
   private def checksum(): Int =
     var cs = 0
@@ -159,7 +173,7 @@ class Cart(val file:String):
         case 0xE0|0xF0|0xF8 => ExtraMemoryType.RAM_SAVE
         case 0xE8 => ExtraMemoryType.ROM
         case _ => ExtraMemoryType.UNKNOWN
-      extraMemory = ExtraMemory(mt,startAddress, endAddress)
+      extraMemory = ExtraMemory(mt,startAddress, endAddress,Array.ofDim[Int](endAddress - startAddress + 1))
     extraMemory != null
 
   def getROM: Array[Int] = rom
@@ -170,6 +184,8 @@ class Cart(val file:String):
   def getSystemType: SYSTEM_TYPE = systemType
   def getRegionList: List[Region] = regions
   def getDeviceList: List[Device] = devices
+  def getCRC32: String = crc32
+  def isChecksumOK: Boolean = checksumOK
 
   override def toString: String =
-    s"""Cart[file="${new java.io.File(file).getName}" system type=$systemType regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
+    s"""Cart[file="${new java.io.File(file).getName}" system type=$systemType CRC32=$crc32 regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""

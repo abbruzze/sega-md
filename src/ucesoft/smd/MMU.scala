@@ -189,7 +189,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     extraRam = null
     cart.getExtraMemoryInfo match
       case Some(info) =>
-        extraRam = Array.ofDim[Int](info.endAddress - info.startAddress + 1)
+        extraRam = info.extraRAM
         extraRamStartAddress = info.startAddress
         extraRamEndAddress = info.endAddress
       case None =>
