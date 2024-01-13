@@ -11,7 +11,7 @@ import java.util.Properties
  * @author Alessandro Abbruzzetti
  *         Created on 04/01/2024 20:13  
  */
-object USBPadController:
+object RealPadController:
   inline val USB_TYPE = "usb"
   inline val CONTROLLER_NAME_PROP = CONTROLLER_PROP + "name"
   inline val CONTROLLER_POLLING_PROP = CONTROLLER_PROP + "pollingMillis"
@@ -20,9 +20,26 @@ object USBPadController:
   private var discoverDone = false
   private var discoverSuccessful = false
 
+  class WaitButtonTask(controller: Controller, action: String => Unit) extends Runnable:
+    private val thread = new Thread(this)
+    @volatile private var stopped = false
+
+    override def run(): Unit =
+      while !stopped do
+        Thread.sleep(100)
+        controller.poll()
+        val buttons = controller.getComponents filter { c => !c.isAnalog && !c.isRelative && c.getIdentifier.getClass.getName.toUpperCase().endsWith("BUTTON") }
+        for c <- buttons do
+          if c.getPollData != 0.0 && !stopped then
+            action(c.getName)
+            stopped = true
+
+    def stop(): Unit = stopped = true
+    def start(): Unit = thread.start()
+
   private def discoverControllers(millis:Int = 1000): Unit =
     if !discoverDone then
-      val thread = new Thread:
+      val thread = new Thread("DiscoverController"):
         override def run(): Unit =
           System.setProperty("jinput.loglevel", "SEVERE")
           controllers = ControllerEnvironment.getDefaultEnvironment.getControllers
@@ -37,23 +54,25 @@ object USBPadController:
   private def updateControllers(millis:Int): Unit =
     if discoverSuccessful then
       discoverControllers(millis)
-  def getControllersNames: Array[String] = controllers.map(_.getName)
+  def getControllersNames: Array[String] = controllers.filter(c => c.getType == Controller.Type.GAMEPAD || c.getType == Controller.Type.STICK).map(_.getName)
 
-class USBPadController(config:Properties,override val index: Int, override val ctype: ControllerType, override val clock: Clock) extends PadController(index,ctype,clock) with Runnable:
-  import USBPadController.*
+class RealPadController(config:Properties, override val index: Int, override val ctype: ControllerType, override val clock: Clock) extends PadController(index,ctype,clock) with Runnable:
+  import RealPadController.*
   private inline val DIR_THRESHOLD = 0.5f
 
   private var controller : Option[Controller] = None
   private var xAxisComponent : Component = _
   private var yAxisComponent : Component = _
   private var buttonsComponent : List[(Int,Component)] = Nil
-  private val thread = new Thread(this,s"USBController($index)")
+  private val thread = new Thread(this,s"RealController($index)")
   private var running = true
 
   discoverControllers()
   findController(config)
   if controller.isDefined then
     thread.start()
+
+  def waitForButton(action: String => Unit): Option[WaitButtonTask] = controller.map(c => WaitButtonTask(c, action))
 
   override def disconnect(): Unit =
     running = false
