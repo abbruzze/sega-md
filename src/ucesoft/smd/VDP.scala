@@ -7,6 +7,7 @@ import ucesoft.smd.ui.MessageBoard
 import ucesoft.smd.ui.MessageBoard.MessageBoardListener
 
 import java.awt.RenderingHints
+import scala.annotation.switch
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
@@ -1741,6 +1742,15 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       maxModY = iy
       pixelMod = true
 
+  /*
+   S/H works as follows:
+
+    - If both A+B are low prio, the visible color becomes shadowed
+    - If S would normally be on top (because they are not hidden behind a plane and not transparent), the following happens:
+      - Sprite color 63: S is not drawn and the A/B/G color becomes shadowed if it isn't already
+      - Sprite color 62: S is not drawn and the A/B/G color becomes highlighted if it was normal and normal if it was shadowed
+      - Otherwise S is drawn normally, or dark when all 3 S+A+B are low prio and S is not of either of the colors 14,30,46
+   */
   inline private def checkSpriteHS(pixelIndex:Int,palette:Int,color:Int,priorities:Int): Boolean =
     val spriteColor = palette << 4 | color
     var recheckPixels = false
@@ -1757,6 +1767,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     // Otherwise S is drawn normally, or dark when all 3 S+A+B are low prio and S is not of either of the colors 14,30,46
     else if priorities == 0 && (spriteColor != 14 && spriteColor != 30 && spriteColor != 46) then
       colorMode = colorMode.darker()
+    else
+      colorMode = Palette.PaletteType.NORMAL // TODO check if it's correct
 
     recheckPixels
 
@@ -1795,7 +1807,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           if hsEnabled && (priorities & 3) == 0 then
             colorMode = Palette.PaletteType.SHADOW
 
-          priorities match
+          (priorities : @switch) match
             case 0|4|6|7 => // S > A > B > G
               layerPixels(0) = bitS
               layerPixels(1) = bitA
@@ -1849,7 +1861,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           end while
         end if
         if !debugDisplayDisabled && debugActivePlanes > 0 then
-          debugActivePlanes match
+          (debugActivePlanes : @switch) match
             case 1 => color &= bitS
             case 2 => color &= bitA
             case 3 => color &= bitB
