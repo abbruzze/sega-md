@@ -208,6 +208,7 @@ class Debugger(m68k:M68000,
     override def hasBreakAt(address: Int): Boolean = breaks.contains(address)
 
     override def addBreakAt(address:Int,read:Boolean,write:Boolean,execute:Boolean): Unit =
+      z80.addEventListener(this)
       breaks += address -> AddressBreakType(address, execute = execute, read = read, write = write)
       notifyBreakAdded(AddressBreakType(address, read = read, write = write, execute = execute))
       disassembledTableModel.update()
@@ -216,6 +217,8 @@ class Debugger(m68k:M68000,
       breaks -= address
       notifyBreakRemoved(address)
       disassembledTableModel.update()
+      if !existsBreakPending then
+          z80.removeEventListener(this)
 
     override def getBreakStringAt(address: Int): Option[String] = breaks.get(address).map(_.toString)
 
@@ -240,6 +243,7 @@ class Debugger(m68k:M68000,
         case _ =>
 
       if !stepAlways && stepByStep then
+        selectDebugger(1)
         disassembledTableModel.clear()
         updateDisassembly(z80,address)
 
@@ -394,17 +398,25 @@ class Debugger(m68k:M68000,
     override protected def onCPUEnabled(enabled:Boolean): Unit =
       m68k.setComponentEnabled(enabled)
     override def getBreakEvent(eventName: String): Option[AnyRef] = debugger.getBreakEvent(eventName)
-    override def addBreakEvent(eventName: String, value: AnyRef): Unit = debugger.addBreakEvent(eventName, value)
-    override def removeBreakEvent(eventName: String): Unit = debugger.removeBreakEvent(eventName)
+    override def addBreakEvent(eventName: String, value: AnyRef): Unit =
+      debugger.addBreakEvent(eventName, value)
+      
+    override def removeBreakEvent(eventName: String): Unit =
+      debugger.removeBreakEvent(eventName)
+      if !debugger.existsBreakPending then
+        enableTracing(false)
     override def hasBreakAt(address: Int): Boolean = debugger.hasBreakAt(address)
     override def addBreakAt(address:Int,read:Boolean,write:Boolean,execute:Boolean): Unit =
       debugger.addBreakAt(address,read,write,execute)
       notifyBreakAdded(AddressBreakType(address,read = read,write = write, execute = execute))
       disassembledTableModel.update()
+      m68k.addEventListener(debugger)
     override def removeBreakAt(address: Int): Unit =
       debugger.removeBreakAt(address)
       notifyBreakRemoved(address)
       disassembledTableModel.update()
+      if !debugger.existsBreakPending then
+        m68k.removeEventListener(debugger)
     override def getBreakStringAt(address: Int): Option[String] = debugger.getBreakStringAt(address)
 
     private val debugger = new AbstractDebugger with GenericDebugger {
@@ -912,6 +924,14 @@ class Debugger(m68k:M68000,
   def enableTracing(enabled: Boolean): Unit =
     selectedDebugger.enableTracing(enabled)
     checkTracingState(enabled)
+
+  protected def selectDebugger(index:Int): Unit =
+    swing {
+      tabbedPane.setSelectedIndex(index)
+      selectedDebugger = index match
+        case 0 => m68kDebugger
+        case 1 => z80Debugger
+    }
 
   def showDebugger(show:Boolean): Unit =
     frame.setVisible(show)

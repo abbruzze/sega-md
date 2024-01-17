@@ -6,7 +6,7 @@ case class DisassembledInstruction(address:Int,opcode:Int,mnemonic:String,extend
 
   override def toString: String =
     val numbers = if opcode == -1 then address :: extendedWords else address :: opcode :: extendedWords
-    val addresses = "%-40s".format(numbers.zipWithIndex.map((a,i) => s"%0${if i == 0 then 8 else 4}x".format(a & 0xFFFF)).mkString(" "))
+    val addresses = "%-40s".format(numbers.zipWithIndex.map((a,i) => s"%0${if i == 0 then 8 else 4}x".format(a & 0xFFFFFF)).mkString(" "))
     var ops = if op1.isDefined then s" ${op1.get}" else ""
     if op2.isDefined then
       ops = s"$ops,${op2.get}"

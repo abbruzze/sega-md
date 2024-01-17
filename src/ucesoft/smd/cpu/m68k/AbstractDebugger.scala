@@ -57,7 +57,7 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
     stepAlways = false
     clearAllBreaks()
 
-  protected def existsBreakPending : Boolean =
+  def existsBreakPending : Boolean =
     m68kAddressBreaks.nonEmpty ||
       breakOnHalt ||
       breakOnStop ||
