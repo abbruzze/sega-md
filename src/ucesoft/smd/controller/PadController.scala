@@ -34,7 +34,7 @@ object PadController:
   inline val CONTROLLER_BUTTON_RIGHT = CONTROLLER_PROP + "dir.RIGHT"
   inline val CONTROLLER_BUTTON_LEFT = CONTROLLER_PROP + "dir.LEFT"
 
-  final val buttonsPropNames: List[String] = List(
+  final val buttonsPropNames: Array[String] = Array(
     CONTROLLER_BUTTON_A,
     CONTROLLER_BUTTON_B,
     CONTROLLER_BUTTON_C,
@@ -44,7 +44,7 @@ object PadController:
     CONTROLLER_BUTTON_Z,
     CONTROLLER_BUTTON_M
   )
-  final val buttonAndDirectionsPropNames: List[String] = buttonsPropNames ++ List(CONTROLLER_BUTTON_UP, CONTROLLER_BUTTON_DOWN, CONTROLLER_BUTTON_RIGHT, CONTROLLER_BUTTON_LEFT)
+  final val buttonAndDirectionsPropNames: Array[String] = buttonsPropNames ++ Array(CONTROLLER_BUTTON_UP, CONTROLLER_BUTTON_DOWN, CONTROLLER_BUTTON_RIGHT, CONTROLLER_BUTTON_LEFT)
 
   def formatProp(s: String, index: Int): String = s.format(index)
 /**

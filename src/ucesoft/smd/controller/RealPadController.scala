@@ -37,7 +37,7 @@ object RealPadController:
     def stop(): Unit = stopped = true
     def start(): Unit = thread.start()
 
-  private def discoverControllers(millis:Int = 1000): Unit =
+  def discoverControllers(millis:Int = 1000): Unit =
     if !discoverDone then
       val thread = new Thread("DiscoverController"):
         override def run(): Unit =
@@ -54,7 +54,8 @@ object RealPadController:
   private def updateControllers(millis:Int): Unit =
     if discoverSuccessful then
       discoverControllers(millis)
-  def getControllersNames: Array[String] = controllers.filter(c => c.getType == Controller.Type.GAMEPAD || c.getType == Controller.Type.STICK).map(_.getName)
+  def getControllersNames: Array[String] = controllers.filter(c => c.getType == Controller.Type.GAMEPAD || c.getType == Controller.Type.STICK).map(_.getName.trim)
+  def getControllerByName(name:String) : Option[Controller] = controllers.find(_.getName.trim == name)
 
 class RealPadController(config:Properties, override val index: Int, override val ctype: ControllerType, override val clock: Clock) extends PadController(index,ctype,clock) with Runnable:
   import RealPadController.*
@@ -97,7 +98,7 @@ class RealPadController(config:Properties, override val index: Int, override val
         yAxisComponent = c.getComponent(Component.Identifier.Axis.Y)
         buttonsComponent = buttonsPropNames.zipWithIndex.map((b, i) =>
           (i,c.getComponents.find(_.getIdentifier.getName == config.getProperty(formatProp(b,index), s"${i + 1}")))
-        ).filter(_._2.isDefined).map((i,c) => (i,c.get))
+        ).filter(_._2.isDefined).map((i,c) => (i,c.get)).toList
         if ctype == ControllerType.PAD3Buttons then
           buttonsComponent = buttonsComponent.filter(_._1 > S)
         for b <- buttonsComponent do
