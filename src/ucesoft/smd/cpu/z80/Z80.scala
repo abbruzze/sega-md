@@ -2818,6 +2818,9 @@ class Z80(_mem:Memory,
 
   private val eventListeners = new ListBuffer[EventListener]
   private var notifyEventListeners = false
+  private var totalElapsedCycles = 0L
+  
+  final def getTotalElapsedCycles: Long = totalElapsedCycles
   
   def setPCMask(mask:Int): Unit = {
     pcMask = mask
@@ -3093,7 +3096,7 @@ class Z80(_mem:Memory,
     opcode.executeFunction(ctx)
 
     val clocks = opcode.cycles + ctx.getAdditionalClockSycles
-
+    totalElapsedCycles += clocks
     if (!opcode.modifyPC) ctx.incPC(opcode.size)
     clocks
   }

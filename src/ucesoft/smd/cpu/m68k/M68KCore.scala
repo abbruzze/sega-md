@@ -330,6 +330,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
   protected def resetCPU(): Unit =
     dtackEnabled = true
     busAvailable = true
+    totalElapsedCycles = 0
 
     busAccess(BusAccessMode.Idle,Size.Word,false,0,0,14)
     if notifyEventListeners then fireRWEvent(0,Size.Long,isRead = true)
