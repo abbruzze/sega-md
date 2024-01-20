@@ -607,7 +607,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       this.thirdByte = thirdWord
       horizontalPosition = hpos - 128
       zeroPos = hpos == 0
-      val deltaY = (activeDisplayLine - (spriteCache(spriteCacheIndex).y - 128)) & 0x1F
+      val line = activeDisplayLine + 1
+      val deltaY = (line - (spriteCache(spriteCacheIndex).y - 128)) & 0x1F
       cellReadCount = 0
       address = (thirdWord & interlaceMode.yScrollMask) << interlaceMode.patternSizeShift
       val h = spriteCache(spriteCacheIndex).h
@@ -1647,7 +1648,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private def endOfFrame(): Unit =
     vdpLayerPatternBuffer(S).clear()
     rasterLine = 0
-    activeDisplayLine = 0
+    activeDisplayLine = -1
     inYActiveDisplay = false
     vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
     hcounter = hmode.hCounterInitialValue
@@ -1692,8 +1693,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     hcounter = hmode.hCounterInitialValue
     rasterLine += 1
 
+    if vcounter == 0 then
+      inYActiveDisplay = true
+
     if inYActiveDisplay then
-      activeDisplayLine += 1//vcounterInc
+      activeDisplayLine += 1
       if activeDisplayLine == (if v30 then 240 else 224) then
         inYActiveDisplay = false
 
@@ -1707,9 +1711,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     spriteLineRenderingEnabled = true
     spriteEvaluationPhaseInProgress = SPRITE_EVAL_IDLE
 
-    val tmp = sprite1VisibleNextLineSR
-    sprite1VisibleNextLineSR = sprite1VisibleSR
-    sprite1VisibleSR = tmp
+//    val tmp = sprite1VisibleNextLineSR
+//    sprite1VisibleNextLineSR = sprite1VisibleSR
+//    sprite1VisibleSR = tmp
     sprite1FirstFetch = true
   end endOfLine
 
@@ -1719,14 +1723,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     else
       activeDisplayLine
 
-  inline private def isSpriteFirstEvaluationLine: Boolean = vcounter == 0x1FE
+  inline private def isSpriteFirstEvaluationLine: Boolean = vcounter == 0x1FF
   inline private def isActiveDisplayArea: Boolean = inXActiveDisplay && inYActiveDisplay
   inline private def isSpriteEvaluationEnabled : Boolean = REG_DE && (inYActiveDisplay || isSpriteFirstEvaluationLine)
-
-  // colorIndex < 16, palette < 4
-  inline private def getColor(colorIndex:Int,palette:Int): Int =
-    val address = palette << 5 | colorIndex << 1
-    CRAM(address) << 8 | CRAM(address + 1)
 
   inline private def setPixel(x:Int,y:Int,pixelColor:Int): Unit =
     val iy = if interlaceModeEnabled then y << 1 | frameCount else y
@@ -1886,9 +1885,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         if xborderIsLeft then
           xborderIsLeft = false
           inXActiveDisplay = true
-          if !isVerticalBorder && !inYActiveDisplay then
+          /*if !isVerticalBorder && !inYActiveDisplay then
             inYActiveDisplay = true
-            activeDisplayLine = 0
+            activeDisplayLine = 0*/
           activeDisplayXPos = 0
 
     if checkHCounter() then
@@ -1981,16 +1980,39 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         spriteEvaluationPhaseInProgress = SPRITE_EVAL_TERMINATED
 
       if line >= sy && line < sy + height then
-        if sprite1VisibleNextLineSR.getSize == hmode.maxSpritePerLine then
+        if sprite1VisibleSR.getSize == hmode.maxSpritePerLine then
           statusRegister |= STATUS_SOVR_MASK
           spriteEvaluationPhaseInProgress = SPRITE_EVAL_TERMINATED
         else
-          sprite1VisibleNextLineSR.enqueueIndex(spriteIndex)
+          sprite1VisibleSR.enqueueIndex(spriteIndex)
           //println(s"Sprite $spriteIndex visible at line $line: sy=$sy height=$height")
 
       c += 1
     end while
     spriteEvaluationCycles += 1
+
+  private def fastSpriteEvaluation(): Unit =
+    spriteEvaluationIndex = 0 // start with sprite #0
+    sprite1VisibleCurrentIndex = 0
+    var c = 0
+    val line = activeDisplayLine + 1 // check if some sprite is visible on next line
+    var keepSearching = REG_DE
+    while c < 80 && keepSearching do
+      val spriteIndex = spriteEvaluationIndex
+      val sy = spriteCache(spriteIndex).y - 128
+      val height = (spriteCache(spriteIndex).h + 1) << 3 // 8 * sprite height pixels
+      spriteEvaluationIndex = spriteCache(spriteIndex).link
+      keepSearching = spriteEvaluationIndex != 0 && spriteEvaluationIndex < spriteCache.length
+
+      if line >= sy && line < sy + height then
+        if sprite1VisibleSR.getSize == hmode.maxSpritePerLine then
+          statusRegister |= STATUS_SOVR_MASK
+          keepSearching = false
+        else
+          sprite1VisibleSR.enqueueIndex(spriteIndex)
+
+      c += 1
+    end while
 
   override final def clock(cycles: Long): Unit =
     if pendingControlPortRequest then
@@ -2004,7 +2026,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       else
         processPendingControlPortCommand()
     // check if it's time to do sprite evaluation
-    if vdpAccessSlot == SPRITE_PHASE1_ACCESS_SLOT && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IDLE && isSpriteEvaluationEnabled then
+    /*
+    if vdpAccessSlot == hmode.firstSpriteFetchSlot && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IDLE && isSpriteEvaluationEnabled then
       spriteEvaluationPhaseInProgress = SPRITE_EVAL_IN_PROGRESS
       spriteEvaluationIndex = 0 // start with sprite #0
       spriteEvaluationCycles = 0
@@ -2012,8 +2035,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       spriteEvaluation()
       if spriteEvaluationPhaseInProgress == SPRITE_EVAL_TERMINATED then
         sprite1VisibleCurrentIndex = 0
-
+    */
     if doAccessSlotRead() then // 4 bytes read
+      if vdpAccessSlot == 0 && isSpriteEvaluationEnabled then
+        fastSpriteEvaluation()
       vdpAccessSlot += 1
       if vdpAccessSlot >= hmode.vramAccessMatrix.length then
         vdpAccessSlot = 0
