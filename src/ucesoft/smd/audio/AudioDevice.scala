@@ -26,6 +26,7 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
   private var stopped = false
   private val stereoLR = Array(0,0)
   private var pendingNewSampleRate = 0
+  private var lastPerformance = 0
 
   private val isStereoInternal = isStereo
 
@@ -129,6 +130,8 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
   def getVolume: Int = volume
 
   def available(): Int = if sourceLine == null then 0 else sourceLine.available()
+  
+  def getLastPerformance: Int = lastPerformance
 
   override def run(): Unit =
     getSourceLine match
@@ -148,8 +151,10 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
           val available = sourceLine.available()
           if available >= samples.length then
             sourceLine.write(samples, 0, samples.length)
+            lastPerformance = 100
           else
             sourceLine.write(samples, 0, available)
+            lastPerformance = (available / samples.length * 100.0).toInt
 
         sourceLine.drain()
         sourceLine.close()

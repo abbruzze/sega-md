@@ -5,10 +5,11 @@ import org.jfree.chart.plot.XYPlot
 import org.jfree.chart.{ChartFactory, ChartPanel, StandardChartTheme}
 import org.jfree.data.time.{DynamicTimeSeriesCollection, Second}
 import ucesoft.smd.Clock
+import ucesoft.smd.audio.AudioDevice
 import ucesoft.smd.cpu.m68k.M6800X0
 import ucesoft.smd.cpu.z80.Z80
 
-import java.awt.{Color, Paint}
+import java.awt.{Color, FlowLayout, Paint}
 import java.awt.event.{ActionEvent, ActionListener, WindowAdapter, WindowEvent}
 import java.lang.management.ManagementFactory
 import javax.swing.*
@@ -17,7 +18,7 @@ import javax.swing.*
  * @author Alessandro Abbruzzetti
  *         Created on 19/01/2024 13:01  
  */
-class PerformanceMonitor(frame:JFrame,m68k:M6800X0,z80:Z80,clock:Clock,closeAction: () => Unit) extends JPanel with ActionListener:
+class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audioDevicesMap:Map[String,AudioDevice], closeAction: () => Unit) extends JPanel with ActionListener:
   private enum PerfState:
     case LOW_RES,NORMAL_RES
 
@@ -42,6 +43,8 @@ class PerformanceMonitor(frame:JFrame,m68k:M6800X0,z80:Z80,clock:Clock,closeActi
   private var lowResObservationPeriodInSec = 10
   private var resCounter = 0
   private var firstSample = true
+  private val audioLabels = Array.ofDim[JLabel](audioDevicesMap.size)
+  private val audioDevices = Array.ofDim[AudioDevice](audioDevicesMap.size)
 
   init()
 
@@ -69,6 +72,14 @@ class PerformanceMonitor(frame:JFrame,m68k:M6800X0,z80:Z80,clock:Clock,closeActi
     addChart("M68000", "cycles/sec", m68kPerfDataset)
     addChart("Z80", "cycles/sec", z80PerfDataset)
     addChart("Host system load", "load", sysPerfDataset)
+    val audioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+    for e <- audioDevicesMap.zipWithIndex do
+      audioLabels(e._2) = new JLabel("100%",SwingConstants.LEFT)
+      audioLabels(e._2).setForeground(CHART_COLOR)
+      audioDevices(e._2) = e._1._2
+      audioPanel.add(new JLabel(s"${e._1._1}:"))
+      audioPanel.add(audioLabels(e._2))
+    add(audioPanel)
     dialog.getContentPane.add("Center",this)
     dialog.setSize(500,700)
     timer.setRepeats(true)
@@ -106,6 +117,10 @@ class PerformanceMonitor(frame:JFrame,m68k:M6800X0,z80:Z80,clock:Clock,closeActi
     sysPerfDataset.advanceTime()
     val load = ManagementFactory.getPlatformMXBean(classOf[com.sun.management.OperatingSystemMXBean]).getProcessCpuLoad * 100
     sysPerfDataset.appendData(Array(load.toFloat))
+
+    for audio <- audioDevices.zipWithIndex do
+      val perf = audio._1.getLastPerformance
+      audioLabels(audio._2).setText("%03d%%".format(perf))
 
     state match
       case NORMAL_RES =>
