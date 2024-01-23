@@ -18,7 +18,7 @@ import javax.swing.*
  * @author Alessandro Abbruzzetti
  *         Created on 19/01/2024 13:01  
  */
-class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audioDevicesMap:Map[String,AudioDevice], closeAction: () => Unit) extends JPanel with ActionListener:
+class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audioDeviceList:Array[AudioDevice], closeAction: () => Unit) extends JPanel with ActionListener:
   private enum PerfState:
     case LOW_RES,NORMAL_RES
 
@@ -43,8 +43,7 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
   private var lowResObservationPeriodInSec = 10
   private var resCounter = 0
   private var firstSample = true
-  private val audioLabels = Array.ofDim[JLabel](audioDevicesMap.size)
-  private val audioDevices = Array.ofDim[AudioDevice](audioDevicesMap.size)
+  private val audioLabels = Array.ofDim[JLabel](audioDeviceList.length)
 
   init()
 
@@ -73,12 +72,11 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
     addChart("Z80", "cycles/sec", z80PerfDataset)
     addChart("Host system load", "load", sysPerfDataset)
     val audioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
-    for e <- audioDevicesMap.zipWithIndex do
-      audioLabels(e._2) = new JLabel("100%",SwingConstants.LEFT)
-      audioLabels(e._2).setForeground(CHART_COLOR)
-      audioDevices(e._2) = e._1._2
-      audioPanel.add(new JLabel(s"${e._1._1}:"))
-      audioPanel.add(audioLabels(e._2))
+    for i <- audioDeviceList.indices do
+      audioLabels(i) = new JLabel("100%",SwingConstants.LEFT)
+      audioLabels(i).setForeground(CHART_COLOR)
+      audioPanel.add(new JLabel(s"${audioDeviceList(i).name}:"))
+      audioPanel.add(audioLabels(i))
     add(audioPanel)
     dialog.getContentPane.add("Center",this)
     dialog.setSize(500,700)
@@ -118,9 +116,9 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
     val load = ManagementFactory.getPlatformMXBean(classOf[com.sun.management.OperatingSystemMXBean]).getProcessCpuLoad * 100
     sysPerfDataset.appendData(Array(load.toFloat))
 
-    for audio <- audioDevices.zipWithIndex do
-      val perf = audio._1.getLastPerformance
-      audioLabels(audio._2).setText("%03d%%".format(perf))
+    for i <- audioDeviceList.indices do
+      val perf = audioDeviceList(i).getLastPerformance
+      audioLabels(i).setText("%03d%%".format(perf))
 
     state match
       case NORMAL_RES =>

@@ -1,9 +1,13 @@
 package ucesoft.smd.audio
 
 import ucesoft.smd.SMDComponent
+import ucesoft.smd.audio.AudioDevice.INITIAL_VOLUME
 
 import java.util.concurrent.LinkedBlockingDeque
 import javax.sound.sampled.*
+
+object AudioDevice:
+  inline val INITIAL_VOLUME = 100
 
 abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent with Runnable:
 
@@ -111,7 +115,7 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
       sourceLine.open(format)
 
       volumeLine = sourceLine.getControl(FloatControl.Type.MASTER_GAIN).asInstanceOf[FloatControl]
-      setMasterVolume(100)
+      setMasterVolume(INITIAL_VOLUME)
 
       sourceLine.start()
       Some(sourceLine)
