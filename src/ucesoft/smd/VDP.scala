@@ -662,33 +662,31 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     sp
   }
   // for sprite phase 1
-  private var sprite1VisibleSR,sprite1VisibleNextLineSR = new SpriteVisibleSR
+  private val sprite1VisibleSR = new SpriteVisibleSR
   private var sprite1VisibleCurrentIndex = 0
   private var sprite1FirstFetch = true
   private var spritesLinePixels = 0
+  private var spriteLineRenderingEnabled = true
+  private var spriteEvaluationIndex = 0
   // for sprite phase 2
   private final val sprite2Info = Array.fill[SpriteInfo](MAX_SPRITES_PER_ROW)(new SpriteInfo)
   private var sprite2CurrentIndex,sprite2Size = 0
   // for sprite evaluation
   private inline val SPRITE_PHASE1_ACCESS_SLOT = 1
   // for sprite bug
-  private var lastSpriteXPosZero = false
-  // sprite evaluation
-  private inline val SPRITE_EVAL_IDLE = 0
-  private inline val SPRITE_EVAL_IN_PROGRESS = 1
-  private inline val SPRITE_EVAL_TERMINATED = 2
-  private var spriteLineRenderingEnabled = true
-  private var spriteEvaluationPhaseInProgress = SPRITE_EVAL_IDLE
-  private var spriteEvaluationIndex = 0
-  private var spriteEvaluationCycles = 0
+  private var lastSpriteXPosNonZero = false
 
   // references to other components
   private var m68KMemory : Memory = _
   private var m68KBUSRequested = false
 
+  private var drawSpriteBoundariesEnabled = false
+
   // ============================= Constructor =========================================
   hardReset()
   // ===================================================================================
+  def enableDrawSpriteBoundaries(enabled:Boolean): Unit =
+    drawSpriteBoundariesEnabled = enabled
   def setMessageListener(l:MessageBoardListener): Unit =
     messageListener = l
   def setNewFrameListener(l:VDPNewFrameListener): Unit =
@@ -710,8 +708,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     m68KMemory = mem
 
   override def init(): Unit =
-    vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
-    hcounter = hmode.hCounterInitialValue
+    hardReset()
 
   override def hardReset(): Unit =
     hmode = H32
@@ -760,7 +757,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     frameCount = 0
 
     spriteLineRenderingEnabled = true
-    lastSpriteXPosZero = false
+    lastSpriteXPosNonZero = false
 
   def setCPUs(m68k:M6800X0,z80:Z80): Unit =
     this.m68k = m68k
@@ -1548,14 +1545,12 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         spritesLinePixels = 0
         sprite2Size = sprite1VisibleSR.getSize
         sprite1FirstFetch = false
+        spriteLineRenderingEnabled = true
 
     if vdp4read.readVRAMByte() && spriteIndex != -1 then
       sprite1VisibleSR.dequeueIndex()
       if sprite1VisibleCurrentIndex < sprite2Info.length then
         sprite2Info(sprite1VisibleCurrentIndex).set(spriteIndex,vdp4read.buffer >>> 16,vdp4read.buffer & 0x1FF)
-        val spriteZeroXPos = sprite2Info(sprite1VisibleCurrentIndex).isZeroPos
-        spriteLineRenderingEnabled &= !(!lastSpriteXPosZero && spriteZeroXPos)
-        lastSpriteXPosZero = spriteZeroXPos
         // go to next sprite
         sprite1VisibleCurrentIndex += 1
       else
@@ -1569,31 +1564,40 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     37BF
    */
   private def doAccessSlotSpritePattern(): Unit =
-    val spriteInfo = sprite2Info(if sprite2CurrentIndex < sprite2Size then sprite2CurrentIndex else 0)
+    val spriteValid = sprite2CurrentIndex < sprite2Size
+    val spriteInfo = sprite2Info(if spriteValid then sprite2CurrentIndex else 0)
 
     if vdp4read.count == 0 && spriteInfo.isFirstHorizontalCell then
       vdp4read.set(spriteInfo.patternAddress,spriteInfo.horizontalFlipped)
+      if !spriteValid then
+        lastSpriteXPosNonZero = false
 
-    if vdp4read.readVRAMByte() && sprite2CurrentIndex < sprite2Size then
-      if spriteLineRenderingEnabled then
-        var xpos = spriteInfo.xpos
-        var buffer = vdp4read.buffer
-        var bit = 0
-        val activeWidth = hmode.activePixels
-        val prpl = spriteInfo.priorityAndPalette << 4
-        while bit < 8 do
-          val patternBit = (buffer >>> 28) & 0x0F
-          buffer <<= 4
-          if patternBit != 0 && xpos >= 0 && xpos < activeWidth && spritesLinePixels < activeWidth then // ok sprite is visible
-            val pattern = vdpLayerPatternBuffer(S).get(xpos)
-            if (pattern & 0xF) == 0 then
+    if vdp4read.readVRAMByte() && spriteValid then
+      val spriteZeroXPos = spriteInfo.isZeroPos
+      val spriteMask = lastSpriteXPosNonZero && spriteZeroXPos && sprite2CurrentIndex > 0
+      spriteLineRenderingEnabled &= !spriteMask
+      lastSpriteXPosNonZero = !spriteZeroXPos
+
+      var xpos = spriteInfo.xpos
+      var buffer = vdp4read.buffer
+      var bit = 0
+      val activeWidth = hmode.activePixels
+      val prpl = spriteInfo.priorityAndPalette << 4
+      while bit < 8 do
+        val patternBit = (buffer >>> 28) & 0x0F
+        buffer <<= 4
+        if patternBit != 0 && xpos >= 0 && xpos < activeWidth && spritesLinePixels < activeWidth then // ok sprite is visible
+          val pattern = vdpLayerPatternBuffer(S).get(xpos)
+          if (pattern & 0xF) == 0 then
+            if spriteLineRenderingEnabled then
               vdpLayerPatternBuffer(S).put(xpos,prpl | patternBit)
-            else // collision between 2 non transparent pixels
-              statusRegister |= STATUS_C_MASK
-          bit += 1
-          xpos += 1
-          spritesLinePixels += 1
-        end while
+          else // collision between 2 non transparent pixels
+            statusRegister |= STATUS_C_MASK
+        bit += 1
+        xpos += 1
+        spritesLinePixels += 1
+      end while
+
       if spriteInfo.incCell() then
         sprite2CurrentIndex += 1
       else
@@ -1653,13 +1657,17 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
     hcounter = hmode.hCounterInitialValue
 
+    if drawSpriteBoundariesEnabled then
+      drawSpritesBoundaries()
+
     if interlaceModeEnabled then
       if frameCount == 0 then
         display.showFrame()
       else
         display.showFrame(0, 0, 0, 0,updateFrameRateOnly = true)
     else if pixelMod then
-      display.showFrame(minModX, minModY, maxModX + 1, maxModY + 1)
+      display.showFrame()
+      //display.showFrame(minModX, minModY, maxModX + 1, maxModY + 1)
     else
       display.showFrame(0, 0, 0, 0,updateFrameRateOnly = true)
     minModY = -1
@@ -1669,7 +1677,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     frameCount ^= 1
 
     sprite1VisibleSR.reset()
-    sprite1VisibleNextLineSR.reset()
 
     if newFrameListener != null then
       newFrameListener.onNewFrame()
@@ -1708,12 +1715,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       endOfFrame()
 
     vdpAccessSlot = 0
-    spriteLineRenderingEnabled = true
-    spriteEvaluationPhaseInProgress = SPRITE_EVAL_IDLE
-
-//    val tmp = sprite1VisibleNextLineSR
-//    sprite1VisibleNextLineSR = sprite1VisibleSR
-//    sprite1VisibleSR = tmp
     sprite1FirstFetch = true
   end endOfLine
 
@@ -1730,7 +1731,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   inline private def setPixel(x:Int,y:Int,pixelColor:Int): Unit =
     val iy = if interlaceModeEnabled then y << 1 | frameCount else y
     val pos = iy * SCREEN_WIDTH + x
-
+    videoPixels(pos) = pixelColor
+    /*
     if interlaceModeEnabled then
       videoPixels(pos) = pixelColor
     else if videoPixels(pos) != pixelColor then
@@ -1739,6 +1741,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       else if (x > maxModX) maxModX = x
       if (minModY == -1) minModY = iy
       maxModY = iy
+
+     */
       pixelMod = true
 
   /*
@@ -1963,34 +1967,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     if clockRateListener != null then
       clockRateListener.clockRateChanged(clockDiv)
 
-  /*
-   Every VDP cycle 2 sprites are checked, that means one sprite every pixel.
-   This scanning seems to start 6 cycles after the first sprite tile fetch and continues for exactly 40 cycles
-   */
-  private def spriteEvaluation(): Unit =
-    var c = 0
-    val line = activeDisplayLine + 1 // check if some sprite is visible on next line
-    // 2 sprites per cycle
-    while c < 2 && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS && REG_DE do
-      val spriteIndex = spriteEvaluationIndex
-      val sy = spriteCache(spriteIndex).y - 128
-      val height = (spriteCache(spriteIndex).h + 1) << 3 // 8 * sprite height pixels
-      spriteEvaluationIndex = spriteCache(spriteIndex).link
-      if !(spriteEvaluationIndex != 0 && spriteEvaluationIndex < spriteCache.length && spriteEvaluationCycles < 40) then
-        spriteEvaluationPhaseInProgress = SPRITE_EVAL_TERMINATED
-
-      if line >= sy && line < sy + height then
-        if sprite1VisibleSR.getSize == hmode.maxSpritePerLine then
-          statusRegister |= STATUS_SOVR_MASK
-          spriteEvaluationPhaseInProgress = SPRITE_EVAL_TERMINATED
-        else
-          sprite1VisibleSR.enqueueIndex(spriteIndex)
-          //println(s"Sprite $spriteIndex visible at line $line: sy=$sy height=$height")
-
-      c += 1
-    end while
-    spriteEvaluationCycles += 1
-
   private def fastSpriteEvaluation(): Unit =
     spriteEvaluationIndex = 0 // start with sprite #0
     sprite1VisibleCurrentIndex = 0
@@ -2002,7 +1978,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       val sy = spriteCache(spriteIndex).y - 128
       val height = (spriteCache(spriteIndex).h + 1) << 3 // 8 * sprite height pixels
       spriteEvaluationIndex = spriteCache(spriteIndex).link
-      keepSearching = spriteEvaluationIndex != 0 && spriteEvaluationIndex < spriteCache.length
+      keepSearching = spriteEvaluationIndex != 0 && spriteEvaluationIndex < hmode.maxSpritePerFrame
 
       if line >= sy && line < sy + height then
         if sprite1VisibleSR.getSize == hmode.maxSpritePerLine then
@@ -2025,25 +2001,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         processPendingControlPortCommand()
       else
         processPendingControlPortCommand()
-    // check if it's time to do sprite evaluation
-    /*
-    if vdpAccessSlot == hmode.firstSpriteFetchSlot && spriteEvaluationPhaseInProgress == SPRITE_EVAL_IDLE && isSpriteEvaluationEnabled then
-      spriteEvaluationPhaseInProgress = SPRITE_EVAL_IN_PROGRESS
-      spriteEvaluationIndex = 0 // start with sprite #0
-      spriteEvaluationCycles = 0
-    if spriteEvaluationPhaseInProgress == SPRITE_EVAL_IN_PROGRESS then
-      spriteEvaluation()
-      if spriteEvaluationPhaseInProgress == SPRITE_EVAL_TERMINATED then
-        sprite1VisibleCurrentIndex = 0
-    */
+
     if doAccessSlotRead() then // 4 bytes read
       if vdpAccessSlot == 0 && isSpriteEvaluationEnabled then
         fastSpriteEvaluation()
       vdpAccessSlot += 1
       if vdpAccessSlot >= hmode.vramAccessMatrix.length then
         vdpAccessSlot = 0
-      //println(s"raster=$rasterLine vdpAccessSlot=$vdpAccessSlot")
-
 
     if (cycles & 1) == 1 then
       pixelClock()
@@ -2080,6 +2044,39 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     m68k.interrupt(intLevel)
 
   end intAcknowledged
+
+  private def drawSpritesBoundaries(): Unit =
+    val color = java.awt.Color.WHITE.getRGB
+    var sprites = getSpritesDump
+    val xOffset = hmode.leftBlankPixels + hmode.leftBorderPixel + 2
+    val yOffset = model.videoType.topBlankingPixels + model.videoType.topBorderPixels
+    val screenWidth = hmode.totalWidth
+    val screenHeight = if model.videoType == VideoType.PAL && REG_M2 then 240 else 224
+
+    while sprites != null do
+      val sx = sprites.x - 128
+      val sy = sprites.y - 128
+      val height = (sprites.h + 1) << (if interlaceModeEnabled then 4 else 3)
+      val width = (sprites.w + 1) << 3
+      var y = 0
+      while y < height do
+        val oy = sy + y
+        if oy > 0 && oy < screenHeight then
+          if y == 0 || y == height - 1 then
+            var x = 0
+            while x < width do
+              val ox = sx + x
+              if ox > 0 && ox < screenWidth then
+                setPixel(xOffset + ox,yOffset + oy,color)
+              x += 1
+          else
+            if sx > 0 && sx < screenWidth then
+              setPixel(xOffset + sx,yOffset + oy,color)
+            val ox = sx + width
+            if ox > 0 && ox < screenWidth then
+              setPixel(xOffset + ox, yOffset + oy, color)
+        y += 1
+      sprites = sprites.next.orNull
 
 
 

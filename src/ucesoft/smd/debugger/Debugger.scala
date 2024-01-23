@@ -891,7 +891,10 @@ class Debugger(m68k:M68000,
     menu.add(layerMenu)
 
     spriteDumpItem.addActionListener(_ => spriteDumpDialog.setVisible(spriteDumpItem.isSelected) )
+    val spriteDrawBoundariesItem = new JCheckBoxMenuItem("Draw boundaries")
+    spriteDrawBoundariesItem.addActionListener(_ => vdp.enableDrawSpriteBoundaries(spriteDrawBoundariesItem.isSelected))
     spriteMenu.add(spriteDumpItem)
+    spriteMenu.add(spriteDrawBoundariesItem)
 
     menu.add(spriteMenu)
 
