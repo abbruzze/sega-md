@@ -6,7 +6,7 @@ import scala.collection.mutable.ListBuffer
  * @author Alessandro Abbruzzetti
  *         Created on 03/09/2023 20:14  
  */
-trait SMDComponent:
+trait SMDComponent extends MessageBus.MessageListener:
   private val components = new ListBuffer[SMDComponent]
   protected var log = Logger.getLogger
   protected var componentEnabled = true
@@ -34,3 +34,5 @@ trait SMDComponent:
   def setLogger(logger: Logger): Unit =
     log = logger
     components.foreach(_.setLogger(logger))
+
+  override def onMessage(msg: MessageBus.Message): Unit = {}
