@@ -169,6 +169,325 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         throw new IllegalStateException()
   end FIFO
 
+  private class VDP4ReadAddress:
+    private var readAddress = 0
+    private var readBuffer = 0
+    private var readCount = 0
+    private var swapNibbles = false
+
+    final def count: Int = readCount
+
+    final def modifyAddress(address: Int): Unit =
+      readAddress = address
+
+    final def buffer: Int = readBuffer
+
+    final def reset(): Unit =
+      readCount = 0
+
+    //readBuffer = 0
+    final def incCount(): Unit =
+      readCount += 1
+
+    final def set(address: Int, swap: Boolean = false): Unit =
+      readAddress = address
+      swapNibbles = swap
+      readCount = 0
+
+    final def readVRAMByte(): Boolean =
+      var byte = VRAM(readAddress & 0xFFFF)
+      if swapNibbles then byte = (byte & 0xF) << 4 | (byte >> 4) & 0xF
+      readBuffer = readBuffer << 8 | byte
+
+      if swapNibbles then
+        readAddress -= 1
+      else
+        readAddress += 1
+      readCount += 1
+      readCount == 4
+  end VDP4ReadAddress
+
+  /*
+       Each entry in the PatternBitCache is 7 bits wide and represent a bit to draw, with priority, palette and colour information:
+       +=== Pattern Bit =======+
+       | 7 | 6 | 5 4 | 3 2 1 0 |    PR      = priority taken from Layer Mapping
+       | - | PR| PAL | BIT COL |    PAL     = palette number taken from Layer Mapping
+       +-----------------------+    BIT COL = bit color index
+     */
+  private class PatternBitCache(cells: Int):
+    private val cache = Array.ofDim[Int](cells * 8) // max size 40 + 1 cells of 8 bits
+    private var readIndex, writeIndex = 0
+    private var skipFirst = 0
+    private var lastSkipFirst = 0
+
+    final def reset(): Unit =
+      readIndex = 0
+      writeIndex = 0
+      skipFirst = 0
+
+    final def clear(): Unit =
+      java.util.Arrays.fill(cache, 0)
+      reset()
+
+    final def align8(): Unit =
+      if lastSkipFirst > 0 then
+        var c = lastSkipFirst
+        while c > 0 do
+          if writeIndex < cache.length then
+            cache(writeIndex) = 0
+          writeIndex += 1
+          c -= 1
+
+    final def skip(skipFirst: Int): Unit =
+      this.skipFirst = skipFirst
+      lastSkipFirst = skipFirst
+
+    final def put(index: Int, v: Int): Unit =
+      cache(index) = v
+
+    final def get(index: Int): Int =
+      cache(index)
+
+    final def enqueueBit(v: Int): Unit =
+      if skipFirst > 0 then
+        skipFirst -= 1
+      else if writeIndex < cache.length then
+        cache(writeIndex) = v
+        writeIndex += 1
+
+    final def peekBit: Int = cache(readIndex)
+
+    final def dequeueBit(): Int =
+      if readIndex < cache.length then
+        val bit = cache(readIndex)
+        readIndex += 1
+        bit
+      else
+        0
+
+    final def dequeueBitAndClear(): Int =
+      if readIndex < cache.length then
+        val bit = cache(readIndex)
+        cache(readIndex) = 0
+        readIndex += 1
+        bit
+      else
+        0
+  end PatternBitCache
+
+  private class VDPLayerAddress(layer: Int):
+    private var baseAddress = 0
+    private var windowBaseAddress = 0
+    private var windowActive = false
+    private var scrollx = 0
+    private var posy = 0
+    private var cellx = 0
+    private var celly = 0
+    private var cellxSize: SCROLL_SIZE = SCROLL_SIZE._32CELL
+    private var cellySize: SCROLL_SIZE = SCROLL_SIZE._32CELL
+
+    private val windowX = Array(0, 0)
+    private val windowY = Array(0, 0)
+
+    final def cellX: Int = cellx
+
+    final def cellY: Int = celly
+
+    inline private def updateWindow(): Unit =
+      windowActive = layer == A && (windowX(1) - windowX(0)) > 0 || (windowY(1) - windowY(0)) > 0
+
+    final def setWindowX(regValue: Int): Unit =
+      val right = (regValue & 0x80) > 0
+      val width = (regValue & 0x1F) << 1
+      if right then
+        windowX(0) = width
+        windowX(1) = cellxSize.cell - 1
+      else
+        windowX(0) = 0
+        windowX(1) = width
+      updateWindow()
+
+    final def setWindowY(regValue: Int): Unit =
+      val down = (regValue & 0x80) > 0
+      val height = regValue & 0x1F
+      if down then
+        windowY(0) = height
+        windowY(1) = cellySize.cell - 1
+      else
+        windowY(0) = 0
+        windowY(1) = height
+      updateWindow()
+
+    final def set(scrollx: Int, cellxSize: SCROLL_SIZE, cellySize: SCROLL_SIZE): Unit =
+      this.baseAddress = if layer == A then REG_PATTERN_A_ADDRESS else REG_PATTERN_B_ADDRESS
+      this.scrollx = scrollx
+      cellx = 0
+      celly = 0
+      this.cellxSize = cellxSize
+      this.cellySize = cellySize
+      if layer == A then
+        windowBaseAddress = REG_PATTERN_WINDOW_ADDRESS
+
+    final def setCellY(line: Int, scrollY: Int): Boolean =
+      celly = line >> 3
+      posy = (line + scrollY) >> 3
+      isInWindow
+
+    inline private def isInWindow: Boolean = windowActive && ((cellx >= windowX(0) && cellx < windowX(1)) || (celly >= windowY(0) && celly < windowY(1)))
+
+    final def isInsideWindow(celly: Int): Boolean = windowActive && ((cellx >= windowX(0) && cellx < windowX(1)) || (celly >= windowY(0) && celly < windowY(1)))
+
+    final def address: Int =
+      if isInWindow then
+        val winCellXSizeShift = if REG_H32 then 5 else 6 // H32 = 32 cells, H40 = 64 cells; celly = 32
+        windowBaseAddress | (celly << winCellXSizeShift) << 1 | cellx << 1
+      else
+        baseAddress | ((posy & cellySize.mask) << cellxSize.shift) << 1 | ((scrollx + cellx) & cellxSize.mask) << 1
+
+    final def incCellX(): Unit =
+      cellx += 1
+  end VDPLayerAddress
+
+  /*
+     8 bytes info
+     first 4 are cached, others are read
+     +----------------------------------------------------------------+
+     | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 || 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+     +----------------------------------------------------------------+
+     | 0 | 0 | 0 | 0 | 0 | 0 |   Y   ||               Y               |   Y = Vertical Position
+     +----------------------------------------------------------------+
+     | 0 | 0 | 0 | 0 |   HS  |   VS  || 0 |          NEXT             |   HS/VS = Size, Next = Next sprite number to jump to. Earlier sprites go on top of later ones. The final sprite must jump to 0
+     +----------------------------------------------------------------+
+     | PR|   PL  | VF|HF|    GFX     ||              GFX              |   PR = Priority, PL = Palette, VF/HF = Flipping, GFX = Tile number from VRAM. i.e. VRAM address to read graphics data, divided by $20
+     +----------------------------------------------------------------+
+     | 0 | 0 | 0 | 0 | 0 | 0 | 0 | X ||               X               |   X = Horizontal Position
+     +----------------------------------------------------------------+
+     */
+  private class SpriteCache(val index: Int):
+    private var _y = 0
+    private var width, height = 0
+    private var next = 0
+    private var address = 0
+
+    final def y: Int = if interlaceModeEnabled then _y >> 1 else _y
+
+    final def w: Int = width
+
+    final def h: Int = height
+
+    final def link: Int = next
+
+    final def setCache(address: Int): Unit =
+      this.address = address
+      _y = (VRAM(address) << 8 | VRAM(address + 1)) & 0x3FF
+      val hsvs = VRAM(address + 2)
+      width = (hsvs >> 2) & 3
+      height = hsvs & 3
+      next = VRAM(address + 3) & 0x7F
+      log.info("SpriteCache %d cache updated: y=%d width=%d height=%d next=%d", index, _y, width, height, next)
+
+    def dump(): VDPSpriteCacheDump =
+      val priority = (VRAM(address + 4) & 0x80) != 0
+      val palette = (VRAM(address + 4) >> 13) & 3
+      val vf = (VRAM(address + 4) & 0x10) != 0
+      val hf = (VRAM(address + 4) & 0x08) != 0
+      val gfx = (VRAM(address + 4) << 8 | VRAM(address + 5)) & 0x7FF
+      val x = (VRAM(address + 6) << 8 | VRAM(address + 7)) & 0x1FF
+      VDPSpriteCacheDump(index, x, y, width, height, gfx, hf, vf, palette, priority)
+
+  end SpriteCache
+
+  private class SpriteInfo:
+    private var thirdByte = 0
+    private var horizontalPosition = 0
+    private var cellReadCount = 0
+    private var spriteCacheIndex = 0
+    private var address = 0
+    private var zeroPos = false
+
+    final def index: Int = spriteCacheIndex
+
+    final def xpos: Int = horizontalPosition
+
+    final def patternAddress: Int = address
+
+    final def priorityAndPalette: Int = (thirdByte >> 13) & 7
+
+    final def horizontalFlipped: Boolean = (thirdByte & 0x0800) > 0
+
+    final def isFirstHorizontalCell: Boolean = cellReadCount == 0
+
+    final def isZeroPos: Boolean = zeroPos
+
+    final def incCell(): Boolean =
+      cellReadCount += 1
+      horizontalPosition += 8
+      val cellDelta = (spriteCache(spriteCacheIndex).h + 1) << interlaceMode.patternSizeShift
+      if horizontalFlipped then
+        address -= cellDelta
+      else
+        address += cellDelta
+      cellReadCount > spriteCache(spriteCacheIndex).w
+
+    /*
+      048C  0
+      159D  1 01
+      26AE
+      37BF
+     */
+    final def set(spriteCacheIndex: Int, thirdWord: Int, hpos: Int): Unit =
+      this.spriteCacheIndex = spriteCacheIndex
+      this.thirdByte = thirdWord
+      horizontalPosition = hpos - 128
+      zeroPos = hpos == 0
+      val line = activeDisplayLine + 1
+      val deltaY = (line - (spriteCache(spriteCacheIndex).y - 128)) & 0x1F
+      cellReadCount = 0
+      address = (thirdWord & interlaceMode.yScrollMask) << interlaceMode.patternSizeShift
+      val h = spriteCache(spriteCacheIndex).h
+      val vf = (thirdWord & 0x1000) > 0
+      val ycell = if vf then h - (deltaY >> 3) else deltaY >> 3
+      var yline = if vf then 7 ^ (deltaY & 7) else deltaY & 7
+      if interlaceModeEnabled then
+        yline = (yline << 1) | frameCount
+      address += (ycell << interlaceMode.patternSizeShift) | yline << 2
+      val hf = (thirdWord & 0x0800) > 0
+      if hf then
+        address += ((h + 1) << interlaceMode.patternSizeShift) * spriteCache(spriteCacheIndex).w + 3
+
+    //println(s"Sprite $spriteCacheIndex X=${(horizontalPosition + 128).toHexString} Y=${spriteCache(spriteCacheIndex).y.toHexString} line=$activeDisplayLine deltaY=$deltaY address=${address.toHexString}")
+  end SpriteInfo
+
+  private class SpriteVisibleSR:
+    private val cache = Array.ofDim[Int](MAX_SPRITES_PER_ROW)
+    private var readIndex, writeIndex = 0
+    private var size = 0
+
+    def reset(): Unit =
+      readIndex = 0
+      writeIndex = 0
+      size = 0
+
+    final def enqueueIndex(v: Int): Unit =
+      cache(writeIndex) = v
+      size += 1
+      writeIndex = (writeIndex + 1) % cache.length
+
+    final def empty: Boolean = size == 0
+
+    final def getSize: Int = size
+
+    final def peekIndex(): Int = cache(readIndex)
+
+    final def dequeueIndex(): Int =
+      val bit = cache(readIndex)
+      size -= 1
+      readIndex = (readIndex + 1) % cache.length
+      bit
+  end SpriteVisibleSR
+
+  // ========================= STATE ================================================
+
   private final val BLANK_COLOR = java.awt.Color.BLACK.getRGB
 
   private var model : Model = _
@@ -290,183 +609,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var dmaFillWriteDone = false
   private var readCopyCache = -1 // -1 means not read yet
 
-  private class VDP4ReadAddress:
-    private var readAddress = 0
-    private var readBuffer = 0
-    private var readCount = 0
-    private var swapNibbles = false
-
-    final def count: Int = readCount
-    final def modifyAddress(address:Int): Unit =
-      readAddress = address
-    final def buffer: Int = readBuffer
-    final def reset(): Unit =
-      readCount = 0
-      //readBuffer = 0
-    final def incCount(): Unit =
-      readCount += 1
-
-    final def set(address:Int,swap:Boolean = false): Unit =
-      readAddress = address
-      swapNibbles = swap
-      readCount = 0
-
-    final def readVRAMByte(): Boolean =
-      var byte = VRAM(readAddress & 0xFFFF)
-      if swapNibbles then byte = (byte & 0xF) << 4 | (byte >> 4) & 0xF
-      readBuffer = readBuffer << 8 | byte
-
-      if swapNibbles then
-        readAddress -= 1
-      else
-        readAddress += 1
-      readCount += 1
-      readCount == 4
-  end VDP4ReadAddress
-
   private val vdp4read = new VDP4ReadAddress
   private var vdpAccessSlot = 0
-
-  private var minModX,maxModX,minModY,maxModY = 0
-  private var pixelMod = false
-
-  /*
-     Each entry in the PatternBitCache is 7 bits wide and represent a bit to draw, with priority, palette and colour information:
-     +=== Pattern Bit =======+
-     | 7 | 6 | 5 4 | 3 2 1 0 |    PR      = priority taken from Layer Mapping
-     | - | PR| PAL | BIT COL |    PAL     = palette number taken from Layer Mapping
-     +-----------------------+    BIT COL = bit color index
-   */
-  private class PatternBitCache(cells: Int):
-    private val cache = Array.ofDim[Int](cells * 8) // max size 40 + 1 cells of 8 bits
-    private var readIndex, writeIndex = 0
-    private var skipFirst = 0
-    private var lastSkipFirst = 0
-
-    final def reset(): Unit =
-      readIndex = 0
-      writeIndex = 0
-      skipFirst = 0
-
-    final def clear(): Unit =
-      java.util.Arrays.fill(cache,0)
-      reset()
-
-    final def align8(): Unit =
-      if lastSkipFirst > 0 then
-        var c = lastSkipFirst
-        while c > 0 do
-          if writeIndex < cache.length then
-            cache(writeIndex) = 0
-          writeIndex += 1
-          c -= 1
-
-    final def skip(skipFirst: Int): Unit =
-      this.skipFirst = skipFirst
-      lastSkipFirst = skipFirst
-
-    final def put(index:Int,v:Int): Unit =
-      cache(index) = v
-    final def get(index:Int): Int =
-      cache(index)
-
-    final def enqueueBit(v: Int): Unit =
-      if skipFirst > 0 then
-        skipFirst -= 1
-      else if writeIndex < cache.length then
-        cache(writeIndex) = v
-        writeIndex += 1
-
-    final def peekBit: Int = cache(readIndex)
-
-    final def dequeueBit(): Int =
-      if readIndex < cache.length then
-        val bit = cache(readIndex)
-        readIndex += 1
-        bit
-      else
-        0
-    final def dequeueBitAndClear(): Int =
-      if readIndex < cache.length then
-        val bit = cache(readIndex)
-        cache(readIndex) = 0
-        readIndex += 1
-        bit
-      else
-        0
-  end PatternBitCache
-
-  private class VDPLayerAddress(layer:Int):
-    private var baseAddress = 0
-    private var windowBaseAddress = 0
-    private var windowActive = false
-    private var scrollx = 0
-    private var posy = 0
-    private var cellx = 0
-    private var celly = 0
-    private var cellxSize : SCROLL_SIZE = SCROLL_SIZE._32CELL
-    private var cellySize : SCROLL_SIZE = SCROLL_SIZE._32CELL
-
-    private val windowX = Array(0,0)
-    private val windowY = Array(0,0)
-
-    final def cellX: Int = cellx
-    final def cellY: Int = celly
-
-    inline private def updateWindow(): Unit =
-      windowActive = layer == A && (windowX(1) - windowX(0)) > 0 || (windowY(1) - windowY(0)) > 0
-
-    final def setWindowX(regValue:Int): Unit =
-      val right = (regValue & 0x80) > 0
-      val width = (regValue & 0x1F) << 1
-      if right then
-        windowX(0) = width
-        windowX(1) = cellxSize.cell - 1
-      else
-        windowX(0) = 0
-        windowX(1) = width
-      updateWindow()
-
-    final def setWindowY(regValue:Int): Unit =
-      val down = (regValue & 0x80) > 0
-      val height = regValue & 0x1F
-      if down then
-        windowY(0) = height
-        windowY(1) = cellySize.cell - 1
-      else
-        windowY(0) = 0
-        windowY(1) = height
-      updateWindow()
-
-    final def set(scrollx:Int,cellxSize:SCROLL_SIZE,cellySize:SCROLL_SIZE): Unit =
-      this.baseAddress = if layer == A then REG_PATTERN_A_ADDRESS else REG_PATTERN_B_ADDRESS
-      this.scrollx = scrollx
-      cellx = 0
-      celly = 0
-      this.cellxSize = cellxSize
-      this.cellySize = cellySize
-      if layer == A then
-        windowBaseAddress = REG_PATTERN_WINDOW_ADDRESS
-
-    final def setCellY(line:Int,scrollY:Int): Boolean =
-      celly = line >> 3
-      posy = (line + scrollY) >> 3
-      isInWindow
-
-    inline private def isInWindow: Boolean = windowActive && ((cellx >= windowX(0) && cellx < windowX(1)) || (celly >= windowY(0) && celly < windowY(1)))
-
-    final def isInsideWindow(celly:Int): Boolean = windowActive && ((cellx >= windowX(0) && cellx < windowX(1)) || (celly >= windowY(0) && celly < windowY(1)))
-
-    final def address: Int =
-      if isInWindow then
-        val winCellXSizeShift = if REG_H32 then 5 else 6 // H32 = 32 cells, H40 = 64 cells; celly = 32
-        windowBaseAddress | (celly << winCellXSizeShift) << 1 | cellx << 1
-      else
-        baseAddress | ((posy & cellySize.mask) << cellxSize.shift) << 1 | ((scrollx + cellx) & cellxSize.mask) << 1
-
-    final def incCellX(): Unit =
-      cellx += 1
-  end VDPLayerAddress
 
   private val vdpLayer2CellMappingBuffer = Array(0,0)   // each entry contains 2 entry of 16 bits
   private val vdpLayerMappingAddress = Array(new VDPLayerAddress(A),new VDPLayerAddress(B))       // each entry reference the current x-cell position (0 - 32/40)
@@ -522,135 +666,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var clockRateListener : VDPChangeClockRateListener = _
   private var newFrameListener : VDPNewFrameListener = _
   private var messageListener : MessageBoardListener = _
-
-  /*
-   8 bytes info
-   first 4 are cached, others are read
-   +----------------------------------------------------------------+
-   | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 || 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
-   +----------------------------------------------------------------+
-   | 0 | 0 | 0 | 0 | 0 | 0 |   Y   ||               Y               |   Y = Vertical Position
-   +----------------------------------------------------------------+
-   | 0 | 0 | 0 | 0 |   HS  |   VS  || 0 |          NEXT             |   HS/VS = Size, Next = Next sprite number to jump to. Earlier sprites go on top of later ones. The final sprite must jump to 0
-   +----------------------------------------------------------------+
-   | PR|   PL  | VF|HF|    GFX     ||              GFX              |   PR = Priority, PL = Palette, VF/HF = Flipping, GFX = Tile number from VRAM. i.e. VRAM address to read graphics data, divided by $20
-   +----------------------------------------------------------------+
-   | 0 | 0 | 0 | 0 | 0 | 0 | 0 | X ||               X               |   X = Horizontal Position
-   +----------------------------------------------------------------+
-   */
-  private class SpriteCache(val index:Int):
-    private var _y = 0
-    private var width, height = 0
-    private var next = 0
-    private var address = 0
-
-    final def y : Int = if interlaceModeEnabled then _y >> 1 else _y
-    final def w : Int = width
-    final def h : Int = height
-    final def link : Int = next
-
-    final def setCache(address:Int): Unit =
-      this.address = address
-      _y = (VRAM(address) << 8 | VRAM(address + 1)) & 0x3FF
-      val hsvs = VRAM(address + 2)
-      width = (hsvs >> 2) & 3
-      height = hsvs & 3
-      next = VRAM(address + 3) & 0x7F
-      log.info("SpriteCache %d cache updated: y=%d width=%d height=%d next=%d",index,_y,width,height,next)
-
-    def dump(): VDPSpriteCacheDump =
-      val priority = (VRAM(address + 4) & 0x80) != 0
-      val palette = (VRAM(address + 4) >> 13) & 3
-      val vf = (VRAM(address + 4) & 0x10) != 0
-      val hf = (VRAM(address + 4) & 0x08) != 0
-      val gfx = (VRAM(address + 4) << 8 | VRAM(address + 5)) & 0x7FF
-      val x = (VRAM(address + 6) << 8 | VRAM(address + 7)) & 0x1FF
-      VDPSpriteCacheDump(index,x,y,width,height,gfx,hf,vf,palette,priority)
-
-  end SpriteCache
-
-  private class SpriteInfo:
-    private var thirdByte = 0
-    private var horizontalPosition = 0
-    private var cellReadCount = 0
-    private var spriteCacheIndex = 0
-    private var address = 0
-    private var zeroPos = false
-
-    final def index: Int = spriteCacheIndex
-    final def xpos: Int = horizontalPosition
-    final def patternAddress: Int = address
-    final def priorityAndPalette: Int = (thirdByte >> 13) & 7
-    final def horizontalFlipped: Boolean = (thirdByte & 0x0800) > 0
-
-    final def isFirstHorizontalCell: Boolean = cellReadCount == 0
-    final def isZeroPos : Boolean = zeroPos
-
-    final def incCell(): Boolean =
-      cellReadCount += 1
-      horizontalPosition += 8
-      val cellDelta = (spriteCache(spriteCacheIndex).h + 1) << interlaceMode.patternSizeShift
-      if horizontalFlipped then
-        address -= cellDelta
-      else
-        address += cellDelta
-      cellReadCount > spriteCache(spriteCacheIndex).w
-
-    /*
-      048C  0
-      159D  1 01
-      26AE
-      37BF
-     */
-    final def set(spriteCacheIndex:Int, thirdWord:Int, hpos:Int): Unit =
-      this.spriteCacheIndex = spriteCacheIndex
-      this.thirdByte = thirdWord
-      horizontalPosition = hpos - 128
-      zeroPos = hpos == 0
-      val line = activeDisplayLine + 1
-      val deltaY = (line - (spriteCache(spriteCacheIndex).y - 128)) & 0x1F
-      cellReadCount = 0
-      address = (thirdWord & interlaceMode.yScrollMask) << interlaceMode.patternSizeShift
-      val h = spriteCache(spriteCacheIndex).h
-      val vf = (thirdWord & 0x1000) > 0
-      val ycell = if vf then h - (deltaY >> 3) else deltaY >> 3
-      var yline = if vf then 7 ^ (deltaY & 7) else deltaY & 7
-      if interlaceModeEnabled then
-        yline = (yline << 1) | frameCount
-      address += (ycell << interlaceMode.patternSizeShift) | yline << 2
-      val hf = (thirdWord & 0x0800) > 0
-      if hf then
-        address += ((h + 1) << interlaceMode.patternSizeShift) * spriteCache(spriteCacheIndex).w + 3
-
-      //println(s"Sprite $spriteCacheIndex X=${(horizontalPosition + 128).toHexString} Y=${spriteCache(spriteCacheIndex).y.toHexString} line=$activeDisplayLine deltaY=$deltaY address=${address.toHexString}")
-  end SpriteInfo
-
-  private class SpriteVisibleSR:
-    private val cache = Array.ofDim[Int](MAX_SPRITES_PER_ROW)
-    private var readIndex, writeIndex = 0
-    private var size = 0
-
-    def reset(): Unit =
-      readIndex = 0
-      writeIndex = 0
-      size = 0
-
-    final def enqueueIndex(v: Int): Unit =
-      cache(writeIndex) = v
-      size += 1
-      writeIndex = (writeIndex + 1) % cache.length
-
-    final def empty: Boolean = size == 0
-    final def getSize: Int = size
-
-    final def peekIndex(): Int = cache(readIndex)
-
-    final def dequeueIndex(): Int =
-      val bit = cache(readIndex)
-      size -= 1
-      readIndex = (readIndex + 1) % cache.length
-      bit
-  end SpriteVisibleSR
 
   private final val MAX_SPRITES_PER_ROW = math.max(HMode.H32.maxSpritePerLine,HMode.H40.maxSpritePerLine)
   private val MAX_SPRITE_PER_FRAME = math.max(HMode.H32.maxSpritePerFrame,HMode.H40.maxSpritePerFrame)
@@ -1407,10 +1422,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         //log.error("doVRAMWriteWord: mode mismatch: %d",mode)
 
   // ==========================================================================================================
-
   private def doAccessSlotHScroll(): Unit =
     import HSCROLL_MODE.*
     if vdp4read.count == 0 then
+      yscroll(A) = -1
+      yscroll(B) = -1
       val address = REG_HSCR match
         case FULL =>
           REG_HSCROLL_ADDRESS
@@ -1471,10 +1487,14 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     import VSCROLL_MODE.*
     if vdp4read.count == 0 then
       val hscrollSize = REG_HSCROLL_SIZE
+      // it seems that vscroll is cached for entire line in case of FULL: see Panorama Cotton
       yscroll(layer) = REG_VSCR match
         case FULL =>
-          val layerOffset = layer << 1
-          (VSRAM(layerOffset) << 8 | VSRAM(layerOffset + 1)) & 0x3FF
+          if yscroll(layer) == -1 then
+            val layerOffset = layer << 1
+            (VSRAM(layerOffset) << 8 | VSRAM(layerOffset + 1)) & 0x3FF
+          else
+            yscroll(layer)
         case EACH_2_CELL =>
           val layerOffset = layer << 1
           val _2cell = layerOffset + ((vdpLayerMappingAddress(layer).cellX >> 1) << 2)
@@ -1665,15 +1685,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         display.showFrame()
       else
         display.showFrame(0, 0, 0, 0,updateFrameRateOnly = true)
-    else if pixelMod then
-      display.showFrame()
-      //display.showFrame(minModX, minModY, maxModX + 1, maxModY + 1)
     else
-      display.showFrame(0, 0, 0, 0,updateFrameRateOnly = true)
-    minModY = -1
-    minModX = Integer.MAX_VALUE
-    maxModX = 0
-    pixelMod = false
+      display.showFrame()
+
     frameCount ^= 1
 
     sprite1VisibleSR.reset()
@@ -1732,18 +1746,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     val iy = if interlaceModeEnabled then y << 1 | frameCount else y
     val pos = iy * SCREEN_WIDTH + x
     videoPixels(pos) = pixelColor
-    /*
-    if interlaceModeEnabled then
-      videoPixels(pos) = pixelColor
-    else if videoPixels(pos) != pixelColor then
-      videoPixels(pos) = pixelColor
-      if (x < minModX) minModX = x
-      else if (x > maxModX) maxModX = x
-      if (minModY == -1) minModY = iy
-      maxModY = iy
-
-     */
-      pixelMod = true
 
   /*
    S/H works as follows:
@@ -1869,8 +1871,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
             case 2 => color &= bitA
             case 3 => color &= bitB
       end if
-
-      setPixel(xpos, rasterLine, CRAM_COLORS(palette)(colorMode.ordinal)(color)) // TODO
+      // draw pixel
+      setPixel(xpos, rasterLine, CRAM_COLORS(palette)(colorMode.ordinal)(color))
     end if
     // epilogue
     xpos += 1
@@ -1889,9 +1891,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         if xborderIsLeft then
           xborderIsLeft = false
           inXActiveDisplay = true
-          /*if !isVerticalBorder && !inYActiveDisplay then
-            inYActiveDisplay = true
-            activeDisplayLine = 0*/
           activeDisplayXPos = 0
 
     if checkHCounter() then
