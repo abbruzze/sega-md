@@ -248,11 +248,10 @@ object DebuggerUI {
                                m68kMemory:Memory,
                                z80:Z80,
                                addressBreakHandler: Int => Option[String],
-                               annotator: Disassemble68KAnnotator,
                                noteEditable: Boolean = false) extends AbstractTableModel:
     private case class DisInfo(numAddress: Int, address: String, opcodes: String, mnemonic: String, var notes: String, disString: String)
 
-    private val columns = Array("Brk", "Address", "Opcodes", "Mnemonic", "Note")
+    private val columns = if noteEditable then Array("Brk", "Address", "Opcodes", "Mnemonic","Notes") else Array("Brk", "Address", "Opcodes", "Mnemonic")
     private val rows = new ArrayBuffer[DisInfo]
 
     override def getColumnName(column: Int): String = columns(column)
@@ -292,7 +291,7 @@ object DebuggerUI {
                   case Some(o2) => s"$o1,$o2"
           }"
         else "DW",
-        notes = s"${if busNotAvailable then "Bus N/A" else ""}${annotator.getNoteFor(d, m68k, m68kMemory)}",
+        notes = "",
         disString = d.toString
       )
       rows += dis
@@ -398,7 +397,7 @@ object DebuggerUI {
                           frame:JFrame,
                           disassemblerBreakHandler: DisassemblerBreakHandler,
                           override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame, s"$name Disassembler", windowCloseOperation) with BreakListener:
-    private val model = new DisassembledTableModel(m68k,null,z80,disassemblerBreakHandler.getBreakStringAt,EmptyAnnotator, true)
+    private val model = new DisassembledTableModel(m68k,null,z80,disassemblerBreakHandler.getBreakStringAt, true)
     private var isAdjusting = false
     
     init()

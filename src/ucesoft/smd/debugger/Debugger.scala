@@ -161,8 +161,7 @@ class Debugger(m68k:M68000,
     private val disassembledTableModel = new DisassembledTableModel(null,
       null,
       z80,
-      address => getBreakStringAt(address).map(_.substring(0, 1)),
-      EmptyAnnotator)
+      address => getBreakStringAt(address).map(_.substring(0, 1)))
     private val distable = new JTable(disassembledTableModel)
     private var stepByStep = false
     private var stepAlways = false
@@ -390,8 +389,7 @@ class Debugger(m68k:M68000,
     private val disassembledTableModel = new DisassembledTableModel(m68k,
       m68kMemory,
       null,
-      address => getBreakStringAt(address),
-      new Default68KDisassembleAnnotator)
+      address => getBreakStringAt(address))
     private val vdpTableMode = new VDPPropertiesTableModel(vdp,frame)
     private val distable = new JTable(disassembledTableModel)
 
@@ -688,10 +686,10 @@ class Debugger(m68k:M68000,
       colModel.getColumn(0).setMaxWidth(30)
       colModel.getColumn(1).setMinWidth(70)
       colModel.getColumn(1).setMaxWidth(80)
-      colModel.getColumn(2).setMinWidth(130)
-      colModel.getColumn(2).setMaxWidth(180)
-      colModel.getColumn(3).setMinWidth(160)
-      colModel.getColumn(3).setMaxWidth(200)
+      colModel.getColumn(2).setMinWidth(180)
+      colModel.getColumn(2).setMaxWidth(200)
+      colModel.getColumn(3).setMinWidth(220)
+      colModel.getColumn(3).setMaxWidth(250)
       distable.addMouseListener(new MouseAdapter {
         override def mouseClicked(e: MouseEvent): Unit =
           if e.getClickCount == 2 then
