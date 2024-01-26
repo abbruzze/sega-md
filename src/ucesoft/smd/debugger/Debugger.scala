@@ -59,8 +59,16 @@ class Debugger(m68k:M68000,
       item.addActionListener(_ => onCPUEnabled(item.isSelected))
       item
     }
+    protected var tracingOnFile = false
+    protected var tracingListener: TraceListener = _
 
     protected def onCPUEnabled(enabled:Boolean): Unit = {}
+
+    def startTracingOnFile(tracingListener: TraceListener): Unit =
+      this.tracingListener = tracingListener
+      tracingOnFile = true
+    def stopTracingOnFile(): Unit =
+      tracingOnFile = false
 
     def enableTracing(enabled: Boolean): Unit
     def stepIn(): Unit
@@ -104,6 +112,7 @@ class Debugger(m68k:M68000,
   private val z80DisassemblerItem = new JCheckBoxMenuItem("Z80 Disassembler")
   private val dmaItem = new JCheckBoxMenuItem("DMA trace")
   private val dmaDialog = new DMAEventPanel(frame,vdp,() => dmaItem.setSelected(false)).dialog
+  private val fifoPanel = new VDPFifoPanel(vdp)
 
   private val m68kDebugger = new M68KDebugger
   private val m68kDisassemblerPanel = new DisassemblerPanel("M68K",
@@ -147,7 +156,6 @@ class Debugger(m68k:M68000,
     z80Debugger,
     () => z80BreakItem.setSelected(false)
   ).dialog
-
 
   private val tabbedPane = new JTabbedPane()
 
@@ -393,6 +401,15 @@ class Debugger(m68k:M68000,
     private val vdpTableMode = new VDPPropertiesTableModel(vdp,frame)
     private val distable = new JTable(disassembledTableModel)
 
+    override def startTracingOnFile(tracingListener: TraceListener): Unit =
+      super.startTracingOnFile(tracingListener)
+      debugger.setStepAlways(true)
+      debugger.nextStep()
+
+    override def stopTracingOnFile(): Unit =
+      super.stopTracingOnFile()
+      debugger.setStepAlways(false)
+
     override protected def onCPUEnabled(enabled:Boolean): Unit =
       m68k.setComponentEnabled(enabled)
     override def getBreakEvent(eventName: String): Option[AnyRef] = debugger.getBreakEvent(eventName)
@@ -465,55 +482,65 @@ class Debugger(m68k:M68000,
             m68k.removeEventListener(this)
 
       override protected def onInterrupted(cpu: M6800X0, level: Int): Unit =
-        log(s"Break on 68K interrupt $level")
-        stepOutPending = StepState.NoStep
-        stepOverPending = StepState.NoStep
-        checkTracingState(true)
-        updateDisassembly(cpu)
-        updateModels()
-        breakEpilogue(cpu)
+        if !tracingOnFile then
+          log(s"Break on 68K interrupt $level")
+          stepOutPending = StepState.NoStep
+          stepOverPending = StepState.NoStep
+          checkTracingState(true)
+          updateDisassembly(cpu)
+          updateModels()
+          breakEpilogue(cpu)
       override protected def onException(cpu: M6800X0, level: Int): Unit =
-        log(s"Break on 68K exception $level")
-        stepOutPending = StepState.NoStep
-        stepOverPending = StepState.NoStep
-        checkTracingState(true)
-        updateDisassembly(cpu)
-        updateModels()
-        breakEpilogue(cpu)
+        if !tracingOnFile then
+          log(s"Break on 68K exception $level")
+          stepOutPending = StepState.NoStep
+          stepOverPending = StepState.NoStep
+          checkTracingState(true)
+          updateDisassembly(cpu)
+          updateModels()
+          breakEpilogue(cpu)
       override protected def onReset(cpu: M6800X0): Unit =
-        log(s"Break on 68K RESET")
-        stepOutPending = StepState.NoStep
-        stepOverPending = StepState.NoStep
-        checkTracingState(true)
-        updateDisassembly(cpu)
-        updateModels()
-        breakEpilogue(cpu)
+        if !tracingOnFile then
+          log(s"Break on 68K RESET")
+          stepOutPending = StepState.NoStep
+          stepOverPending = StepState.NoStep
+          checkTracingState(true)
+          updateDisassembly(cpu)
+          updateModels()
+          breakEpilogue(cpu)
       override protected def onHalt(cpu: M6800X0): Unit =
-        log(s"Break on 68K HALT")
-        stepOutPending = StepState.NoStep
-        stepOverPending = StepState.NoStep
-        checkTracingState(true)
-        updateDisassembly(cpu)
-        updateModels()
-        breakEpilogue(cpu)
+        if !tracingOnFile then
+          log(s"Break on 68K HALT")
+          stepOutPending = StepState.NoStep
+          stepOverPending = StepState.NoStep
+          checkTracingState(true)
+          updateDisassembly(cpu)
+          updateModels()
+          breakEpilogue(cpu)
       override protected def onStop(cpu: M6800X0): Unit =
-        log(s"Break on 68K STOP")
-        stepOutPending = StepState.NoStep
-        stepOverPending = StepState.NoStep
-        checkTracingState(true)
-        updateDisassembly(cpu)
-        updateModels()
-        breakEpilogue(cpu)
+        if !tracingOnFile then
+          log(s"Break on 68K STOP")
+          stepOutPending = StepState.NoStep
+          stepOverPending = StepState.NoStep
+          checkTracingState(true)
+          updateDisassembly(cpu)
+          updateModels()
+          breakEpilogue(cpu)
       override protected def onRw(cpu: M6800X0, address: Int, size: Size, read: Boolean, value: Int): Unit =
-        log(s"Break on M68K ${if read then "READ" else "WRITE"} with size $size${if read then s"value=$value" else ""}")
-        stepOutPending = StepState.NoStep
-        stepOverPending = StepState.NoStep
-        checkTracingState(true)
-        updateDisassembly(cpu)
-        updateModels()
-        breakEpilogue(cpu)
+        if !tracingOnFile then
+          log(s"Break on M68K ${if read then "READ" else "WRITE"} with size $size${if read then s"value=$value" else ""}")
+          stepOutPending = StepState.NoStep
+          stepOverPending = StepState.NoStep
+          checkTracingState(true)
+          updateDisassembly(cpu)
+          updateModels()
+          breakEpilogue(cpu)
 
       override protected def onFetch(cpu: M6800X0, address: Int, opcode: Int, i: Instruction, busNotAvailable: Boolean, wasBreak: Boolean): Unit =
+        if tracingOnFile then
+          tracingListener.onTrace(cpu.disassemble(address).toString,address)
+          return
+
         if stepOverOutStopPending then
           stepOverOutStopPending = false
           stepOutPending = StepState.NoStep
@@ -661,11 +688,11 @@ class Debugger(m68k:M68000,
       sp.setBorder(BorderFactory.createTitledBorder("Misc."))
       registerPanel.add(sp)
       // vdp
+      val vdpPanel = new JTabbedPane()
       val vdptable = new JTable(vdpTableMode)
       vdptable.getTableHeader.setReorderingAllowed(false)
       vdptable.setDefaultRenderer(classOf[String], new PropertiesCellRenderer(vdpTableMode))
       sp = new JScrollPane(vdptable)
-      sp.setBorder(BorderFactory.createTitledBorder("VDP"))
       vdptable.setPreferredScrollableViewportSize(new Dimension(0, 200))
       val vdpColModel = vdptable.getColumnModel
       vdpColModel.getColumn(0).setMinWidth(80)
@@ -673,7 +700,10 @@ class Debugger(m68k:M68000,
       vdpColModel.getColumn(1).setMinWidth(50)
       vdpColModel.getColumn(1).setMaxWidth(50)
 
-      rightPanel.add("Center", sp)
+      vdpPanel.add("VDP properties",sp)
+      vdpPanel.add("VDP FIFO",fifoPanel)
+
+      rightPanel.add("Center", vdpPanel)
       rightPanel.add("North", registerPanel)
 
       // disassemble panel
@@ -716,6 +746,7 @@ class Debugger(m68k:M68000,
       disassembledTableModel.update()
       vdpTableMode.update()
       distable.setRowSelectionInterval(0, 0)
+      fifoPanel.updateModel()
     }
 
   end M68KDebugger
@@ -789,6 +820,10 @@ class Debugger(m68k:M68000,
     breakPoint.addActionListener(_ => breakGUI())
     breakPoint.setToolTipText("Breakpoints")
 
+    val saveTrace = new JButton(new ImageIcon(getClass.getResource("/resources/trace/save.png")))
+    saveTrace.addActionListener(_ => saveTraceUI())
+    saveTrace.setToolTipText("Save live disassembly on file")
+
     toolBar.add(onOffButton)
     toolBar.add(stepInButton)
     toolBar.add(stepOverButton)
@@ -798,6 +833,7 @@ class Debugger(m68k:M68000,
     toolBar.add(frameByFrameMode)
     toolBar.add(nextFrame)
     toolBar.add(breakPoint)
+    toolBar.add(saveTrace)
 
     // log panel
     logPanel.setEditable(false)
@@ -1011,6 +1047,11 @@ class Debugger(m68k:M68000,
     else
       m68kBreakItem.setSelected(true)
       m68kBreakDialog.setVisible(true)
+
+  private def saveTraceUI(): Unit =
+    val std = new SaveTraceDialog(frame,tl => selectedDebugger.startTracingOnFile(tl),() => selectedDebugger.stopTracingOnFile())
+    std.setLocationRelativeTo(frame)
+    std.setVisible(true)
 
 
 

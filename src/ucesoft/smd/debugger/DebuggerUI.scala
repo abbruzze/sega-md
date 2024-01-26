@@ -8,6 +8,7 @@ import ucesoft.smd.debugger.DebuggerUI.DisassemblerBreakHandler
 
 import java.awt.event.{ActionEvent, FocusEvent, FocusListener, MouseAdapter, MouseEvent}
 import java.awt.{BorderLayout, Color, Component, FlowLayout}
+import java.io.{FileWriter, PrintWriter}
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 import javax.swing.table.{AbstractTableModel, DefaultTableCellRenderer, TableCellRenderer}
@@ -858,4 +859,183 @@ object DebuggerUI {
       add(intCB)
       add(nmiCB)
       setBorder(BorderFactory.createTitledBorder("Events"))
+  end Z80BreakEventPanel
+
+  class VDPFifoRenderer extends DefaultTableCellRenderer:
+    override def getTableCellRendererComponent(table: JTable, value: Any, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int): Component =
+      val c = super.getTableCellRendererComponent(table,value,isSelected,hasFocus,row,column).asInstanceOf[JLabel]
+      if column == 0 then
+        c.setHorizontalAlignment(SwingConstants.RIGHT)
+      else
+        c.setHorizontalAlignment(SwingConstants.CENTER)
+
+      c
+  end VDPFifoRenderer
+
+  class VDPFifoTableModel extends AbstractTableModel:
+    private val columns = Array("","0","1","2","3")
+    private var fifoDump : VDP.VDPFifoDump = _
+
+    def setDump(dump:VDP.VDPFifoDump): Unit =
+      fifoDump = dump
+      fireTableDataChanged()
+    override def getColumnName(column: Int): String = columns(column)
+    override def getColumnCount: Int = columns.length
+    override def getRowCount: Int = 4
+    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
+      if columnIndex == 0 then
+        rowIndex match
+          case 0 => "code"
+          case 1 => "address"
+          case 2 => "data"
+          case 3 => "half written"
+      else
+        val colDump = fifoDump.slots(columnIndex - 1)
+        if colDump == null then
+          ""
+        else
+          rowIndex match
+            case 0 => "%02X".format(colDump.code)
+            case 1 => "%06X".format(colDump.address)
+            case 2 => "%04X".format(colDump.data)
+            case 3 => if colDump.halfWritten then "yes" else ""
+  end VDPFifoTableModel
+
+  class VDPFifoPanel(vdp:VDP) extends JPanel:
+    private val model = new VDPFifoTableModel
+    private val table = new JTable(model)
+    private val headIndexLabel = new JLabel("0")
+    private val tailIndexLabel = new JLabel("0")
+
+    updateModel()
+    init()
+
+    def updateModel(): Unit =
+      val dump = vdp.getVDPFifoDump()
+      model.setDump(dump)
+      headIndexLabel.setText(dump.head.toString)
+      tailIndexLabel.setText(dump.tail.toString)
+
+    private def init(): Unit =
+      setLayout(new BorderLayout())
+      table.setPreferredScrollableViewportSize(table.getPreferredSize)
+      table.setDefaultRenderer(classOf[String], new VDPFifoRenderer)
+      val sp = new JScrollPane(table)
+      add("Center", sp)
+
+      val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      northPanel.add(new JLabel("Head index:",SwingConstants.RIGHT))
+      northPanel.add(headIndexLabel)
+      northPanel.add(new JLabel("Tail index:", SwingConstants.RIGHT))
+      northPanel.add(tailIndexLabel)
+      add("North",northPanel)
+  end VDPFifoPanel
+
+  trait TraceListener:
+    def onTrace(disassembly:String,address:Int): Unit
+
+  class SaveTraceDialog(frame:JFrame,startAction: TraceListener => Unit,stopAction: () => Unit) extends JDialog(frame,"Trace saving",true) with TraceListener:
+    private val addressTF = new JTextField("000000")
+    private val fileTF = new JTextField(20)
+    private val fetchedLabel = new JLabel("0")
+    private var fetchedCounter = 0
+    private var stopIfAddress = false
+    private var address = 0
+    private var out : PrintWriter = _
+
+    init()
+
+    override final def onTrace(disassembly:String,address:Int): Unit =
+      out.println(disassembly)
+      fetchedCounter += 1
+      fetchedLabel.setText(fetchedCounter.toString)
+
+      if stopIfAddress && this.address == address then
+        stopTracing(s"Tracing stopped: reached address ${addressTF.getText}")
+
+    private def init(): Unit =
+      val panel = new JPanel(new BorderLayout())
+      val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      northPanel.add(new JLabel("Save to file:",SwingConstants.RIGHT))
+      northPanel.add(fileTF)
+      val browseButton = new JButton("Browse..")
+      northPanel.add(browseButton)
+      val addressCB = new JCheckBox("Stop if address is reached")
+      northPanel.add(addressCB)
+      northPanel.add(addressTF)
+      addressTF.setEnabled(false)
+      addressCB.addActionListener(_ => {
+        addressTF.setEnabled(addressCB.isSelected)
+        stopIfAddress = addressCB.isSelected
+      })
+
+      browseButton.addActionListener(_ => {
+        val fc = new JFileChooser()
+        fc.setSelectedFile(new java.io.File(fileTF.getText()))
+        fc.showSaveDialog(this) match
+          case JFileChooser.APPROVE_OPTION =>
+            fileTF.setText(fc.getSelectedFile.toString)
+          case _ =>
+      })
+
+      val southPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      southPanel.add(new JLabel("Processed instructions:",SwingConstants.RIGHT))
+      southPanel.add(fetchedLabel)
+
+      panel.add("North",northPanel)
+      panel.add("South",southPanel)
+
+      val buttonPanel = new JPanel(new FlowLayout())
+      val startButton = new JButton("START")
+      val cancelButton = new JButton("Cancel")
+
+      cancelButton.addActionListener(_ => dispose())
+      startButton.addActionListener(_ => startTracing(panel,startButton,cancelButton))
+
+      buttonPanel.add(startButton)
+      buttonPanel.add(cancelButton)
+
+      val pane = getContentPane
+      pane.add("Center",panel)
+      pane.add("South",buttonPanel)
+
+      pack()
+      setResizable(false)
+
+    private def stopTracing(msg:String): Unit =
+      try
+        out.close()
+      catch
+        case _ =>
+      stopAction()
+      JOptionPane.showMessageDialog(this, msg, "Tracing stopped", JOptionPane.INFORMATION_MESSAGE)
+      dispose()
+
+    private def startTracing(panel:JPanel,startButton:JButton,cancelButton:JButton): Unit =
+      if startButton.getText != "START" then return
+
+      if stopIfAddress then
+        try
+          address = Integer.parseInt(addressTF.getText,16)
+        catch
+          case _:NumberFormatException =>
+            JOptionPane.showMessageDialog(this, "Invalid address, use hex format", "Address error", JOptionPane.ERROR_MESSAGE)
+            return
+
+      val file = fileTF.getText
+      if file.isEmpty then
+        JOptionPane.showMessageDialog(this,"Insert a valid file path","Path error",JOptionPane.ERROR_MESSAGE)
+      else
+        try
+          out = new PrintWriter(new FileWriter(file))
+          cancelButton.setEnabled(false)
+          startButton.setText("STOP")
+          startButton.addActionListener(_ => stopTracing("Tracing stopped"))
+          startAction(this)
+          for c <- panel.getComponents do
+            c.setEnabled(false)
+        catch
+          case t:Throwable =>
+            JOptionPane.showMessageDialog(this, s"Cannot open file: ${t.getMessage}", "File open error", JOptionPane.ERROR_MESSAGE)
 }

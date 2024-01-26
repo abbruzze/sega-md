@@ -14,6 +14,9 @@ import scala.collection.mutable.ListBuffer
 object VDP:
   final val SCREEN_WIDTH : Int = HMode.H40.totalWidth
 
+  case class VDPFifoSlot(code:Int,address:Int,data:Int,halfWritten:Boolean)
+  case class VDPFifoDump(head:Int,tail:Int,slots:Array[VDPFifoSlot])
+
   case class VDPMemoryDump(ram:Array[Int],cram:Array[Int],vsram:Array[Int])
   case class VDPProperty(name:String,value:String,valueDetails:String = "",description:String = "",register:Option[Int] = None)
   case class VDPPropertiesDump(properties:Array[VDPProperty],registerWriter:(Int,Int) => Unit)
@@ -107,6 +110,14 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var size = 0
     private var lastWritten : FifoEntry = _
     private var lastPopped : FifoEntry = _
+
+    def dump(): VDPFifoDump =
+      val dump = Array.ofDim[VDPFifoSlot](4)
+      for i <- 0 until size do
+        val index = (head + i) % MAX_SIZE
+        val slot = fifo(index)
+        dump(index) = VDPFifoSlot(code = slot.commandCode,address = slot.address,data = slot.data,halfWritten = slot.vramFirstByteWritten)
+      VDPFifoDump(head = if head == -1 then 0 else head,tail = if tail == -1 then 0 else tail,dump)
 
     def getLastWritten: FifoEntry = lastWritten
     def getLastPopped: FifoEntry = lastPopped
@@ -700,6 +711,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   // ============================= Constructor =========================================
   hardReset()
   // ===================================================================================
+  def getVDPFifoDump(): VDPFifoDump =
+    fifo.dump()
   def enableDrawSpriteBoundaries(enabled:Boolean): Unit =
     drawSpriteBoundariesEnabled = enabled
   def setMessageListener(l:MessageBoardListener): Unit =
@@ -1392,6 +1405,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   private def doVRAMWriteWord(): Unit =
     val fifoEntry = fifo.peek
+
     val address = fifoEntry.address & ~1 // ignore A0
     getVRAMAccessMode(fifoEntry.commandCode) match
       case VRAM_WRITE => // 2 phases
