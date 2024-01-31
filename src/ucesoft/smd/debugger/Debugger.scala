@@ -181,6 +181,18 @@ class Debugger(m68k:M68000,
 
     init()
 
+    override def startTracingOnFile(tracingListener: TraceListener): Unit =
+      super.startTracingOnFile(tracingListener)
+      stepAlways = true
+      z80.addEventListener(this)
+      nextStep()
+
+    override def stopTracingOnFile(): Unit =
+      super.stopTracingOnFile()
+      if !existsBreakPending then
+        z80.removeEventListener(this)
+      stepAlways = false
+
     override protected def onCPUEnabled(enabled:Boolean): Unit =
       z80.setComponentEnabled(enabled)
 
@@ -249,6 +261,8 @@ class Debugger(m68k:M68000,
           stepByStep = true
         case _ =>
 
+      checkStepOverOut(address)
+
       if !stepAlways && stepByStep then
         selectDebugger(1)
         disassembledTableModel.clear()
@@ -258,6 +272,14 @@ class Debugger(m68k:M68000,
         updateModels()
         semaphore.acquire()
     end fetch
+
+    private def checkStepOverOut(address: Int): Unit =
+      stepOverPending match
+        case StepState.WaitTarget =>
+          if address == stepOverTargetAddress then
+            stepOutPending = StepState.NoStep
+            stepAlways = false
+        case _ =>
 
     private def updateDisassembly(z80:Z80,address:Int = -1): Unit =
       var adr = if address == -1 then z80.ctx.PC else address
@@ -315,7 +337,12 @@ class Debugger(m68k:M68000,
     }
     override def stepIn(): Unit =
       nextStep()
-    override def stepOver(): Unit = stepIn() // TODO
+    override def stepOver(): Unit =
+      stepOverTargetAddress = stepDisassemble.address + stepDisassemble.size
+      stepOverPending = StepState.WaitTarget
+      stepAlways = true
+      nextStep()
+
     override def stepOut(): Unit = stepIn() // TODO
 
     override def updateModels(): Unit = swing {
@@ -404,10 +431,13 @@ class Debugger(m68k:M68000,
     override def startTracingOnFile(tracingListener: TraceListener): Unit =
       super.startTracingOnFile(tracingListener)
       debugger.setStepAlways(true)
+      m68k.addEventListener(debugger)
       debugger.nextStep()
 
     override def stopTracingOnFile(): Unit =
       super.stopTracingOnFile()
+      if !debugger.existsBreakPending then
+        m68k.removeEventListener(debugger)
       debugger.setStepAlways(false)
 
     override protected def onCPUEnabled(enabled:Boolean): Unit =
@@ -579,16 +609,11 @@ class Debugger(m68k:M68000,
         import StepState.*
 
         stepOverPending match
-          case NoStep =>
-          case WaitReturn =>
-            instruction.instructionType match
-              case RTR | RTE | RTS =>
-                stepOverOutStopPending = true
-              case _ =>
           case WaitTarget =>
             if address == stepOverTargetAddress then
               stepOutPending = StepState.NoStep
               setStepAlways(false)
+          case _ =>
         stepOutPending match
           case NoStep =>
           case WaitReturn =>
@@ -613,17 +638,9 @@ class Debugger(m68k:M68000,
       debugger.nextStep()
 
     override def stepOver(): Unit =
-      import InstructionType.*
-      import StepState.*
-      stepInstruction.instructionType match
-        /*case JSR | TRAP | TRAPV | ILLEGAL =>
-          stepOverPending = WaitReturn
-          debugger.setStepAlways(true)*/
-        case JSR | TRAP | TRAPV | ILLEGAL | BSR | DBRA | DBCC | DBCS | DBEQ | DBGE | DBGT | DBHI | DBLE | DBLS | DBMI | DBNE | DBPL | DBVC | DBVS =>
-          stepOverTargetAddress = stepDisassemble.address + stepDisassemble.size
-          stepOverPending = WaitTarget
-          debugger.setStepAlways(true)
-        case _ =>
+      stepOverTargetAddress = stepDisassemble.address + stepDisassemble.size
+      stepOverPending = StepState.WaitTarget
+      debugger.setStepAlways(true)
 
       debugger.nextStep()
 

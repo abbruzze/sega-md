@@ -7,8 +7,9 @@ import ucesoft.smd.debugger.Debugger.AddressBreakType
 import ucesoft.smd.debugger.DebuggerUI.DisassemblerBreakHandler
 
 import java.awt.event.{ActionEvent, FocusEvent, FocusListener, MouseAdapter, MouseEvent}
-import java.awt.{BorderLayout, Color, Component, FlowLayout}
-import java.io.{FileWriter, PrintWriter}
+import java.awt.{BorderLayout, Color, Component, FlowLayout, GridLayout}
+import java.io.{FileOutputStream, FileWriter, PrintWriter}
+import java.util.zip.GZIPOutputStream
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 import javax.swing.table.{AbstractTableModel, DefaultTableCellRenderer, TableCellRenderer}
@@ -912,7 +913,7 @@ object DebuggerUI {
     init()
 
     def updateModel(): Unit =
-      val dump = vdp.getVDPFifoDump()
+      val dump = vdp.getVDPFifoDump
       model.setDump(dump)
       headIndexLabel.setText(dump.head.toString)
       tailIndexLabel.setText(dump.tail.toString)
@@ -942,6 +943,7 @@ object DebuggerUI {
     private var fetchedCounter = 0
     private var stopIfAddress = false
     private var address = 0
+    private var gzipped = false
     private var out : PrintWriter = _
 
     init()
@@ -955,15 +957,20 @@ object DebuggerUI {
         stopTracing(s"Tracing stopped: reached address ${addressTF.getText}")
 
     private def init(): Unit =
-      val panel = new JPanel(new BorderLayout())
-      val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
-      northPanel.add(new JLabel("Save to file:",SwingConstants.RIGHT))
-      northPanel.add(fileTF)
+      val panel = new JPanel()
+      val boxLayout = new BoxLayout(panel,BoxLayout.Y_AXIS)
+      panel.setLayout(boxLayout)
+      var dummyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      dummyPanel.add(new JLabel("Save to file:",SwingConstants.RIGHT))
+      dummyPanel.add(fileTF)
       val browseButton = new JButton("Browse..")
-      northPanel.add(browseButton)
+      dummyPanel.add(browseButton)
+      panel.add(dummyPanel)
+      dummyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
       val addressCB = new JCheckBox("Stop if address is reached")
-      northPanel.add(addressCB)
-      northPanel.add(addressTF)
+      dummyPanel.add(addressCB)
+      dummyPanel.add(addressTF)
+      panel.add(dummyPanel)
       addressTF.setEnabled(false)
       addressCB.addActionListener(_ => {
         addressTF.setEnabled(addressCB.isSelected)
@@ -979,12 +986,17 @@ object DebuggerUI {
           case _ =>
       })
 
-      val southPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
-      southPanel.add(new JLabel("Processed instructions:",SwingConstants.RIGHT))
-      southPanel.add(fetchedLabel)
+      dummyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      val gzipCB = new JCheckBox("gzip file")
+      dummyPanel.add(gzipCB)
+      gzipCB.addActionListener(_ => gzipped = gzipCB.isSelected)
+      panel.add(dummyPanel)
 
-      panel.add("North",northPanel)
-      panel.add("South",southPanel)
+      dummyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      dummyPanel.setBorder(BorderFactory.createLineBorder(Color.WHITE))
+      dummyPanel.add(new JLabel("Processed instructions:",SwingConstants.RIGHT))
+      dummyPanel.add(fetchedLabel)
+      panel.add(dummyPanel)
 
       val buttonPanel = new JPanel(new FlowLayout())
       val startButton = new JButton("START")
@@ -1028,7 +1040,9 @@ object DebuggerUI {
         JOptionPane.showMessageDialog(this,"Insert a valid file path","Path error",JOptionPane.ERROR_MESSAGE)
       else
         try
-          out = new PrintWriter(new FileWriter(file))
+          val fileName = if gzipped then s"$file.gz" else file
+          val fileOut = if gzipped then new GZIPOutputStream(new FileOutputStream(fileName)) else new FileOutputStream(fileName)
+          out = new PrintWriter(fileOut)
           cancelButton.setEnabled(false)
           startButton.setText("STOP")
           startButton.addActionListener(_ => stopTracing("Tracing stopped"))
