@@ -36,7 +36,7 @@ object VDP:
     case FILL,COPY,MEM_VRAM
 
   enum DMAMemoryType:
-    case VRAM_READ,CRAM_READ,VSRAM_READ,VRAM_WRITE,CRAM_WRITE,VSRAM_WRITE
+    case VRAM_READ,CRAM_READ,VSRAM_READ,VRAM_WRITE,CRAM_WRITE,VSRAM_WRITE,VRAM_READ_8bit,INVALID
 
   case class DMAEvent(dmaType:DMAEventType,
                       sourceAddress:Int,
@@ -607,12 +607,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var codeRegister = 0
   private var writePendingFlag = false
 
+  private var controlPortWriteDataDelayed = -1
+
   private var pendingRead = false
   private var pendingReadValue = 0
-
-  private var pendingControlPortCommand = 0
-  private var pendingControlPortRequest = false
-  private var pendingControlPortRequestLong = false
 
   private val fifo = new FIFO
   private var writeOverflowFIFOEntry,writeOverflowFIFOEntry2 : FifoEntry = _
@@ -697,8 +695,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   // for sprite phase 2
   private final val sprite2Info = Array.fill[SpriteInfo](MAX_SPRITES_PER_ROW)(new SpriteInfo)
   private var sprite2CurrentIndex,sprite2Size = 0
-  // for sprite evaluation
-  private inline val SPRITE_PHASE1_ACCESS_SLOT = 1
   // for sprite bug
   private var lastSpriteXPosNonZero = false
 
@@ -711,7 +707,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   // ============================= Constructor =========================================
   hardReset()
   // ===================================================================================
-  def getVDPFifoDump(): VDPFifoDump =
+  def getVDPFifoDump: VDPFifoDump =
     fifo.dump()
   def enableDrawSpriteBoundaries(enabled:Boolean): Unit =
     drawSpriteBoundariesEnabled = enabled
@@ -770,8 +766,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     pendingRead = false
     addressRegister = 0
     codeRegister = 0
-    pendingControlPortCommand = 0
-    pendingControlPortRequest = false
     dmaFillWriteDone = false
     fifo.reset()
     vdpLayerPatternBuffer(A).reset()
@@ -786,6 +780,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     spriteLineRenderingEnabled = true
     lastSpriteXPosNonZero = false
+    controlPortWriteDataDelayed = -1
 
   def setCPUs(m68k:M6800X0,z80:Z80): Unit =
     this.m68k = m68k
@@ -911,58 +906,51 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     1 write |CD1 CD0 A13 A12 A11 A10 A9 A8|A7 A6 A5 A4 A3 A2 A1 A0|
     2 write |0 0 0 0 0 0 0 0|CD5 CD4 CD3 CD2 0 0 A15 A14|
    */
-  final def writeControlPort(value:Int): Unit =
-    if pendingControlPortRequest && !writePendingFlag then
-      //log.warning(s"New control port request before last one completed")
-      pendingControlPortRequestLong = true
-      pendingControlPortCommand = value << 16 | pendingControlPortCommand
-    else
-      pendingControlPortCommand = value
-
-    pendingControlPortRequest = true
-
-
-  private def processPendingControlPortCommand(): Unit =
-    pendingControlPortRequest = false
+  final def writeControlPort(data:Int): Unit =
+    log.info("Control port write: %04X",data)
+    if m68KBUSRequested then // can happen during a long word write, when the first word starts a DMA and the second one must wait
+      log.info("Control port write delayed for DMA in progress")
+      controlPortWriteDataDelayed = data
     /*
      You cannot write to a VDP register if the pending flag is set to one,
      since the VDP is expecting the 2nd half of a command word.
      */
-    if (pendingControlPortCommand & 0xC000) == 0x8000 then
+    else if (data & 0xC000) == 0x8000 then
       if !writePendingFlag then
-        val register = (pendingControlPortCommand >> 8) & 0x1F
-        val value = pendingControlPortCommand & 0xFF
-        log.info("Processing register write reg=%d value=%d",register,value)
-        writeRegister(register,value)
-      else
-        log.warning("Write register ignored due to pending flag set")
+        val register = (data >> 8) & 0x1F
+        val value = data & 0xFF
+        log.info("Processing register write reg=%d value=%d", register, value)
+        writeRegister(register, value)
+    else if !writePendingFlag then
+      writePendingFlag = true
+      codeRegister = codeRegister & 0x3C | (data >> 14) & 3 // update CD0-CD1 only
+      addressRegister = addressRegister & 0xC000 | data & 0x3FFF // update A0-A13 only
     else
-      if !writePendingFlag then
-        writePendingFlag = true
-        codeRegister = codeRegister & 0x3C | (pendingControlPortCommand >> 14) & 3 // update CD0-CD1 only
-        //val oldAdr = addressRegister
-        addressRegister = addressRegister & 0xC000 | pendingControlPortCommand & 0x3FFF // update A0-A13 only
-        //println(s"1st write: pendingControlPortCommand=${pendingControlPortCommand.toHexString} oldaddress=${oldAdr.toHexString} address=${addressRegister.toHexString}")
-      else
-        writePendingFlag = false
-        codeRegister = (pendingControlPortCommand & 0x00F0) >> 2 | codeRegister & 3
-        //val oldAdr = addressRegister
-        addressRegister = (pendingControlPortCommand & 3) << 14 | addressRegister & 0x3FFF
-        //println(s"2nd write: pendingControlPortCommand=${pendingControlPortCommand.toHexString} oldaddress=${oldAdr.toHexString} address=${addressRegister.toHexString}")
-        // check DMA bit CD5
-        if (codeRegister & 0x20) != 0 && REG_M1_DMA_ENABLED then
-          if REG_DMA_MODE == DMA_MODE.MEMORY_TO_VRAM then
+      writePendingFlag = false
+      codeRegister = (data & 0x00F0) >> 2 | codeRegister & 3
+      addressRegister = (data & 3) << 14 | addressRegister & 0x3FFF
+      // check DMA bit CD5
+      val isVRAMWrite = isVRAMAccessModeWrite(codeRegister)
+      if (codeRegister & 0x20) != 0 && REG_M1_DMA_ENABLED then
+        if REG_DMA_MODE == DMA_MODE.MEMORY_TO_VRAM then
+          if isVRAMWrite then
             if !m68KBUSRequested then
               m68KBUSRequested = true
               busArbiter.vdpRequest68KBUS()
+              statusRegister |= STATUS_DMA_MASK
+          end if
+        else
           statusRegister |= STATUS_DMA_MASK
-          if dmaEventListener != null && REG_DMA_MODE != DMA_MODE.VRAM_FILL then
-            notifyDMAEventListener()
-        log.info("Preparing VRAM access: codeRegister=%X code=%d dmaCode=%d address=%X",codeRegister,codeRegister & 0xF,codeRegister >> 6,addressRegister)
 
-        if (getVRAMAccessMode(codeRegister) & 1) == 0 then // VRAM/CRAM/VSRAM read request
-          if isDMAInProgress then println("DMA in progress + READ")
-          performVRAMRead()
+        if dmaEventListener != null && REG_DMA_MODE != DMA_MODE.VRAM_FILL then
+          notifyDMAEventListener()
+      end if
+      log.info("Preparing VRAM access: codeRegister=%X code=%d dmaCode=%d address=%X", codeRegister, codeRegister & 0xF, codeRegister >> 6, addressRegister)
+
+      if !isVRAMWrite then // VRAM/CRAM/VSRAM read request
+        if isDMAInProgress then println("DMA in progress + READ")
+        performVRAMRead()
+  end writeControlPort
 
   private def notifyDMAEventListener(fillValue:Int = 0): Unit =
     val dmaMode = REG_DMA_MODE match
@@ -976,6 +964,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case CRAM_WRITE => DMAMemoryType.CRAM_WRITE
       case VSRAM_READ => DMAMemoryType.VSRAM_READ
       case VSRAM_WRITE => DMAMemoryType.VSRAM_WRITE
+      case VRAM_8READ => DMAMemoryType.VRAM_READ_8bit
+      case _ => DMAMemoryType.INVALID
     dmaEventListener.onDMAEvent(DMAEvent(dmaMode,REG_DMA_SOURCE_ADDRESS,addressRegister,REG_DMA_COUNTER_LEN,memType,if dmaMode == DMAEventType.FILL then Some(fillValue) else None))
 
   private def performVRAMRead(): Unit =
@@ -1014,7 +1004,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
    Writing to a VDP register will clear the code register.
    */
   private def writeRegister(reg:Int,value:Int): Unit =
-    //codeRegister = 0
+    codeRegister = 0
     log.info("Register %d write %X",reg,value)
     // check if it's a valid register write
     if reg >= regs.length || (!REG_M5 && reg > 10) then
@@ -1081,6 +1071,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   inline private def getVRAMAccessMode: Int = codeRegister & 0xF
   inline private def getVRAMAccessMode(code:Int): Int = code & 0xF
+  inline private def isVRAMAccessModeWrite(code:Int): Boolean = (code & 1) == 1
   inline private def isDMAInProgress: Boolean = (statusRegister & STATUS_DMA_MASK) != 0
 
   private def sendMessage(msg:String): Unit =
@@ -1272,10 +1263,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       dmaFillWriteDone = false
       if m68KBUSRequested then
         m68KBUSRequested = false
-        //m68k.setBUSAvailable(true)
         busArbiter.vdpRelease68KBUS()
+        if controlPortWriteDataDelayed != -1 then
+          log.info("Restoring control port write delayed: %04X", controlPortWriteDataDelayed)
+          writeControlPort(controlPortWriteDataDelayed)
+          controlPortWriteDataDelayed = -1
       log.info("DMA %s finished",REG_DMA_MODE)
-      //println(s"DMA $REG_DMA_MODE finished")
+  end dmaEpilogue
 
   private def doExternalAccessSlot(): Unit =
     if fifo.isEmpty then
@@ -2004,23 +1998,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     end while
 
   override final def clock(cycles: Long): Unit =
-    if pendingControlPortRequest then
-      if pendingControlPortRequestLong then
-        pendingControlPortRequestLong = false
-        val next = pendingControlPortCommand >>> 16
-        pendingControlPortCommand &= 0xFFFF
-        processPendingControlPortCommand()
-        pendingControlPortCommand = next
-        processPendingControlPortCommand()
-      else
-        processPendingControlPortCommand()
-
     if doAccessSlotRead() then // 4 bytes read
       if vdpAccessSlot == 0 && isSpriteEvaluationEnabled then
         fastSpriteEvaluation()
       vdpAccessSlot += 1
       if vdpAccessSlot >= hmode.vramAccessMatrix.length then
         vdpAccessSlot = 0
+    end if
 
     if (cycles & 1) == 1 then
       pixelClock()
