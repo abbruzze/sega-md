@@ -975,7 +975,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   private def performVRAMRead(): Unit =
     var address = addressRegister & ~1 // consider even addresses
-    getVRAMAccessMode(codeRegister) match
+    val mode = if REG_128K then VRAM_8READ else getVRAMAccessMode(codeRegister)
+    mode match
       case VRAM_READ =>
         // The data is always read in word units. A0 is ignored during the read; no swap of bytes occurs if A0=1.
         // Subsequent reads are from address incremented by REGISTER #15. A0 is used in calculation of the next address.
@@ -983,7 +984,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         log.info("VRAM read request: address=%X value=%X",address,value)
         pendingReadValue = value
       case VRAM_8READ =>
-        val value = VRAM((address ^ 1) & 0xFFFF)
+        val value = VRAM((addressRegister ^ 1) & 0xFFFF)
         val fifoData = if fifo.length == 0 then 0 else fifo.peek.data
         log.info("VRAM 8bit read request: address=%X value=%X", address, value)
         pendingReadValue = fifoData & 0xFF00 | value & 0xFF
