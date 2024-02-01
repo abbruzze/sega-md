@@ -836,6 +836,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     else
       statusRegister | STATUS_VB_MASK
 
+  inline private def adjustAddressRegister(addressRegister:Int): Int =
+    if REG_128K then
+      (((addressRegister & 2) >> 1) ^ 1) | ((addressRegister & 0x400) >> 9) | addressRegister & 0x3FC | ((addressRegister & 0x1F800) >> 1)
+    else
+      addressRegister
   /*
    Byte-wide writes
    Writing to the VDP control or data ports is interpreted as a 16-bit
@@ -858,7 +863,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         //log.warning("writeDataPort: writing data when access mode is not writing: %d",mode)
         false
     if validWrite then
-      val entry = FifoEntry(codeRegister,addressRegister,value)
+      val entry = FifoEntry(codeRegister,adjustAddressRegister(addressRegister),value)
       if !fifo.enqueue(entry) then
         if writeOverflowFIFOEntry != null then // can happen when writeDataPort is called twice in a row for a long data write and there's no space to set dtack to false
           if writeOverflowFIFOEntry2 != null then
@@ -1125,7 +1130,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   inline private def REG_IE1: Boolean = (regs(0) & 0x10) > 0        // Enable H interrupt (68000 Level 4)
   inline private def REG_M3: Boolean = (regs(0) & 0x2) > 0          // HV. Counter stop
   // REG #1 |VR DE IE0 M1 M2 M5 0 0|
-  inline private def REG_VR: Boolean = (regs(1) & 0x80) > 0         // use 128kB of VRAM. Will not work correctly on standard consoles with 64kB VRAM
+  inline private def REG_128K: Boolean = (regs(1) & 0x80) > 0         // use 128kB of VRAM. Will not work correctly on standard consoles with 64kB VRAM
   /*
    The one in register 1 (well, it's register $0 actually) is just a bit to configure CYSNC as input instead of output.
    It produces a black screen on consoles where CSYNC is being used by video encoder obviously.
@@ -1392,7 +1397,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       busArbiter.vdpRequest68KBUS()
     val data = m68KMemory.read(REG_DMA_SOURCE_ADDRESS << 1,Size.Word,MMU.VDP_MEM_OPTION)
     log.info("doDMAMemory: pushing codeRegister=%X address=%X data=%X",codeRegister,addressRegister,data)
-    if !fifo.enqueue(FifoEntry(codeRegister,addressRegister,data)) then
+    if !fifo.enqueue(FifoEntry(codeRegister,adjustAddressRegister(addressRegister),data)) then
       log.error("doDMAMemory: FIFO full")
     updateTargetAddress()
 
@@ -1406,7 +1411,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         if fifoEntry.vramFirstByteWritten then
           fifo.dequeue()
           log.info("doVRAMWriteWord: remaining fifo entries: %d",fifo.length)
-          if (fifoEntry.address & 1) == 1 then // swap low / high
+          if REG_128K then
+            updateVRAMByte(fifoEntry.address,fifoEntry.data & 0xFF)
+          else if (fifoEntry.address & 1) == 1 then // swap low / high
             updateVRAMByte(address,fifoEntry.data & 0xFF)
             updateVRAMByte((address + 1) & 0xFFFF,(fifoEntry.data >> 8) & 0xFF)
             log.info("doVRAMWriteWord: 2nd byte; bytes swapped %X = %X",address,fifoEntry.data)
@@ -1419,12 +1426,18 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           log.info("doVRAMWriteWord: 1st byte")
       case CRAM_WRITE =>
         fifo.dequeue()
-        writeByteCRAM(address, (fifoEntry.data >> 8) & 0xFF)
-        writeByteCRAM(address + 1, fifoEntry.data & 0xFF)
+        if REG_128K then
+          writeByteCRAM(fifoEntry.address, fifoEntry.data & 0xFF)
+        else
+          writeByteCRAM(address, (fifoEntry.data >> 8) & 0xFF)
+          writeByteCRAM(address + 1, fifoEntry.data & 0xFF)
       case VSRAM_WRITE =>
         fifo.dequeue()
-        writeByteVSRAM(address, (fifoEntry.data >> 8) & 0xFF)
-        writeByteVSRAM(address + 1, fifoEntry.data & 0xFF)
+        if REG_128K then
+          writeByteVSRAM(fifoEntry.address, fifoEntry.data & 0xFF)
+        else
+          writeByteVSRAM(address, (fifoEntry.data >> 8) & 0xFF)
+          writeByteVSRAM(address + 1, fifoEntry.data & 0xFF)
       case mode =>
         fifo.dequeue()
         //log.error("doVRAMWriteWord: mode mismatch: %d",mode)
