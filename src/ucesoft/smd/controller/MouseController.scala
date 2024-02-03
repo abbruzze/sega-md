@@ -125,7 +125,7 @@ class MouseController(override val index: Int,display:Display) extends Controlle
     state = value
 
   // =============================================================
-  override def mouseDragged(e: MouseEvent): Unit = {}
+  override def mouseDragged(e: MouseEvent): Unit = mouseMoved(e)
 
   override def mouseMoved(e: MouseEvent): Unit =
     val loc = display.getLocationOnScreen

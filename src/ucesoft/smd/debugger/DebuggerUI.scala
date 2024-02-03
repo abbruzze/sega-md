@@ -21,17 +21,17 @@ import scala.collection.mutable.ArrayBuffer
  */
 object DebuggerUI {
   private case class Reg(value:Int,modified:Boolean)
+  private final val MOD_COLOR = Color.YELLOW.darker()
 
   class RegisterRenderer(format: String) extends DefaultTableCellRenderer:
     private val defaultForegroundColor = getForeground
-    private val modifiedColor = Color.RED
 
     override def setValue(value: Any): Unit =
       value match
         case Reg(value, modified) =>
           setHorizontalAlignment(SwingConstants.CENTER)
           setText(format.format(value))
-          setForeground(if modified then modifiedColor else defaultForegroundColor)
+          setForeground(if modified then MOD_COLOR else defaultForegroundColor)
   end RegisterRenderer
 
   class Z80RegisterTableModel(ctx:Z80.Context) extends AbstractTableModel:
@@ -100,7 +100,7 @@ object DebuggerUI {
       else
         setForeground(table.getForeground)
         if modified then
-          setBackground(Color.RED)
+          setBackground(MOD_COLOR)
         else
           setBackground(table.getBackground)
 
