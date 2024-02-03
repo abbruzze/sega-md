@@ -20,6 +20,7 @@ object TRAPV:
     */
     final override def execute(): Unit =
       if flags.isFlag(StatusRegister.StatusFlag.V) then
+        ctx.busIdle(4)
         ctx.raiseException(7)
       // =============== prefetch==================
       ctx.fetchWord(false)
