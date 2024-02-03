@@ -78,8 +78,8 @@ class CMPI(ctx: M6800X0.Context) extends InstructionGenerator:
     import Size.*
     val code = genOpcode("00001100________")
     for(size <- Seq(Byte,Word,Long))
-      for(mode <- 0 to 7)
-        val regEnd = if mode == 7 then 3 else 7
+      for(mode <- Seq(0,2,3,4,5,6,7))
+        val regEnd = if mode == 7 then 1 else 7
         for(reg <- 0 to regEnd)
           val opcode = code | size.ordinal << 6 | mode << 3 | reg
           instructionSetHandler.registerInstruction(opcode, new CMPI.CMPI(ctx, opcode,size))

@@ -93,7 +93,8 @@ class CMP(ctx: M6800X0.Context) extends InstructionGenerator:
     for(size <- Seq(Byte,Word,Long))
       for(register <- 0 to 7)
         for(mode <- 0 to 7)
-          val regEnd = if mode == 7 then 4 else 7
-          for(reg <- 0 to regEnd)
-            val opcode = code | register << 9 | size.ordinal << 6 | mode << 3 | reg
-            instructionSetHandler.registerInstruction(opcode, new CMP.CMP(ctx, opcode,size))
+          if !(mode == 1 && size == Byte) then
+            val regEnd = if mode == 7 then 4 else 7
+            for(reg <- 0 to regEnd)
+              val opcode = code | register << 9 | size.ordinal << 6 | mode << 3 | reg
+              instructionSetHandler.registerInstruction(opcode, new CMP.CMP(ctx, opcode,size))

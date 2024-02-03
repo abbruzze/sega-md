@@ -136,14 +136,15 @@ class ADD(ctx: M6800X0.Context) extends InstructionGenerator:
         for(register <- 0 to 7) {
           val modeStart = if opmode == 0 then 0 else 2
           for(mode <- modeStart to 7) {
-            val regEnd = if opmode == 0 then
-              if mode == 7 then 4 else 7
-            else
-              if mode == 7 then 1 else 7
-            for (reg <- 0 to regEnd) {
-              val opcode = code | register << 9 | (opmode << 2 | size.ordinal) << 6 | mode << 3 | reg
-              instructionSetHandler.registerInstruction(opcode, new ADD.ADD(ctx,opcode,size,opmode == 0))
-            }
+            if !(opmode == 0 && mode == 1 && size == Byte) then
+              val regEnd = if opmode == 0 then
+                if mode == 7 then 4 else 7
+              else
+                if mode == 7 then 1 else 7
+              for (reg <- 0 to regEnd) {
+                val opcode = code | register << 9 | (opmode << 2 | size.ordinal) << 6 | mode << 3 | reg
+                instructionSetHandler.registerInstruction(opcode, new ADD.ADD(ctx,opcode,size,opmode == 0))
+              }
           }
         }
       }

@@ -267,11 +267,12 @@ class MOVE(ctx: M6800X0.Context) extends InstructionGenerator:
         val regEnd = if destMode == 7 then 1 else 7
         for(destReg <- 0 to regEnd)
           for(srcMode <- 0 to 7)
-            val regEnd = if srcMode == 7 then 4 else 7
-            for(srcReg <- 0 to regEnd)
-              val sizeCode = size match
-                case Byte => 1
-                case Word => 3
-                case Long => 2
-              val opcode = code | sizeCode << 12 | destReg << 9 | destMode << 6 | srcMode << 3 | srcReg
-              instructionSetHandler.registerInstruction(opcode,new MOVE.MOVE(ctx,opcode,size))
+            if !(srcMode == 1 && size == Byte) then
+              val regEnd = if srcMode == 7 then 4 else 7
+              for(srcReg <- 0 to regEnd)
+                val sizeCode = size match
+                  case Byte => 1
+                  case Word => 3
+                  case Long => 2
+                val opcode = code | sizeCode << 12 | destReg << 9 | destMode << 6 | srcMode << 3 | srcReg
+                instructionSetHandler.registerInstruction(opcode,new MOVE.MOVE(ctx,opcode,size))
