@@ -66,10 +66,16 @@ object CHK:
         flags.setFlag(N)
         ctx.busIdle(8)  // n- nn  ?
         ctx.raiseException(6)
+        // =============== prefetch==================
+          ctx.fetchWord(false)
+        // ==========================================
       else if dn > upperBound then
         flags.clearFlag(N)
         ctx.busIdle(4) // nn
         ctx.raiseException(6)
+        // =============== prefetch==================
+          ctx.fetchWord(false)
+        // ==========================================
       else
         // =============== prefetch==================
         ctx.fetchWord(false)
