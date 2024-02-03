@@ -5,64 +5,6 @@ import ucesoft.smd.cpu.m68k.Memory.{ByteBufferMemory, MapMemory}
 
 import java.io.FileInputStream
 
-object M68000:
-  def main(args:Array[String]): Unit =
-    val mem = new ByteBufferMemory(512 * 1024)
-    val rom = new FileInputStream("""C:\Users\ealeame\OneDrive - Ericsson\Desktop\Genesis_OS_ROM.bin""")//Sonic The Hedgehog (USA, Europe).md""")
-    mem.fill(0,rom)
-    val cpu = new M68000(new Memory:
-      override def read(address: Int, size: Size, readOptions: Int): Int =
-        if address < 512 * 1024 then mem.read(address, size, readOptions) else 0x00
-      override def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
-        if address < 512 * 1024 then mem.write(address,value,size,writeOptions)
-    )
-    cpu.reset(now = true)
-    /*
-    while cpu.getRegister(RegisterType.PC).get() < 0x8000 do
-      val pc = cpu.getRegister(RegisterType.PC).get()
-      val dis = cpu.disassemble(pc)
-      println(dis)
-      cpu.getRegister(RegisterType.PC).set(pc + dis.size, Size.Long)
-      io.StdIn.readLine(">")
-    end while
-    */
-    var cycles = 0L
-    val monitor = new AbstractDebugger:
-      def regDump(cpu: M6800X0): Unit =
-        val snap = cpu.getSnapshot
-        val sb = new StringBuilder()
-        sb.append(s"pc=${snap.regs(s"pc").toHexString} ")
-        for (d <- 0 to 7) sb.append(s"d$d=${snap.regs(s"d$d").toHexString} ")
-        for (a <- 0 to 6) sb.append(s"a$a=${snap.regs(s"a$a").toHexString} ")
-        sb.append(s"usp=${snap.regs("usp").toHexString} ")
-        sb.append(s"ssp=${snap.regs("ssp").toHexString} ")
-        sb.append(s"sr=${snap.regs("sr").toHexString} ")
-        println(sb)
-
-      override def output(text: String): Unit = println("[%10d] %s".format(cycles,text))
-      override def onRegisterModified(reg: String, beforeValue: Int, afterValue: Int): Unit =
-        println(s"*$reg ${beforeValue.toHexString} -> ${afterValue.toHexString}")
-      override def breakEpilogue(cpu: M6800X0): Unit =
-        var exit = false
-        while !exit do
-          io.StdIn.readLine(">") match
-            case "r" =>
-              regDump(cpu)
-            case "b" =>
-              println("bus set to N/A")
-              cpu.setBUSAvailable(false)
-            case "B" =>
-              println("bus set to available")
-              cpu.setBUSAvailable(true)
-            case _ =>
-              exit = true
-
-    cpu.addEventListener(monitor)
-    monitor.stepByStepEnabled(true)
-
-    while true do
-      cycles += cpu.execute()
-
 class M68000(override val mem:Memory) extends M68KCore(mem):
   import ucesoft.smd.cpu.m68k.instructions.*
   override lazy val model: Model = Model._68K
