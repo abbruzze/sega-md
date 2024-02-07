@@ -162,6 +162,7 @@ class Debugger(m68k:M68000,
   // =============================================================================================================
   private trait GenericDebugger extends DisassemblerBreakHandler:
     def nextStep(): Unit
+    def updateDisassembly(): Unit
 
   private class Z80Debugger extends InternalDebugger with GenericDebugger with Z80.EventListener:
     private val registerTableModel = new Z80RegisterTableModel(z80.ctx)
@@ -267,7 +268,7 @@ class Debugger(m68k:M68000,
         selectDebugger(1)
         disassembledTableModel.clear()
         updateDisassembly(z80,address)
-
+        m68kDebugger.updateDisassembly()
         checkTracingState(true)
         updateModels()
         semaphore.acquire()
@@ -280,6 +281,11 @@ class Debugger(m68k:M68000,
             stepOutPending = StepState.NoStep
             stepAlways = false
         case _ =>
+
+    override def updateDisassembly(): Unit =
+      disassembledTableModel.clear()
+      updateDisassembly(z80)
+      updateModels()
 
     private def updateDisassembly(z80:Z80,address:Int = -1): Unit =
       var adr = if address == -1 then z80.ctx.PC else address
@@ -414,7 +420,7 @@ class Debugger(m68k:M68000,
 
   end Z80Debugger
 
-  private class M68KDebugger extends InternalDebugger with DisassemblerBreakHandler:
+  private class M68KDebugger extends InternalDebugger with GenericDebugger:
     private var stepInstruction : Instruction = _
     private var stepDisassemble : DisassembledInstruction = _
     private val dataRegisterTableModel = new M68KRegisterTableModel(m68k, data = true)
@@ -589,10 +595,16 @@ class Debugger(m68k:M68000,
           checkTracingState(true)
           disassembledTableModel.clear()
           updateDisassembly(cpu,address)
+          z80Debugger.updateDisassembly()
           updateModels()
           breakEpilogue(cpu)
         end if
       end onFetch
+
+      override def updateDisassembly(): Unit =
+        disassembledTableModel.clear()
+        updateDisassembly(m68k)
+        updateModels()
 
       private def updateDisassembly(cpu: M6800X0,address:Int = -1): Unit =
         disassembledTableModel.clear()
@@ -623,6 +635,9 @@ class Debugger(m68k:M68000,
               case _ =>
           case _ =>
     }
+
+    override def updateDisassembly(): Unit = debugger.updateDisassembly()
+    override def nextStep(): Unit = debugger.nextStep()
 
     override def enableTracing(enabled: Boolean): Unit =
       debugger.setStepByStep(enabled)
