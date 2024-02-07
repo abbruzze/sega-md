@@ -238,7 +238,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       0
     else if address < 0xA1_0000 then read_68k_z80_space(address,size)
     else if address < 0xA1_0020 then readVersionOrControllers(address,size)
-    else if address < 0xA1_1200 then read_68k_BUSREQ()
+    else if address < 0xA1_1200 then read_68k_BUSREQ(size)
     else if address < 0xA1_1300 then read_68k_RESETREQ()
     else if address < 0xC0_0000 then
       // TODO some addresses simply return last bus value
@@ -252,7 +252,10 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       else
         log.warning("Reading from unconnected VDP address: %x",address)
         0xFF // TODO: here what happens ??
-    else read_68k_RAM(address,size)
+    else if readOptions != Z80_CPU_MEM_OPTION then
+      read_68k_RAM(address,size)
+    else
+      0xFF
 
   override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit = 
     if address < 0x40_0000 then writeROM(address, value, size, writeOptions)
@@ -573,11 +576,16 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
    Reading this bit will return 0 if the bus can be accessed by the 68000,
    or 1 if the Z80 is still busy.
    */
-  inline private def read_68k_BUSREQ(): Int =
-    if busArbiter.isZ80BUSAcquiredBy68K then 0 else 0x101
+  inline private def read_68k_BUSREQ(size:Size): Int =
+    //if busArbiter.isZ80BUSAcquiredBy68K then 0 else 0x101
+    val r = if busArbiter.isZ80BUSAcquiredBy68K then 0 else 0x1
+    size match
+      case Size.Word =>
+        r << 8 | lastWordOnBus & 0xFEFF
+      case _ =>
+        lastWordOnBus & 0xFE | r
 
-  inline private def read_68k_RESETREQ(): Int = // TODO: no info about reading from this address
-    if busArbiter.isZ80StartedResetProcess then 0 else 1
+  inline private def read_68k_RESETREQ(): Int = 0xFF
 
   inline private def read_68k_RAM(address: Int, size: Size): Int =
     //log.info(s"Reading 68k RAM address = ${address.toHexString} size=$size")
@@ -660,16 +668,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       if lockUpAction != null then
         lockUpAction()
       0
-    else read(_68kAddress,Byte)
-    /*else if _68kAddress >= 0xE0_0000 then
-      if !allowZ80ToRead68KRam then 0xFF // Z80 cannot access 68k's RAM
-      else m68kram(_68kAddress & 0xFFFF)
-    else if _68kAddress < 0x40_0000 then
-      readROM(_68kAddress,Byte)
-    else
-      log.warning("Z80 is reading bank area with address %X => 68K address %X",address,_68kAddress)
-      0xFF*/
-
+    else read(_68kAddress,Byte,Z80_CPU_MEM_OPTION)
 
   /*
    address must be < 0x20
