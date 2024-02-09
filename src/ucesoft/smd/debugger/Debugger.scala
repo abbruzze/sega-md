@@ -54,10 +54,15 @@ class Debugger(m68k:M68000,
     protected var stepOverTargetAddress = 0
     protected val semaphore = new Semaphore(0)
     protected val cpuEnabled = {
-      val item = new JCheckBoxMenuItem("CPU enabled")
+      val item = new JCheckBox("CPU enabled")
       item.setSelected(true)
       item.addActionListener(_ => onCPUEnabled(item.isSelected))
       item
+    }
+    protected val busAvailable = {
+      val bus = new JCheckBox("BUS available")
+      bus.setEnabled(false)
+      bus
     }
     protected var tracingOnFile = false
     protected var tracingListener: TraceListener = _
@@ -163,6 +168,7 @@ class Debugger(m68k:M68000,
   private trait GenericDebugger extends DisassemblerBreakHandler:
     def nextStep(): Unit
     def updateDisassembly(): Unit
+    def isTracing: Boolean
 
   private class Z80Debugger extends InternalDebugger with GenericDebugger with Z80.EventListener:
     private val registerTableModel = new Z80RegisterTableModel(z80.ctx)
@@ -274,6 +280,8 @@ class Debugger(m68k:M68000,
         semaphore.acquire()
     end fetch
 
+    override def isTracing: Boolean = stepByStep
+
     private def checkStepOverOut(address: Int): Unit =
       stepOverPending match
         case StepState.WaitTarget =>
@@ -356,12 +364,14 @@ class Debugger(m68k:M68000,
       statusTableModel.contentUpdated()
       disassembledTableModel.update()
       distable.setRowSelectionInterval(0, 0)
+      busAvailable.setSelected(!z80.isBUSRequested)
     }
 
     private def init(): Unit =
       setLayout(new BorderLayout())
       val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
       northPanel.add(cpuEnabled)
+      northPanel.add(busAvailable)
       add("North",northPanel)
       val rightPanel = new JPanel(new BorderLayout())
       // registers
@@ -470,6 +480,8 @@ class Debugger(m68k:M68000,
         m68k.removeEventListener(debugger)
     override def getBreakStringAt(address: Int): Option[String] = debugger.getBreakStringAt(address)
 
+    override def isTracing: Boolean = debugger.isTracing
+
     private val debugger = new AbstractDebugger with GenericDebugger {
       override def getBreakEvent(eventName: String): Option[AnyRef] =
         eventName match
@@ -505,6 +517,8 @@ class Debugger(m68k:M68000,
 
       override def nextStep(): Unit =
         semaphore.release()
+
+      override def isTracing: Boolean = isStepByStep
 
       override def breakEpilogue(cpu: M6800X0): Unit = semaphore.acquire()
 
@@ -681,6 +695,7 @@ class Debugger(m68k:M68000,
       setLayout(new BorderLayout())
       val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
       northPanel.add(cpuEnabled)
+      northPanel.add(busAvailable)
       add("North", northPanel)
       val rightPanel = new JPanel(new BorderLayout())
       // registers
@@ -779,6 +794,7 @@ class Debugger(m68k:M68000,
       vdpTableMode.update()
       distable.setRowSelectionInterval(0, 0)
       fifoPanel.updateModel()
+      busAvailable.setSelected(m68k.isBUSAvailable)
     }
 
   end M68KDebugger
@@ -805,6 +821,7 @@ class Debugger(m68k:M68000,
     else f
 
   private def init(): Unit =
+    frame.setIconImage(new ImageIcon(getClass.getResource("/resources/sonic_ring.png")).getImage)
     romDumpItem.setEnabled(false)
     val mainPanel = new JPanel(new BorderLayout())
     val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
@@ -827,6 +844,13 @@ class Debugger(m68k:M68000,
     val stepOutButton = new JButton(new ImageIcon(getClass.getResource("/resources/trace/up.png")))
     stepOutButton.addActionListener(_ => stepOut())
     stepOutButton.setToolTipText("Step out")
+
+    val enableButtons = (enabled:Boolean) => {
+      onOffButton.setEnabled(enabled)
+      stepInButton.setEnabled(enabled)
+      stepOverButton.setEnabled(enabled)
+      stepOutButton.setEnabled(enabled)
+    }
 
     val disaButton = new JButton(new ImageIcon(getClass.getResource("/resources/trace/bug.png")))
     disaButton.addActionListener(_ => disassembleGUI())
@@ -910,8 +934,10 @@ class Debugger(m68k:M68000,
       tabbedPane.getSelectedIndex match
         case 0 =>
           selectedDebugger = m68kDebugger
+          enableButtons(!z80Debugger.isTracing)
         case 1 =>
           selectedDebugger = z80Debugger
+          enableButtons(!m68kDebugger.isTracing)
     })
     mainPanel.add("Center",tabbedPane)
 
