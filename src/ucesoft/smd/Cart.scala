@@ -2,6 +2,24 @@ package ucesoft.smd
 
 import java.util.zip.CRC32
 
+/*
+Address	Size	  Description
+================================================
+$100	16 bytes	System type
+$110	16 bytes	Copyright and release date
+$120	48 bytes	Game title (domestic)
+$150	48 bytes	Game title (overseas)
+$180	14 bytes	Serial number
+$18E	2 bytes	  ROM checksum
+$190	16 bytes	Device support
+$1A0	8 bytes	  ROM address range
+$1A8	8 bytes	  RAM address range
+$1B0	12 bytes	Extra memory
+$1BC	12 bytes	Modem support
+$1C8	40 bytes	(reserved, fill with spaces)
+$1F0	3 bytes	  Region support
+$1F3	13 bytes	(reserved, fill with spaces)
+ */
 object Cart:
   enum SYSTEM_TYPE:
     case MEGA_DRIVE, MEGA_DRIVE_32X, MEGA_DRIVE_EVERDRIVE_EXT, MEGA_DRIVE_SSF_EXT, MEGA_DRIVE_WIFI_EXT, PICO, TERA_DRIVE68K, TERA_DRIVEX86, UNKNOWN
@@ -28,6 +46,7 @@ class Cart(val file:String,fixChecksum: Boolean = false):
   private inline val EXTRA_MEMORY_ADDR = 0x1B0
   private inline val NAME_DOMESTIC_ADDR = 0x120
   private inline val NAME_OVERSEA_ADDR = 0x150
+  private inline val SERIAL_NUMBER_ADDR = 0x180
   private inline val REGION_ADDR = 0x1F0
   private inline val DEVICE_ADDR = 0x190
 
@@ -39,6 +58,7 @@ class Cart(val file:String,fixChecksum: Boolean = false):
   private var devices : List[Device] = Nil
   private var crc32 = ""
   private var checksumOK = false
+  private var serial = ""
 
   loadROM()
 
@@ -68,11 +88,19 @@ class Cart(val file:String,fixChecksum: Boolean = false):
     systemType = _getSystemType
     regions = getRegions
     devices = getDeviceSupport
+    serial = getSerial
     
     val crc = new CRC32
     for i <- rom.indices do
       crc.update(rom(i))
     crc32 = crc.getValue.toHexString
+  end loadROM
+
+  private def getSerial: String =
+    val sb = new StringBuilder()
+    for c <- 0 until 14 do
+      sb.append(rom(SERIAL_NUMBER_ADDR + c).toChar)
+    sb.toString
 
   private def checksum(): Int =
     var cs = 0
@@ -186,6 +214,7 @@ class Cart(val file:String,fixChecksum: Boolean = false):
   def getDeviceList: List[Device] = devices
   def getCRC32: String = crc32
   def isChecksumOK: Boolean = checksumOK
+  def getSerialNumber: String = serial
 
   override def toString: String =
-    s"""Cart[file="${new java.io.File(file).getName}" system type=$systemType CRC32=$crc32 regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
+    s"""Cart[file="${new java.io.File(file).getName}" serial="$serial" system type="$systemType" CRC32="$crc32" regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
