@@ -578,12 +578,12 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
    */
   inline private def read_68k_BUSREQ(size:Size): Int =
     //if busArbiter.isZ80BUSAcquiredBy68K then 0 else 0x101
-    val r = if busArbiter.isZ80BUSAcquiredBy68K then 0 else 0x1
+    val r = lastWordOnBus & 0xFE | (if busArbiter.isZ80BUSAcquiredBy68K then 0 else 0x1)
     size match
       case Size.Word =>
         r << 8 | lastWordOnBus & 0xFEFF
       case _ =>
-        lastWordOnBus & 0xFE | r
+        r
 
   inline private def read_68k_RESETREQ(): Int = 0xFF
 
