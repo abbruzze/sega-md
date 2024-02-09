@@ -64,7 +64,7 @@ class BusArbiter extends SMDComponent:
       case _ =>
   final def m68kRequestZ80BUS(): Unit =
     z80BusState match
-      case Z80_OWNER =>
+      case Z80_OWNER|Z80_WAITING_RESET =>
         z80BusState = M68K_OWNER
         z80.requestBUS(true)
         log.info("Z80 BUS requested by 68K. Z80 stopped")
