@@ -1923,7 +1923,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private def generateVInterrupt(): Unit =
     statusRegister |= STATUS_F_MASK
     vInterruptPending = true
-    if REG_IE0 then
+    if REG_IE0 && !vInterruptAsserted then
       m68k.interrupt(VINT_LEVEL)
       vInterruptAsserted = true
     /*
@@ -1934,8 +1934,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     z80.irq(low = true, im2LowByte = 0xFF)
 
   private def generateHInterrupt(): Unit =
-    m68k.interrupt(HINT_LEVEL)
-    hInterruptAsserted = true
+    if !hInterruptAsserted then
+      m68k.interrupt(HINT_LEVEL)
+      hInterruptAsserted = true
   // =============================================================
 
   // returns true if vcounter must be incremented
