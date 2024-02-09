@@ -414,7 +414,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else
       log.warning("Writing to ROM address: %X = %X PC=%X",address,value,m68k.getLastInstructionPC)
 
-  private def write_68k_z80_space(address:Int,value:Int,size:Size): Unit =
+  @tailrec private def write_68k_z80_space(address:Int,value:Int,size:Size): Unit =
     m68k.addWaitCycles(M68K_WAIT_CYCLES_Z80_ACCESS)
     if busArbiter.isZ80BUSAcquiredBy68K then
       val adr = address & 0xFFFF
