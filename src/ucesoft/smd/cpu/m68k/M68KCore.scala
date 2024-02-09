@@ -53,6 +53,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
   // Interrupt mask pending
   protected var pendingInterruptMask = 0
   protected var nmiInterruptPending = false
+  protected var pendingInterruptDelayCount = 0
   // event listeners
   protected val eventListeners = new ListBuffer[EventListener]
   protected var notifyEventListeners = false
@@ -331,6 +332,13 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
     dtackEnabled = true
     busAvailable = true
     totalElapsedCycles = 0
+    pendingInterruptMask = 0
+    nmiInterruptPending = false
+    pendingInterruptDelayCount = 0
+    waitCycles = 0
+    pendingPrefetchQueueClear = false
+    totalElapsedCycles = 0L
+    instructionExceptionNumber = -1
 
     busAccess(BusAccessMode.Idle,Size.Word,false,0,0,14)
     if notifyEventListeners then fireRWEvent(0,Size.Long,isRead = true)
@@ -455,6 +463,8 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
 
   override def setBUSAvailable(available: Boolean): Unit = busAvailable = available
 
+  override def isBUSAvailable: Boolean = busAvailable
+
   override def setDTACK(enabled: Boolean): Unit = dtackEnabled = enabled
 
   override def setBusTracing(enabled: Boolean): Unit = busTracing = enabled
@@ -511,6 +521,8 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
       nmiInterruptPending = true
     else
       pendingInterruptMask = _int
+    if pendingInterruptDelayCount == 0 then
+      pendingInterruptDelayCount = 1
 
   protected def serveInterrupt(): Unit =
     if notifyEventListeners then fireInterruptedEvent(pendingInterruptMask)

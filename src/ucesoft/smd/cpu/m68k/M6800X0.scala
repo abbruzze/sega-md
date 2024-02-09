@@ -109,6 +109,7 @@ trait M6800X0:
   def addEventListener(el: EventListener): Unit
   def removeEventListener(el: EventListener): Unit
   def setBUSAvailable(available:Boolean): Unit
+  def isBUSAvailable: Boolean
   def getLastInstructionPC : Int
   def getTotalElapsedCycles : Long
   def getLastInstructionElapsedCycles: Int

@@ -71,11 +71,14 @@ class M68000(override val mem:Memory) extends M68KCore(mem):
         throw new ResetException
 
       // check interrupt
-      if nmiInterruptPending || pendingInterruptMask > statusReg.getInterruptMask then
+      if (nmiInterruptPending || pendingInterruptMask > statusReg.getInterruptMask) && pendingInterruptDelayCount == 0 then
         serveInterrupt()
         if intAckListener != null then
           intAckListener.intAcknowledged(pendingInterruptMask)
       else {
+        if pendingInterruptDelayCount > 0 then
+          pendingInterruptDelayCount -= 1
+
         if state == CPUState.STOPPED || state == CPUState.HALTED then
           busAccess(BusAccessMode.Idle, Size.Word, codeAccess = false, 0, 0, 2)
           return 2
