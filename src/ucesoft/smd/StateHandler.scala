@@ -1,12 +1,34 @@
 package ucesoft.smd
 
 import java.io.*
+import java.util.zip.{GZIPInputStream, GZIPOutputStream}
+import scala.reflect.ClassTag
 
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 28/12/2023 18:08  
  */
 class StateHandler:
+  private inline val STRING_CLASS = classOf[String]
+  private inline val BYTE_CLASS = classOf[Byte]
+  private inline val SHORT_CLASS = classOf[Short]
+  private inline val INT_CLASS = classOf[Int]
+  private inline val LONG_CLASS = classOf[Long]
+  private inline val FLOAT_CLASS = classOf[Float]
+  private inline val DOUBLE_CLASS = classOf[Double]
+  private inline val BOOLEAN_CLASS = classOf[Boolean]
+
+  sealed trait ReadType[T]
+  object ReadType:
+    given stringReadType : ReadType[String] = new ReadType[String] {}
+    given byteReadType : ReadType[Byte] = new ReadType[Byte] {}
+    given intReadType : ReadType[Int] = new ReadType[Int] {}
+    given shortReadType: ReadType[Short] = new ReadType[Short] {}
+    given longReadType: ReadType[Long] = new ReadType[Long] {}
+    given floatReadType: ReadType[Float] = new ReadType[Float] {}
+    given doubleReadType: ReadType[Double] = new ReadType[Double] {}
+    given boolReadType: ReadType[Boolean] = new ReadType[Boolean] {}
+
   private var outputStream : ObjectOutputStream = _
   private var inputStream : ObjectInputStream = _
   def writeComponent(name:String): StateHandler =
@@ -28,9 +50,9 @@ class StateHandler:
       inputStream = null
 
   def openOutput(file:String): Unit =
-    outputStream = new ObjectOutputStream(new BufferedOutputStream(new FileOutputStream(file)))
+    outputStream = new ObjectOutputStream(new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(file))))
   def openInput(file:String): Unit =
-    inputStream = new ObjectInputStream(new BufferedInputStream(new FileInputStream(file)))
+    inputStream = new ObjectInputStream(new GZIPInputStream(new BufferedInputStream(new FileInputStream(file))))
 
   // ====================== writes ======================================
   def w(b:Byte): StateHandler =
@@ -53,6 +75,10 @@ class StateHandler:
     if outputStream == null then throw IllegalStateException()
     outputStream.writeDouble(d)
     this
+  def w(b: Boolean): StateHandler =
+    if outputStream == null then throw IllegalStateException()
+    outputStream.writeBoolean(b)
+    this
   def w(s: String): StateHandler =
     if outputStream == null then throw IllegalStateException()
     outputStream.writeUTF(s)
@@ -66,7 +92,22 @@ class StateHandler:
     outputStream.writeObject(a)
     this
   // ====================== reads =======================================
-  def fillArray(dest:Array[_]): Unit =
+  def deser[T]: T =
+    if inputStream == null then throw IllegalStateException()
+    inputStream.readObject().asInstanceOf[T]
+  def r[T](using ct:ClassTag[T],rt:ReadType[T]): T =
+    if inputStream == null then throw IllegalStateException()
+    ct.runtimeClass match
+      case STRING_CLASS => inputStream.readUTF().asInstanceOf[T]
+      case BYTE_CLASS => inputStream.readByte().asInstanceOf[T]
+      case SHORT_CLASS => inputStream.readShort().asInstanceOf[T]
+      case INT_CLASS => inputStream.readInt().asInstanceOf[T]
+      case LONG_CLASS => inputStream.readLong().asInstanceOf[T]
+      case FLOAT_CLASS => inputStream.readFloat().asInstanceOf[T]
+      case DOUBLE_CLASS => inputStream.readDouble().asInstanceOf[T]
+      case BOOLEAN_CLASS => inputStream.readBoolean().asInstanceOf[T]
+  def readArray(dest:Array[_]): Unit =
+    if inputStream == null then throw IllegalStateException()
     dest match
       case a: Array[Array[Array[_]]] =>
         val src = inputStream.readObject().asInstanceOf[Array[Array[Array[_]]]]
