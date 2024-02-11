@@ -629,6 +629,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var hmode : HMode = HMode.H32
   private val xscroll = Array(0,0)  // xscroll for layer A and B
   private val yscroll = Array(0,0)  // yscroll for layer A and B
+  private val yscrollLatch = Array(0,0)  // yscroll latched value for layer A and B
   private val firstCellToXScroll = 0
   private var lastIsInWindow = false
 
@@ -794,6 +795,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     else
       statusRegister &= ~1
 
+  def isInterlaceMode: Boolean = interlaceModeEnabled
   def getPatternAAddress: Int = REG_PATTERN_A_ADDRESS
   def getPatternBAddress: Int = REG_PATTERN_B_ADDRESS
   def getPatternWindowAddress: Int = REG_PATTERN_WINDOW_ADDRESS
@@ -1051,6 +1053,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
             case _ =>
               display.setInterlaceMode(false)
               display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
+
               videoPixels = display.displayMem
               interlaceModeEnabled = false
               sendMessage("Interlace mode off")
@@ -1065,7 +1068,12 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           log.info("HMode set to %s", hmode)
           println(s"HMode set to $hmode")
           sendMessage(s"HMode set to $hmode")
-          display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
+
+          val clip = model.videoType.getClipArea(h40 = !h32)
+          if interlaceModeEnabled then
+            display.setClipArea(clip.getInterlacedTuple)
+          else
+            display.setClipArea(clip.getTuple)
           vdpAccessSlot = vdpAccessSlot % hmode.vramAccessMatrix.length
       case 17 => // REG #17 |RIGT 0 0 WHP5 WHP4 WHP3 WHP2 WHP1|
         vdpLayerMappingAddress(A).setWindowX(value)
@@ -1447,8 +1455,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private def doAccessSlotHScroll(): Unit =
     import HSCROLL_MODE.*
     if vdp4read.count == 0 then
-      yscroll(A) = -1
-      yscroll(B) = -1
+      yscrollLatch(A) = -1
+      yscrollLatch(B) = -1
       val address = REG_HSCR match
         case FULL =>
           REG_HSCROLL_ADDRESS
@@ -1512,9 +1520,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       // it seems that vscroll is cached for entire line in case of FULL: see Panorama Cotton
       yscroll(layer) = REG_VSCR match
         case FULL =>
-          if yscroll(layer) == -1 then
+          if interlaceModeEnabled then
             val layerOffset = layer << 1
             (VSRAM(layerOffset) << 8 | VSRAM(layerOffset + 1)) & 0x3FF
+          else if yscrollLatch(layer) == -1 then
+            val layerOffset = layer << 1
+            yscrollLatch(layer) = (VSRAM(layerOffset) << 8 | VSRAM(layerOffset + 1)) & 0x3FF
+            yscrollLatch(layer)
           else
             yscroll(layer)
         case EACH_2_CELL =>
