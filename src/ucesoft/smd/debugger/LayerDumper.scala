@@ -207,7 +207,10 @@ class LayerDumper(vram:Array[Int],
 
     tabbedPane.setTitleAt(layerIndex,s"${layerNames(layerIndex)} ${cellWidth}x$cellHeight")
 
-    val layer = new BufferedImage(cellWidth << 3,cellHeight << 3,BufferedImage.TYPE_INT_RGB)
+    val yshift = if vdp.isInterlaceMode then 4 else 3
+    val ly = (1 << yshift) - 1
+    val patternShift = if vdp.isInterlaceMode then 6 else 5
+    val layer = new BufferedImage(cellWidth << 3,cellHeight << yshift,BufferedImage.TYPE_INT_RGB)
     for y <- 0 until cellHeight do
       for x <- 0 until cellWidth do
         val address = layerAddress(layerIndex) + ((y * cellWidth + x) << 1)
@@ -215,10 +218,10 @@ class LayerDumper(vram:Array[Int],
         val hflip = (patternInfo & 0x800) > 0
         val vflip = (patternInfo & 0x1000) > 0
         val pattern = patternInfo & 0x3FF
-        val patternAddress = pattern << 5
-        for py <- 0 to 7 do
+        val patternAddress = pattern << patternShift
+        for py <- 0 to ly do
           var px = 0
-          val Y = if vflip then 7 - py else py
+          val Y = if vflip then ly - py else py
           for bx <- 0 to 3 do
             val X = if hflip then 3 - bx else bx
             var twoBits = vram(patternAddress + (Y << 2) + X)
@@ -228,7 +231,7 @@ class LayerDumper(vram:Array[Int],
               val colorIndex = (twoBits >> 4) & 0xF
               val colorAddress = (palette << 5) + (colorIndex << 1)
               val color = cram(colorAddress) << 8 | cram(colorAddress + 1)
-              layer.setRGB((x << 3) + px,(y << 3) + py,Palette.getColor(color))
+              layer.setRGB((x << 3) + px,(y << yshift) + py,Palette.getColor(color))
               px += 1
               twoBits <<= 4
 
