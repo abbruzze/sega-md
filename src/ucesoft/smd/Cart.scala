@@ -50,6 +50,8 @@ class Cart(val file:String,fixChecksum: Boolean = false):
   private inline val REGION_ADDR = 0x1F0
   private inline val DEVICE_ADDR = 0x190
 
+  private val log = Logger.getLogger
+
   private var rom : Array[Int] = _
   private var extraMemory : ExtraMemory = _
   private var cartNameDomestic, cartNameOversea : String = _
@@ -62,6 +64,23 @@ class Cart(val file:String,fixChecksum: Boolean = false):
 
   loadROM()
 
+  private def isSMDFormat: Boolean =
+    rom.length > 512 && rom(8) == 0xAA && rom(9) == 0xBB
+  private def convertSMD2Bin(): Unit =
+    val declaredBlocks = rom(0)
+    val realBlocks = (rom.length - 0x200) / 0x4000
+    if declaredBlocks != realBlocks then
+      log.warning("SMD to BIN conversion: declaredBlocks %d is different from file blocks %d",declaredBlocks,realBlocks)
+
+    val binRom = Array.ofDim[Int](realBlocks * 0x4000)
+    for block <- 0 until realBlocks do
+      val blockOffset = block * 0x4000
+      for p <- 0 until 0x2000 do
+        binRom(blockOffset + p * 2 + 1) = rom(0x200 + blockOffset + p)
+        binRom(blockOffset + p * 2)     = rom(0x200 + blockOffset + 0x2000 + p)
+
+    rom = binRom
+
   private def loadROM(): Unit =
     import java.nio.file.Files
     import java.io.File
@@ -69,19 +88,23 @@ class Cart(val file:String,fixChecksum: Boolean = false):
     if !f.exists() then
       throw new IllegalArgumentException(s"Cartridge $file does not exist")
     rom = Files.readAllBytes(f.toPath).map(_.toInt & 0xFF)
-    Logger.getLogger.info(s"Loaded ${rom.length} bytes from cartridge $file")
+    log.info(s"Loaded ${rom.length} bytes from cartridge $file")
+
+    if isSMDFormat then
+      log.info("Found SMD format, converting to BIN ...")
+      convertSMD2Bin()
 
     val fileChecksum = rom(CHECKSUM_ADDR) << 8 | rom(CHECKSUM_ADDR + 1)
     val calculatedChecksum = checksum()
     checksumOK = fileChecksum == calculatedChecksum
     if !checksumOK then
-      Logger.getLogger.warning("ROM checksum %X is different from calculated one %X",fileChecksum,calculatedChecksum)
+      log.warning("ROM checksum %X is different from calculated one %X",fileChecksum,calculatedChecksum)
       if fixChecksum then
         rom(CHECKSUM_ADDR) = calculatedChecksum >> 8
         rom(CHECKSUM_ADDR + 1) = calculatedChecksum & 0xFF
-        Logger.getLogger.info(s"Checksum fixed to ${calculatedChecksum.toHexString}")
+        log.info(s"Checksum fixed to ${calculatedChecksum.toHexString}")
     if checkExtraMemory() then
-      Logger.getLogger.info("Found extra memory: %s [%X,%X]",extraMemory.memType,extraMemory.startAddress,extraMemory.endAddress)
+      log.info("Found extra memory: %s [%X,%X]",extraMemory.memType,extraMemory.startAddress,extraMemory.endAddress)
 
     cartNameDomestic = getCartName(NAME_DOMESTIC_ADDR)
     cartNameOversea = getCartName(NAME_OVERSEA_ADDR)
