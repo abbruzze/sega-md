@@ -39,7 +39,9 @@ object Cart:
  * @author Alessandro Abbruzzetti
  *         Created on 28/08/2023 19:10  
  */
-class Cart(val file:String,fixChecksum: Boolean = false):
+class Cart(val file:String,stateSavedRom:Option[Array[Int]] = None,fixChecksum: Boolean = false):
+  def this(stateSavedRom:Array[Int],fixChecksum: Boolean) = this(null,Some(stateSavedRom),fixChecksum)
+  
   import Cart.*
   private inline val SYSTEM_TYPE_ADDR = 0x100
   private inline val CHECKSUM_ADDR = 0x18E
@@ -87,8 +89,13 @@ class Cart(val file:String,fixChecksum: Boolean = false):
     val f = new File(file)
     if !f.exists() then
       throw new IllegalArgumentException(s"Cartridge $file does not exist")
-    rom = Files.readAllBytes(f.toPath).map(_.toInt & 0xFF)
-    log.info(s"Loaded ${rom.length} bytes from cartridge $file")
+    rom = stateSavedRom match
+      case Some(ssr) => 
+        ssr
+      case None =>
+        Files.readAllBytes(f.toPath).map(_.toInt & 0xFF)
+        
+    log.info(s"Loaded ${rom.length} bytes from cartridge ${Option(file).getOrElse("")}")
 
     if isSMDFormat then
       log.info("Found SMD format, converting to BIN ...")

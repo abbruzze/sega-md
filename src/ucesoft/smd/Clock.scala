@@ -15,6 +15,7 @@ object Clock:
     def clock(cycles:Long): Unit
 
 class Clock (val name: String,private var clocksPerSecond: Int) extends SMDComponent with Runnable:
+  override protected val smdComponentName: String = "masterClock"
   import Clock.*
 
   private class ClockEvent(val when:Long,val action:Clockable,val period:Int = 0):
@@ -219,3 +220,21 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
         suspended = false
         suspendedLock.notify()
       }
+
+  // ===================== State =============================
+  override protected def createState(sb: StateBuilder): Unit =
+    sb.
+    w("cycles",clockCycles).
+    w("counts",counts).
+    w("steps",steps).
+    w("clocks",clocks).
+    w("waits",waits)
+
+  override protected def restoreState(sb: StateBuilder): Unit =
+    import sb.*
+    steps(0) = 0
+    clockCycles = r[Long]("cycles")
+    r("counts",counts)
+    r("steps",steps)
+    r("clocks",clocks)
+    r("waits",waits)

@@ -1,6 +1,6 @@
 package ucesoft.smd.cpu.m68k
 
-import ucesoft.smd.SMDComponent
+import ucesoft.smd.{SMDComponent, StateBuilder}
 import ucesoft.smd.cpu.m68k.M6800X0.BusTrace
 
 import scala.collection.mutable
@@ -568,3 +568,46 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
     val listeners = eventListeners.toList.iterator
     while listeners.hasNext do
       listeners.next().exception(this, number)
+
+  // ===================== State ========================
+  override def restoreState(sb: StateBuilder): Unit =
+    import sb.*
+    state = scala.util.Try(CPUState.valueOf(r[String]("state"))).getOrElse(CPUState.EXECUTING)
+    for dr <- dataRegs do
+      dr.set(r[Int](s"D${dr.index}"),Size.Long)
+    for ar <- addressRegs do
+      ar.set(r[Int](s"A${ar.index}"), Size.Long)
+    statusReg.set(r[Int]("statusReg"),Size.Long)
+    userSPReg.set(r[Int]("userSPReg"), Size.Long)
+    systemSPReg.set(r[Int]("systemSPReg"), Size.Long)
+    pcReg.set(r[Int]("pcReg"), Size.Long)
+    prefetchQueue.memptr = r[Int]("prefetch.memptr")
+    prefetchQueue.irc = r[Int]("prefetch.irc")
+    prefetchQueue.ird = r[Int]("prefetch.ird")
+    pendingInterruptMask = r[Int]("pendingInterruptMask")
+    nmiInterruptPending = r[Boolean]("nmiInterruptPending")
+    pendingInterruptDelayCount = r[Int]("pendingInterruptDelayCount")
+    busAvailable = r[Boolean]("busAvailable")
+    dtackEnabled = r[Boolean]("dtackEnabled")
+    totalElapsedCycles = r[Int]("totalElapsedCycles")
+
+  override def createState(sb: StateBuilder): Unit =
+    sb.w("state",state.toString)
+    for dr <- dataRegs do
+      sb.w(s"D${dr.index}",dr.get())
+    for ar <- addressRegs do
+      sb.w(s"A${ar.index}", ar.get())
+    sb.
+    w("statusReg",statusReg.get()).
+    w("userSPReg",userSPReg.get()).
+    w("systemSPReg",systemSPReg.get()).
+    w("pcReg",pcReg.get()).
+    w("prefetch.memptr",prefetchQueue.memptr).
+    w("prefetch.irc",prefetchQueue.irc).
+    w("prefetch.ird",prefetchQueue.ird).
+    w("pendingInterruptMask",pendingInterruptMask).
+    w("nmiInterruptPending",nmiInterruptPending).
+    w("pendingInterruptDelayCount",pendingInterruptDelayCount).
+    w("busAvailable",busAvailable).
+    w("dtackEnabled",dtackEnabled).
+    w("totalElapsedCycles",totalElapsedCycles)

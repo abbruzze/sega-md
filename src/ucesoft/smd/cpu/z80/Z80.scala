@@ -1,6 +1,6 @@
 package ucesoft.smd.cpu.z80
 
-import ucesoft.smd.SMDComponent
+import ucesoft.smd.{SMDComponent, StateBuilder}
 import ucesoft.smd.cpu.z80.Z80.Memory
 
 import java.io.{ObjectInputStream, ObjectOutputStream, PrintWriter}
@@ -2790,6 +2790,7 @@ class Z80(_mem:Memory,
           io_memory:Z80.IOMemory = null,
           trapListener : Z80.Context => Unit = null,
           undocHandler : Z80.Context => Int = null) extends SMDComponent {
+  override protected val smdComponentName : String = "Z80"
   import Z80.*
 
   private val mem = new Memory {
@@ -3101,19 +3102,87 @@ class Z80(_mem:Memory,
     clocks
   }
 
-  // ======================================== Clock ==========================================================
+  // ======================================== State ==========================================================
+  override def restoreState(sb: StateBuilder): Unit =
+    import ctx.*
+    import sb.*
+    irqLow = r[Boolean]("irqLow")
+    nmiLow = r[Boolean]("nmiLow")
+    nmiOnNegativeEdge = r[Boolean]("nmiOnNegativeEdge")
+    im2LowByte = r[Int]("im2LowByte")
+    busREQ = r[Boolean]("busREQ")
+    // ctx
+    A1 = r[Int]("A1")
+    F1 = r[Int]("F1")
+    H1 = r[Int]("H1")
+    L1 = r[Int]("L1")
+    D1 = r[Int]("D1")
+    E1 = r[Int]("E1")
+    B1 = r[Int]("B1")
+    C1 = r[Int]("C1")
+    halted = r[Boolean]("halted")
+    im = r[Int]("im")
+    A = r[Int]("A")
+    B = r[Int]("B")
+    C = r[Int]("C")
+    D = r[Int]("D")
+    E = r[Int]("E")
+    F = r[Int]("F")
+    H = r[Int]("H")
+    L = r[Int]("L")
+    I = r[Int]("I")
+    R = r[Int]("R")
+    IX = r[Int]("IX")
+    IY = r[Int]("IY")
+    IFF1 = r[Int]("IFF1")
+    IFF2 = r[Int]("IFF2")
+    PC = r[Int]("PC")
+    SP = r[Int]("SP")
+    memptr = r[Int]("memptr")
+    Q = r[Boolean]("Q")
+    lastQ = r[Boolean]("lastQ")
+    isIndexX = r[Boolean]("isIndexX")
+    lastWrite = r[Int]("lastWrite")
 
-  // state
-  protected def saveState(out:ObjectOutputStream) : Unit = {
-    out.writeBoolean(irqLow)
-    out.writeBoolean(nmiLow)
-    out.writeBoolean(nmiOnNegativeEdge)
-    ctx.saveState(out)
-  }
-  protected def loadState(in:ObjectInputStream) : Unit = {
-    irqLow = in.readBoolean
-    nmiLow = in.readBoolean
-    nmiOnNegativeEdge = in.readBoolean
-    ctx.loadState(in)
-  }
+  override def createState(sb: StateBuilder): Unit =
+    import ctx.*
+    sb.
+    w("irqLow",irqLow).
+    w("nmiLow", nmiLow).
+    w("nmiOnNegativeEdge", nmiOnNegativeEdge).
+    w("im2LowByte", im2LowByte).
+    w("busREQ", busREQ).
+    // ctx
+    w("A1",A1).
+    w("F1", F1).
+    w("H1", H1).
+    w("L1", L1).
+    w("D1", D1).
+    w("E1", E1).
+    w("B1", B1).
+    w("C1", C1).
+    w("halted", halted).
+    w("im", im).
+    w("A", A).
+    w("B", B).
+    w("C", C).
+    w("D", D).
+    w("E", E).
+    w("F", F).
+    w("H", H).
+    w("L", L).
+    w("I", I).
+    w("R", R).
+    w("IX", IX).
+    w("IY", IY).
+    w("IFF1", IFF1).
+    w("IFF2", IFF2).
+    w("PC", PC).
+    w("SP", SP).
+    w("memptr", memptr).
+    w("Q", Q).
+    w("lastQ", lastQ).
+    w("isIndexX", isIndexX).
+    w("lastWrite", lastWrite)
+
 }
