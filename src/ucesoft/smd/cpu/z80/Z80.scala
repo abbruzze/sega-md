@@ -3103,7 +3103,7 @@ class Z80(_mem:Memory,
   }
 
   // ======================================== State ==========================================================
-  override def restoreState(sb: StateBuilder): Unit =
+  override protected def restoreState(sb: StateBuilder): Unit =
     import ctx.*
     import sb.*
     irqLow = r[Boolean]("irqLow")
@@ -3144,7 +3144,7 @@ class Z80(_mem:Memory,
     isIndexX = r[Boolean]("isIndexX")
     lastWrite = r[Int]("lastWrite")
 
-  override def createState(sb: StateBuilder): Unit =
+  override protected def createState(sb: StateBuilder): Unit =
     import ctx.*
     sb.
     w("irqLow",irqLow).

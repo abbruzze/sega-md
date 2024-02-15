@@ -1,4 +1,5 @@
 package ucesoft.smd.audio
+import ucesoft.smd.StateBuilder
 
 /**
  * @author Alessandro Abbruzzetti
@@ -6,7 +7,7 @@ package ucesoft.smd.audio
  */
 class FM(sampleRate: Int, override val name: String) extends AudioDevice(sampleRate, name):
   private val ym3438 = new Ym3438
-  private val chip = new IYm3438.IYm3438_Type
+  private var chip = new IYm3438.IYm3438_Type
   private final val LR = Array(0,0)
   private var outputCycles = 0
   private var L, R = 0
@@ -45,6 +46,23 @@ class FM(sampleRate: Int, override val name: String) extends AudioDevice(sampleR
     LR(1) = R << AUDIO_SCALE_SHIFT
     L = 0
     R = 0
+
+  // ======================= State ========================
+  override protected def createState(sb: StateBuilder): Unit =
+    sb.
+      w("LR",LR).
+      w("L",L).
+      w("R",R).
+      w("outputCycles",outputCycles).
+      serialize("chip",chip,zip = true)
+
+  override protected def restoreState(sb: StateBuilder): Unit =
+    import sb.*
+    r("LR",LR)
+    L = r[Int]("L")
+    R = r[Int]("R")
+    outputCycles = r[Int]("outputCycles")
+    chip = deserialize[IYm3438.IYm3438_Type]("chip",zip = true)
 
 
 

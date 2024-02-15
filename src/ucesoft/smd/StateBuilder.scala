@@ -1,6 +1,7 @@
 package ucesoft.smd
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
+import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 import scala.reflect.ClassTag
 
 object StateBuilder:
@@ -99,11 +100,12 @@ class StateBuilder(map:java.util.Map[String,AnyRef] = new java.util.HashMap[Stri
     checkNewName(n)
     map.put(n, a)
     this
-  def serialize(n: String,a: AnyRef): StateBuilder =
+  def serialize(n: String,a: AnyRef,zip:Boolean): StateBuilder =
     checkNewName(n)
     val buffer = new ByteArrayOutputStream()
-    val stream = new ObjectOutputStream(buffer)
+    val stream = if zip then new ObjectOutputStream(new GZIPOutputStream(buffer)) else new ObjectOutputStream(buffer)
     stream.writeObject(a)
+    stream.close()
     map.put(n, buffer.toByteArray)
     this
   // ==================================================
@@ -113,11 +115,11 @@ class StateBuilder(map:java.util.Map[String,AnyRef] = new java.util.HashMap[Stri
         Some(new StateBuilder(m.asInstanceOf[java.util.Map[String,AnyRef]]))
       case _ =>
         None
-  def deserialize[T](n:String): T =
+  def deserialize[T](n:String,zip:Boolean): T =
     checkName(n)
     guard(n) {
       val buffer = new ByteArrayInputStream(map.get(n).asInstanceOf[Array[Byte]])
-      val stream = new ObjectInputStream(buffer)
+      val stream = if zip then new ObjectInputStream(new GZIPInputStream(buffer)) else new ObjectInputStream(buffer)
       stream.readObject().asInstanceOf[T]
     }
 

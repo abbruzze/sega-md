@@ -35,6 +35,29 @@ object Cart:
          Download, UNKNOWN
   case class ExtraMemory(memType:ExtraMemoryType,startAddress:Int,endAddress:Int,extraRAM:Array[Int])
 
+  def createState(cart:Cart,rootSB:StateBuilder): Unit =
+    val cartSB = new StateBuilder()
+    cartSB.w("romSize",cart.getROM.length)
+    cartSB.w("rom",cart.getROM)
+    cart.getExtraMemoryInfo match
+      case None =>
+      case Some(em) =>
+        cartSB.w("extraMemory",em.extraRAM)
+    rootSB.w("cart",cartSB.build())
+  def restoreState(rootSB:StateBuilder,fixChecksum: Boolean): Cart =
+    rootSB.subStateBuilder("cart") match
+      case Some(sb) =>
+        val rom = Array.ofDim[Int](sb.r[Int]("romSize"))
+        sb.r("rom",rom)
+        val cart = Cart(rom,fixChecksum)
+        cart.getExtraMemoryInfo match
+          case None =>
+          case Some(em) =>
+            sb.r("extraMemory", em.extraRAM)
+        cart
+      case None =>
+        throw new StateBuilder.StateBuilderException("Cart restoring error: can't find 'cart' attribute")
+
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 28/08/2023 19:10  
@@ -86,13 +109,13 @@ class Cart(val file:String,stateSavedRom:Option[Array[Int]] = None,fixChecksum: 
   private def loadROM(): Unit =
     import java.nio.file.Files
     import java.io.File
-    val f = new File(file)
-    if !f.exists() then
-      throw new IllegalArgumentException(s"Cartridge $file does not exist")
     rom = stateSavedRom match
       case Some(ssr) => 
         ssr
       case None =>
+        val f = new File(file)
+        if !f.exists() then
+          throw new IllegalArgumentException(s"Cartridge $file does not exist")
         Files.readAllBytes(f.toPath).map(_.toInt & 0xFF)
         
     log.info(s"Loaded ${rom.length} bytes from cartridge ${Option(file).getOrElse("")}")
@@ -247,4 +270,4 @@ class Cart(val file:String,stateSavedRom:Option[Array[Int]] = None,fixChecksum: 
   def getSerialNumber: String = serial
 
   override def toString: String =
-    s"""Cart[file="${new java.io.File(file).getName}" serial="$serial" system type="$systemType" CRC32="$crc32" regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
+    s"""Cart[file="${if file == null then "Restored from state" else new java.io.File(file).getName}" serial="$serial" system type="$systemType" CRC32="$crc32" regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""

@@ -1,6 +1,6 @@
 package ucesoft.smd
 
-import ucesoft.smd.audio.{FM, SN76489}
+import ucesoft.smd.audio.{FM, PSG}
 import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.controller.Controller
 import ucesoft.smd.cpu.m68k.{M68000, Memory, Size}
@@ -107,8 +107,8 @@ object MMU:
   $8000	$FFFF	68000 Bank
  */
 class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memory with Z80.IOMemory:
-  import Size.*
   import MMU.*
+  import Size.*
 
   private inline val M68K_WAIT_CYCLES_Z80_ACCESS = 3
   private inline val M68K_WAIT_CYCLES_Z80_ACCESS_BANK = 11
@@ -136,7 +136,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   private var m68k : M68000 = _
   private var z80 : Z80 = _
   private var vdp : VDP = _
-  private var psg : SN76489 = _
+  private var psg : PSG = _
   private var fm : FM = _
 
   private var ssf2Rom : Array[Int] = _
@@ -154,7 +154,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       rom
 
   override def reset(): Unit = {
-    // TODO
+    bankRegisterShifter = 0
+    bankRegisterBitCounter = 0
+    bankRegister = 0
   }
 
   override def hardReset(): Unit = {
@@ -168,7 +170,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   def get68KRAM: Array[Int] = m68kram
   def getZ80RAM: Array[Int] = z80ram
 
-  def setAudioChips(psg:SN76489,fm:FM): Unit =
+  def setAudioChips(psg:PSG,fm:FM): Unit =
     this.psg = psg
     this.fm = fm
 
@@ -775,3 +777,18 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       lastWordOnBus = 0x0 // ComradeOj's tiny demo wants 0!!
 
     lastWordOnBus
+
+  // ===================== State =======================================
+  override protected def createState(sb: StateBuilder): Unit =
+    sb.
+      w("bankRegisterShifter",bankRegisterShifter).
+      w("bankRegisterBitCounter",bankRegisterBitCounter).
+      w("bankRegister",bankRegister).
+      w("lastWordOnBus",lastWordOnBus)
+
+  override protected def restoreState(sb: StateBuilder): Unit =
+    import sb.*
+    bankRegisterShifter = r[Int]("bankRegisterShifter")
+    bankRegisterBitCounter = r[Int]("bankRegisterBitCounter")
+    bankRegister = r[Int]("bankRegister")
+    lastWordOnBus = r[Int]("lastWordOnBus")

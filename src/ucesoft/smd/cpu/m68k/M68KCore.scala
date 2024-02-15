@@ -570,7 +570,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
       listeners.next().exception(this, number)
 
   // ===================== State ========================
-  override def restoreState(sb: StateBuilder): Unit =
+  override protected def restoreState(sb: StateBuilder): Unit =
     import sb.*
     state = scala.util.Try(CPUState.valueOf(r[String]("state"))).getOrElse(CPUState.EXECUTING)
     for dr <- dataRegs do
@@ -591,7 +591,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
     dtackEnabled = r[Boolean]("dtackEnabled")
     totalElapsedCycles = r[Int]("totalElapsedCycles")
 
-  override def createState(sb: StateBuilder): Unit =
+  override protected def createState(sb: StateBuilder): Unit =
     sb.w("state",state.toString)
     for dr <- dataRegs do
       sb.w(s"D${dr.index}",dr.get())

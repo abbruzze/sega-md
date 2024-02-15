@@ -1,5 +1,8 @@
 package ucesoft.smd.audio;
 
+import java.io.Serial;
+import java.io.Serializable;
+
 /**
  * @author Alessandro Abbruzzetti
  * Created on 06/12/2023 17:30
@@ -30,7 +33,8 @@ package ucesoft.smd.audio;
  * pattern appropriately.
  * @version 17th June 2008
  */
-public class SN76489 {
+public class SN76489 implements Serializable {
+    @Serial private static final long serialVersionUID = 1;
     /**
      * Fixed point scaling
      */
@@ -139,8 +143,11 @@ public class SN76489 {
     public void init(int clockSpeed, int sampleRate) {
         // Master clock divided by 16 to get internal clock
         // e.g. 3579545 / 16 / 44100 = 5
+        var oldClock = clock;
         clock = (clockSpeed << SCALE) / 16 / sampleRate;
-        reset();
+        if (oldClock != clock) {
+            reset();
+        }
     }
 
     public void reset() {
