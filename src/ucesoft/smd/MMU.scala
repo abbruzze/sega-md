@@ -107,6 +107,7 @@ object MMU:
   $8000	$FFFF	68000 Bank
  */
 class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memory with Z80.IOMemory:
+  override protected val smdComponentName: String = "MMU"
   import MMU.*
   import Size.*
 
@@ -157,6 +158,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     bankRegisterShifter = 0
     bankRegisterBitCounter = 0
     bankRegister = 0
+    for i <- 0 to 2 do
+      if controllers(i) != null then
+        controllers(i).resetComponent()
   }
 
   override def hardReset(): Unit = {
@@ -165,6 +169,10 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
     tmssActive = osRomEnabled
     java.util.Arrays.fill(tmssBuffer,0)
+
+    for i <- 0 to 2 do
+      if controllers(i) != null then
+        controllers(i).hardResetComponent()
   }
 
   def get68KRAM: Array[Int] = m68kram

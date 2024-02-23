@@ -40,6 +40,7 @@ object MessageBoard:
     def addMessage(msg:Message): Unit
     def enableMessages(enabled: Boolean): Unit
     def setLevel(level:MessageLevel): Unit
+    def interrupt(): Unit
     
   def builder: MessageBuilder = new MessageBuilder
     
@@ -84,7 +85,7 @@ object MessageBoard:
       this.font = Some(font) ; this
     def fadingMilliseconds(millis:Int): MessageBuilder =
       this.fadingMillis = Some(millis) ; this  
-    def delay(millis:Int): MessageBuilder =
+    def delay(millis:Int = -1): MessageBuilder =
       this.delay = millis ; this
     def yoffset(offset:Int): MessageBuilder =
       yoffset = offset ; this

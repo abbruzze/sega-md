@@ -46,6 +46,9 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
   private val audioLabels = Array.ofDim[JLabel](audioDeviceList.length)
 
   init()
+  
+  def shutdown(): Unit =
+    timer.stop()
 
   def setLowResThreshold(t:Int): Unit =
     lowResThreshold = t
@@ -55,7 +58,7 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
   private def init(): Unit =
     dialog.addWindowListener(new WindowAdapter:
       override def windowClosing(e: WindowEvent): Unit =
-        timer.stop()
+        shutdown()
         closeAction()
     )
     setLayout(new BoxLayout(this, BoxLayout.PAGE_AXIS))

@@ -72,6 +72,7 @@ end VDP
  *  1 pixel = 4 bits (16 possible colors for current palette PL)
  */
 class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with M6800X0.InterruptAckListener:
+  override protected val smdComponentName: String = "VDP"
   inline private val A = 0
   inline private val B = 1
   inline private val S = 2
@@ -727,7 +728,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   def setDisplay(display:Display): Unit =
     this.display = display
     videoPixels = display.displayMem
-    writeRegister(12, regs(12))
+    log.log(java.util.logging.Level.SEVERE) {
+      writeRegister(12, regs(12))
+    }
 
   def set68KMemory(mem:Memory): Unit =
     m68KMemory = mem
@@ -738,7 +741,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   override def hardReset(): Unit =
     hmode = H32
     initVRAM()
-    for (r <- regs.indices) writeRegister(r, 0)
+    log.log(java.util.logging.Level.SEVERE) {
+      for (r <- regs.indices) writeRegister(r, 0)
+    }
     reset()
     if model != null then
       vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
@@ -772,9 +777,12 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     vdpLayerPatternBuffer(A).reset()
     vdpLayerPatternBuffer(B).reset()
     vdpLayerPatternBuffer(S).reset()
-    writeRegister(1, 4) // start in MD mode
-    if display != null then
-      writeRegister(12,0) // H32
+    log.log(java.util.logging.Level.SEVERE) {
+      writeRegister(1, 4) // start in MD mode
+
+      if display != null then
+        writeRegister(12, 0) // H32
+    }
     changeVDPClockDivider(hmode.initialClockDiv)
     verticalBlanking = true
     frameCount = 0

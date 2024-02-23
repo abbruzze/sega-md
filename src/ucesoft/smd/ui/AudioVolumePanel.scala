@@ -22,6 +22,7 @@ class AudioVolumePanel(frame:JFrame,audioDevices:Array[AudioDevice],closeAction:
         muteAll(on)
       case AudioEnabledMessage(_,enabled) =>
         muteAll(!enabled)
+      case _ =>
   private def muteAll(mute:Boolean): Unit =
     for (_,device,cb) <- sliders do
       cb.setSelected(mute)

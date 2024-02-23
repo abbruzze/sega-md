@@ -6,6 +6,8 @@ import java.awt.{Point, Robot, Toolkit}
 import java.awt.event.{MouseEvent, MouseListener, MouseMotionListener}
 import javax.swing.{SwingUtilities, Timer}
 
+object MouseController:
+  inline val DEVICE_PROP_VALUE = "mouse"
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 24/12/2023 17:36

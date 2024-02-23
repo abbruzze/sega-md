@@ -1,18 +1,20 @@
 package ucesoft.smd
 
 import com.formdev.flatlaf.FlatLightLaf
+import org.yaml.snakeyaml.{DumperOptions, Yaml}
 import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.audio.{FM, PSG}
 import ucesoft.smd.controller.ControllerType.MouseStartWithCTRLAndLeft
-import ucesoft.smd.controller.{ControllerType, EmptyController, KeyboardPADController, MouseController, USBPadController}
+import ucesoft.smd.controller.{ControllerType, EmptyController, KeyboardPADController, MouseController, RealPadController}
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger
 import ucesoft.smd.ui.MessageBoard.MessageLevel.NORMAL
-import ucesoft.smd.ui.{MessageBoard, MessageGlassPane}
+import ucesoft.smd.ui.{AudioVolumePanel, MessageBoard, MessageGlassPane, MouseHider, PerformanceMonitor}
 
 import java.awt.Color
+import java.io.{StringReader, StringWriter}
 import java.util.Properties
 import javax.swing.*
 
@@ -26,7 +28,7 @@ object SMD:
     inline val M68_CLOCK_INDEX = 1
     inline val Z80_CLOCK_INDEX = 2
 
-    inline val VDP_CLOCK_DIVIDER = 4
+    inline val VDP_CLOCK_DIVIDER = 5 // start with H32
     inline val M68_CLOCK_DIVIDER = 7
     inline val Z80_CLOCK_DIVIDER = 15
     inline val FM_CLOCK_DIVIDER = M68_CLOCK_DIVIDER * 6
@@ -67,20 +69,20 @@ object SMD:
     //mmu.enableOSROM(true)
     val m68k = new M68000(mmu)
     val z80 = new Z80(mmu,mmu)
-    //z80.setPCMask(0x3FFF)
+    z80.setPCMask(0x3FFF)
     z80.initComponent()
     vdp.set68KMemory(mmu)
     vdp.setCPUs(m68k,z80)
     mmu.setVDP(vdp)
 
-    val fmAudio = new FM(vmodel.clockFrequency / (FM_CLOCK_DIVIDER * 24),"FM")
+    val fmAudio = new FM(vmodel.clockFrequency / (FM_CLOCK_DIVIDER * 24),"Ym3438")
     fmAudio.setBufferInMillis(15)
 
     val psgAudio = new PSG(44100,"PSG")
     psgAudio.setCPUFrequency(vmodel.clockFrequency / Z80_CLOCK_DIVIDER)
     psgAudio.setBufferInMillis(15)
 
-    mmu.setAudioChips(psgAudio.sn76489,fmAudio)
+    mmu.setAudioChips(psgAudio,fmAudio)
 
     val masterLoop = new Clockable with VDP.VDPChangeClockRateListener:
       private inline val MULTIPLIER = 65536
@@ -93,14 +95,16 @@ object SMD:
       private var fmCycles = 0
       private var m68WaitCycles = 0
       private var z80WaitCycles = 0
+      private final val DIV_68K = M68_CLOCK_DIVIDER.toDouble
+      private final val Z80_68K = Z80_CLOCK_DIVIDER.toDouble
 
       clockRateChanged(VDP_CLOCK_DIVIDER)
 
       override final def clockRateChanged(rate: Int): Unit =
         if m68Div != 0 then
           masterClock.setClockDivider(0,rate)
-        m68Div = math.round((rate / 7.0) * MULTIPLIER).toInt
-        z80Div = math.round((rate / 15.0) * MULTIPLIER).toInt
+        m68Div = math.round((rate / DIV_68K) * MULTIPLIER).toInt
+        z80Div = math.round((rate / Z80_68K) * MULTIPLIER).toInt
 
       override final def clock(cycles: Long): Unit =
         vdp.clock(cycles) // VDP
@@ -109,7 +113,7 @@ object SMD:
           if m68Acc >= MULTIPLIER then // M68 clock
             m68Acc -= MULTIPLIER
             if m68WaitCycles == 0 then
-              m68WaitCycles = m68k.execute() - 1
+              m68WaitCycles = m68k.execute() - 1 //math.round((m68k.execute() - 1) * 1.05f)
             else
               m68WaitCycles -= 1
             fmCycles += 1
@@ -134,6 +138,7 @@ object SMD:
     vdp.setClockRateChangeListener(masterLoop)
     masterClock.setClockables(masterLoop)
     masterClock.setClockDivider(0, VDP_CLOCK_DIVIDER)
+
     // *******************************************************************
     busArbiter.set(m68k,z80,fmAudio)
 
@@ -142,12 +147,12 @@ object SMD:
       sys.exit(1)
     })
 
-    val keyController = new KeyboardPADController(f,new Properties(),0,ControllerType.PAD6Buttons,masterClock)
+    val keyController = new KeyboardPADController(f,new Properties(),0,masterClock)
     val empty1Controller = new EmptyController(1)//new MouseController(2,display)
     val empty2Controller = new EmptyController(2)
     val usbProp = new Properties
-    usbProp.setProperty("controller.0.name","USB Joystick")
-    val usbController = new USBPadController(usbProp,0,ControllerType.PAD6Buttons,masterClock)//new KeyboardPADController(f,new Properties(),1,ControllerType.PAD6Buttons,masterClock)
+    usbProp.setProperty("controller.0.name","Wireless Controller")
+    val usbController = new RealPadController(usbProp,0,masterClock)//new KeyboardPADController(f,new Properties(),1,ControllerType.PAD6Buttons,masterClock)
     mmu.setController(0,keyController)
     mmu.setController(1,empty1Controller)
     mmu.setController(2,empty2Controller)
@@ -177,7 +182,7 @@ object SMD:
     psgAudio.setLogger(Logger.getLogger)
 
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Vectorman (USA, Europe).md""")
+    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Mortal Kombat II (World).md""")
     println(cart)
 
     glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())
@@ -212,7 +217,27 @@ object SMD:
       z80.setComponentEnabled(true)
     })
 
+    MouseHider.hideMouseOn(display)
+
+    val options = new DumperOptions
+    options.setIndent(2)
+    options.setPrettyFlow(true)
+    options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
+    val yaml = new Yaml(options)
+    val sw = new StringWriter()
+    //yaml.dump(psgAudio.createComponentState().build(),sw)
+    val rootSB = new StateBuilder()
+    Cart.createState(cart,rootSB)
+    yaml.dump(rootSB.build(),sw)
+    println(sw)
+
+    val state = yaml.load[java.util.Map[String,AnyRef]](new StringReader(sw.toString))
+    //psgAudio.restoreComponentState(new StateBuilder(state))
+    println(Cart.restoreState(new StateBuilder(state),false))
+
     masterClock.start()
 
-//    Thread.sleep(20000)
-//    c2.mouseEnabled(false)
+    //val pm = new PerformanceMonitor(f,m68k,z80,masterClock,Array(fmAudio,psgAudio),() => println("Perf closed"))
+    //pm.dialog.setVisible(true)
+    //val audioPanel = new AudioVolumePanel(f,Array(fmAudio,psgAudio),() => {})
+    //audioPanel.dialog.setVisible(true)

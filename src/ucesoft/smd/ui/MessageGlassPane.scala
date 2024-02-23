@@ -49,14 +49,20 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
   def run(): Unit =
     panelReadyWait.await()
     while true do
-      msg = queue.take()
-      msg.showLogo match
-        case LOGO.SHOW =>
-          showLogo = true
-        case LOGO.HIDE =>
-          showLogo = false
-        case LOGO.IGNORE =>
-      renderMessage(startTimer = true)
+      try
+        msg = queue.take()
+        msg.showLogo match
+          case LOGO.SHOW =>
+            showLogo = true
+          case LOGO.HIDE =>
+            showLogo = false
+          case LOGO.IGNORE =>
+        renderMessage(startTimer = true)
+      catch
+        case _:InterruptedException =>
+      
+  override def interrupt(): Unit =
+    thread.interrupt()
 
   override def setLevel(level: MessageLevel): Unit =
     this.level = level
@@ -117,7 +123,13 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
       glassPane.repaint()
 
       if startTimer then
-        Thread.sleep(msg.millis)
+        try
+          if msg.millis == -1 then
+            Thread.sleep(Long.MaxValue)
+          else
+            Thread.sleep(msg.millis)
+        catch
+          case _:InterruptedException =>
         val fadingMillis = msg.fadingMillis.getOrElse(0)
         if fadingMillis > 0 then
           val sleep = fadingMillis / 256

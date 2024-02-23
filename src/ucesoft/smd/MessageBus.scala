@@ -13,6 +13,9 @@ object MessageBus:
   // ======== Messages ==========================
   case class WarpModeMessage(override val source:AnyRef,on:Boolean) extends Message
   case class AudioEnabledMessage(override val source:AnyRef,enabled:Boolean) extends Message
+  case class ModelChanged(override val source:AnyRef,newModel:Model) extends Message
+  case class CartInserted(override val source:AnyRef,cart:Cart) extends Message
+  case class CartRemoved(override val source:AnyRef,cart:Cart) extends Message
   // ============================================
   trait MessageListener:
     def onMessage(msg:Message): Unit

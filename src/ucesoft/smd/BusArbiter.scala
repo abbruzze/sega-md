@@ -9,6 +9,7 @@ import ucesoft.smd.cpu.z80.Z80
  *         Created on 30/11/2023 15:36  
  */
 class BusArbiter extends SMDComponent:
+  override protected val smdComponentName = "BusArbiter"
   private enum Z80ResetProcess:
     case STARTED, STOPPED
   private enum Z80BusState:

@@ -3,6 +3,8 @@ package ucesoft.smd.controller
 import ucesoft.smd.Clock
 import ucesoft.smd.Clock.EventID
 
+import java.util.Properties
+
 object PadController:
   import Controller.*
   
@@ -45,34 +47,31 @@ object PadController:
     CONTROLLER_BUTTON_M
   )
   final val buttonAndDirectionsPropNames: Array[String] = buttonsPropNames ++ Array(CONTROLLER_BUTTON_UP, CONTROLLER_BUTTON_DOWN, CONTROLLER_BUTTON_RIGHT, CONTROLLER_BUTTON_LEFT)
-
-  def formatProp(s: String, index: Int): String = s.format(index)
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 29/08/2023 20:16  
  */
-abstract class PadController(override val index: Int, val ctype: ControllerType, val clock: Clock) extends Controller:
+abstract class PadController(override val index: Int, val clock: Clock) extends Controller:
   import ControllerType.*
   import PadController.*
 
   private inline val RESET_COUNTER_TIMEOUT_MILLIS = 1.7f // verified with Joystick Test Program
-
-  protected var controllerType: ControllerType = ctype
+  
   protected var counter6Button = 0
   protected var timeoutID: EventID = _
   protected var lastWrite = 0x40
 
   protected final val buttons = Array.fill[Int](12)(1) // U,D,L,R,A,B,C,S,X,Y,Z,M
 
+  override def disconnect(): Unit =
+    if timeoutID != null then
+      timeoutID.cancel()
 
   override def reset(): Unit =
     java.util.Arrays.fill(buttons, 1)
     counter6Button = 0
     control = 0
     lastWrite = 0x40
-
-  override def setControllerType(ct: ControllerType): Unit =
-    controllerType = ct
 
   override def readData(): Int =
     val read =
@@ -112,3 +111,15 @@ abstract class PadController(override val index: Int, val ctype: ControllerType,
 
     lastWrite = value
     performDataWrite(value)
+    
+  protected def checkType(config:Properties): Unit =
+    val ctype = config.getProperty(Controller.CONTROLLER_TYPE_PROP) match
+      case null =>
+        ControllerType.PAD3Buttons
+      case ctype =>
+        try
+          ControllerType.valueOf(ctype)
+        catch
+          case _: Exception =>
+            ControllerType.PAD3Buttons
+    setControllerType(ctype)

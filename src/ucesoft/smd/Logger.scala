@@ -12,7 +12,7 @@ object Logger:
   
   def setLogger(logAction: String => Unit): Logger =
     logger = new Logger:
-      override def logImpl(log: String): Unit = logAction(log)
+      override def addLog(log: String): Unit = logAction(log)
     logger
 
 
@@ -28,7 +28,7 @@ class Logger private () :
 
   final def log(level:Level,fmt:String,pars:Any*): Unit =
     if level.intValue() >= this.level.intValue() then
-      logImpl(format(level,fmt.format(pars:_*)))
+      addLog(format(level,fmt.format(pars:_*)))
 
   def log[T](tmpLevel:Level)(body : => T): T =
     val currentLevel = level
@@ -43,6 +43,6 @@ class Logger private () :
   final def warning(format:String,pars:Any*): Unit = log(Level.WARNING,format,pars:_*)
   final def error(format:String,pars:Any*): Unit = log(Level.SEVERE,format,pars:_*)
 
-  protected def logImpl(log:String): Unit =
+  def addLog(log:String): Unit =
     println(log)
 

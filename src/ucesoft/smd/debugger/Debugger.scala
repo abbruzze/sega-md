@@ -922,7 +922,7 @@ class Debugger(m68k:M68000,
     logSeverityPanel.add(logSeverityWarningButton)
     logSeverityPanel.add(logSeverityOffButton)
     logToolBar.add(logSeverityPanel)
-    logSeverityInfoButton.setSelected(true)
+    logSeverityOffButton.setSelected(true)
     logSeverityInfoButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.INFO))
     logSeverityWarningButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.WARNING))
     logSeverityOffButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.OFF))

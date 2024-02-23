@@ -5,11 +5,13 @@ import ucesoft.smd.Clock
 import java.awt.event.{KeyEvent, KeyListener}
 import java.util.Properties
 
+object KeyboardPADController:
+  inline val DEVICE_PROP_VALUE = "keyboard_pad"
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 24/12/2023 17:44  
  */
-class KeyboardPADController(component:java.awt.Component,config:Properties,override val index: Int, override val ctype: ControllerType, override val clock: Clock) extends PadController(index, ctype, clock) with KeyListener:
+class KeyboardPADController(component:java.awt.Component,config:Properties,override val index: Int, override val clock: Clock) extends PadController(index, clock) with KeyListener:
   import java.awt.event.KeyEvent.*
   import PadController.*
   
@@ -57,11 +59,12 @@ class KeyboardPADController(component:java.awt.Component,config:Properties,overr
   def getKeyMap: Map[Int,Int] = keyMap
   
   private def buildFromProperties(config:Properties): Map[Int,Int] =
-    val revereseDefaultMap = DEFAULT_KEYMAPS(index).map(kv => (kv._2,kv._1))
+    checkType(config)
+    val reverseDefaultMap = DEFAULT_KEYMAPS(index).map(kv => (kv._2,kv._1))
     buttonAndDirectionsPropNames.zipWithIndex.map(b => {
-      val key = config.getProperty(formatProp(b._1, index))
+      val key = config.getProperty(Controller.formatProp(b._1, index))
       if key == null then 
-        (revereseDefaultMap(b._2),b._2)
+        (reverseDefaultMap(b._2),b._2)
       else
         (key.toInt,b._2)
     }).toMap

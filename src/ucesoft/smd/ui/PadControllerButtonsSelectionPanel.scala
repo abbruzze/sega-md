@@ -1,7 +1,7 @@
 package ucesoft.smd.ui
 
 import com.formdev.flatlaf.FlatLightLaf
-import ucesoft.smd.controller.RealPadController
+import ucesoft.smd.controller.{Controller, RealPadController}
 
 import java.awt.event.{KeyEvent, KeyListener}
 import java.awt.{BorderLayout, Color, FlowLayout, GridLayout}
@@ -49,7 +49,7 @@ class PadControllerButtonsSelectionPanel(frame:JFrame,index:Int,config:Propertie
       val button = new JButton(BUTTONS_NAMES(r))
       keysPanel.add(button)
       button.addActionListener(_ => configureButton(r))
-      val value = workingConfig.getProperty(formatProp(buttonAndDirectionsPropNames(r),index),"EMPTY")
+      val value = workingConfig.getProperty(Controller.formatProp(buttonAndDirectionsPropNames(r),index),"EMPTY")
       keyLabels(r) = new JLabel(value)
       if value == "EMPTY" then
         keyLabels(r).setForeground(Color.RED)
@@ -107,7 +107,7 @@ class PadControllerButtonsSelectionPanel(frame:JFrame,index:Int,config:Propertie
             waitingDialog.dispose()
             keyLabels(b).setText(button)
             keyLabels(b).setForeground(Color.WHITE)
-            workingConfig.setProperty(formatProp(buttonAndDirectionsPropNames(b), index), button)
+            workingConfig.setProperty(Controller.formatProp(buttonAndDirectionsPropNames(b), index), button)
           })
           buttonTask.start()
         case None =>
@@ -121,7 +121,7 @@ class PadControllerButtonsSelectionPanel(frame:JFrame,index:Int,config:Propertie
         val keyName = s"${KeyEvent.getKeyText(e.getKeyCode)},${e.getKeyCode}"
         keyLabels(b).setText(KeyEvent.getKeyText(e.getKeyCode))
         keyLabels(b).setForeground(Color.WHITE)
-        workingConfig.setProperty(formatProp(buttonAndDirectionsPropNames(b),index),keyName)
+        workingConfig.setProperty(Controller.formatProp(buttonAndDirectionsPropNames(b),index),keyName)
     )
     waitingDialog.setLocationRelativeTo(dialog)
     waitingDialog.setVisible(true)

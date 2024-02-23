@@ -12,6 +12,7 @@ import java.util.Properties
  *         Created on 04/01/2024 20:13  
  */
 object RealPadController:
+  inline val DEVICE_PROP_VALUE = "real_pad"
   inline val USB_TYPE = "usb"
   inline val CONTROLLER_NAME_PROP = CONTROLLER_PROP + "name"
   inline val CONTROLLER_POLLING_PROP = CONTROLLER_PROP + "pollingMillis"
@@ -57,7 +58,7 @@ object RealPadController:
   def getControllersNames: Array[String] = controllers.filter(c => c.getType == Controller.Type.GAMEPAD || c.getType == Controller.Type.STICK).map(_.getName.trim)
   def getControllerByName(name:String) : Option[Controller] = controllers.find(_.getName.trim == name)
 
-class RealPadController(config:Properties, override val index: Int, override val ctype: ControllerType, override val clock: Clock) extends PadController(index,ctype,clock) with Runnable:
+class RealPadController(config:Properties, override val index: Int, override val clock: Clock) extends PadController(index,clock) with Runnable:
   import RealPadController.*
   private inline val DIR_THRESHOLD = 0.5f
 
@@ -68,6 +69,7 @@ class RealPadController(config:Properties, override val index: Int, override val
   private val thread = new Thread(this,s"RealController($index)")
   private var running = true
 
+  checkType(config)
   discoverControllers()
   findController(config)
   if controller.isDefined then
@@ -99,7 +101,7 @@ class RealPadController(config:Properties, override val index: Int, override val
         buttonsComponent = buttonsPropNames.zipWithIndex.map((b, i) =>
           (i,c.getComponents.find(_.getIdentifier.getName == config.getProperty(formatProp(b,index), s"${i + 1}")))
         ).filter(_._2.isDefined).map((i,c) => (i,c.get)).toList
-        if ctype == ControllerType.PAD3Buttons then
+        if getControllerType == ControllerType.PAD3Buttons then
           buttonsComponent = buttonsComponent.filter(_._1 > S)
         for b <- buttonsComponent do
           log.info(s"Assigned button ${BUTTONS_NAMES(b._1)} to ${b._2}")

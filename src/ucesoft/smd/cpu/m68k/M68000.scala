@@ -6,6 +6,7 @@ import ucesoft.smd.cpu.m68k.Memory.{ByteBufferMemory, MapMemory}
 import java.io.FileInputStream
 
 class M68000(override val mem:Memory) extends M68KCore(mem):
+  override protected val smdComponentName = "M68K"
   import ucesoft.smd.cpu.m68k.instructions.*
   override lazy val model: Model = Model._68K
 

@@ -33,12 +33,12 @@ object Cart:
          Trackball, Tablet, Paddle, Keyboard,
          RS232, Printer, CDROM, FloppyDrive,
          Download, UNKNOWN
-  case class ExtraMemory(memType:ExtraMemoryType,startAddress:Int,endAddress:Int,extraRAM:Array[Int])
+  case class ExtraMemory(memType:ExtraMemoryType,startAddress:Int,endAddress:Int,extraRAM:Array[Int]):
+    override def toString: String = s"ExtraMemory(type=$memType,start=${startAddress.toHexString},end=${endAddress.toHexString})"
 
   def createState(cart:Cart,rootSB:StateBuilder): Unit =
     val cartSB = new StateBuilder()
-    cartSB.w("romSize",cart.getROM.length)
-    cartSB.w("rom",cart.getROM)
+    cartSB.w("rom-filename",cart.file)
     cart.getExtraMemoryInfo match
       case None =>
       case Some(em) =>
@@ -47,9 +47,10 @@ object Cart:
   def restoreState(rootSB:StateBuilder,fixChecksum: Boolean): Cart =
     rootSB.subStateBuilder("cart") match
       case Some(sb) =>
-        val rom = Array.ofDim[Int](sb.r[Int]("romSize"))
-        sb.r("rom",rom)
-        val cart = Cart(rom,fixChecksum)
+        val fileName = sb.r[String]("rom-filename")
+        if !new java.io.File(fileName).exists() then
+          throw new StateBuilder.StateBuilderException(s"Missing rom '$fileName'")
+        val cart = Cart(fileName,None,fixChecksum)
         cart.getExtraMemoryInfo match
           case None =>
           case Some(em) =>

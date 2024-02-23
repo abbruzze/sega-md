@@ -7,15 +7,23 @@ enum ControllerType(val counterMask:Int):
   case PAD6Buttons extends ControllerType(7)
   case MouseStartWithCTRLAndLeft extends ControllerType(0)
   case Mouse extends ControllerType(0)
+  case Unknown extends ControllerType(0)
 
 object Controller:
   inline val CONTROLLER_PROP = "controller.%d."
   inline val CONTROLLER_TYPE_PROP = CONTROLLER_PROP + "type"
+  inline val CONTROLLER_DEVICE_PROP = CONTROLLER_PROP + "device"
+
+  def formatProp(s: String, index: Int): String = s.format(index)
 abstract class Controller extends SMDComponent:
   val index : Int
+  override protected val smdComponentName = s"Controller $index"
   protected var control = 0
+  protected var controllerType: ControllerType = ControllerType.Unknown
 
-  def setControllerType(ct:ControllerType): Unit = {}
+  def setControllerType(ct:ControllerType): Unit =
+    controllerType = ct
+  def getControllerType : ControllerType = controllerType
   
   def disconnect(): Unit = {}
 

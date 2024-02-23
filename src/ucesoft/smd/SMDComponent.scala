@@ -14,6 +14,11 @@ trait SMDComponent extends MessageBus.MessageListener:
   protected var log = Logger.getLogger
   protected var componentEnabled = true
   
+  final def add(c:SMDComponent): Unit =
+    components += c
+  final def remove(c:SMDComponent): Unit =
+    components -= c
+  
   final def isComponentEnabled: Boolean = componentEnabled
   final def setComponentEnabled(enabled:Boolean): Unit =
     this.componentEnabled = enabled
@@ -23,14 +28,17 @@ trait SMDComponent extends MessageBus.MessageListener:
   protected def hardReset(): Unit = reset()
   
   final def initComponent(): Unit =
-    components.foreach(_.initComponent())
+    log.info("Initializing %s",smdComponentName)
     init()
+    components.foreach(_.initComponent())
     
   final def resetComponent(): Unit =
+    log.info("Resetting %s",smdComponentName)
     components.foreach(_.resetComponent())
     reset()
 
   final def hardResetComponent(): Unit =
+    log.info("Hard resetting %s",smdComponentName)
     components.foreach(_.hardResetComponent())
     hardReset()
 

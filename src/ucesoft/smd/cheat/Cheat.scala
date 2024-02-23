@@ -60,9 +60,9 @@ object Cheat:
     import scala.jdk.CollectionConverters.*
 
     val yaml = new Yaml()
-    val in = classOf[Cheat.type].getResourceAsStream("/resources/gamesDB.yaml.gz")
+    val in = classOf[Cheat.type].getResourceAsStream("/resources/cheats/gamesDB.yaml.gz")
     if in == null then
-      Logger.getLogger.error("Cannot load cheats file: /resources/gamesDB.yaml.gz")
+      Logger.getLogger.error("Cannot load cheats file: /resources/cheats/gamesDB.yaml.gz")
       println("Cannot load cheats file")
       return Map.empty
     val gin = new GZIPInputStream(in)
@@ -82,9 +82,9 @@ object Cheat:
     import scala.jdk.CollectionConverters.*
 
     val yaml = new Yaml()
-    val in = classOf[Cheat.type].getResourceAsStream("/resources/cheatsDB.yaml.gz")
+    val in = classOf[Cheat.type].getResourceAsStream("/resources/cheats/cheatsDB.yaml.gz")
     if in == null then
-      Logger.getLogger.error("Cannot load cheats file: /resources/cheatsDB.yaml.gz")
+      Logger.getLogger.error("Cannot load cheats file: /resources/cheats/cheatsDB.yaml.gz")
       println("Cannot load cheats file")
       return Nil
     val gin = new GZIPInputStream(in)

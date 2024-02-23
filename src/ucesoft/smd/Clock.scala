@@ -205,7 +205,8 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
   final def getLastPerformance: Int =
     lastPerformance
 
-  final def isPaused: Boolean = suspended
+  final def isPaused: Boolean = suspended || !running
+  final def isRunning : Boolean = running
 
   final def pause(): Unit =
     if Thread.currentThread() != thread then
