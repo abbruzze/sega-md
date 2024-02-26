@@ -21,7 +21,7 @@ object StateBuilder:
  * @author Alessandro Abbruzzetti
  *         Created on 12/02/2024 10:51
  */
-class StateBuilder(map:java.util.Map[String,AnyRef] = new java.util.HashMap[String,AnyRef]):
+class StateBuilder(map:java.util.Map[String,AnyRef] = new java.util.LinkedHashMap[String,AnyRef]):
   import StateBuilder.*
 
   private inline val STRING_CLASS = classOf[String]
@@ -115,6 +115,11 @@ class StateBuilder(map:java.util.Map[String,AnyRef] = new java.util.HashMap[Stri
         Some(new StateBuilder(m.asInstanceOf[java.util.Map[String,AnyRef]]))
       case _ =>
         None
+  def getSubStateBuilder(n:String): StateBuilder =
+    subStateBuilder(n) match
+      case Some(b) => b
+      case None =>
+        throw new StateBuilderException(s"Cannot find $n attribute to create sub-state builder")
   def deserialize[T](n:String,zip:Boolean): T =
     checkName(n)
     guard(n) {

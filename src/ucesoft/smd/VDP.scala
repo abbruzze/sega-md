@@ -99,10 +99,26 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private enum DMA_MODE:
     case MEMORY_TO_VRAM, VRAM_FILL, VRAM_COPY
 
+  private object FifoEntry:
+    def restoreState(sb: StateBuilder): FifoEntry =
+      FifoEntry(
+        sb.r[Int]("commandCode"),
+        sb.r[Int]("address"),
+        sb.r[Int]("data"),
+        sb.r[Boolean]("vramFirstByteWritten")
+      )
+
   private case class FifoEntry(commandCode:Int,
                                address:Int,
                                data:Int,
-                               var vramFirstByteWritten:Boolean = false)
+                               var vramFirstByteWritten:Boolean = false):
+    def createState(): java.util.Map[String,AnyRef] =
+      val map = new java.util.HashMap[String,AnyRef]
+      map.put("commandCode",java.lang.Integer.valueOf(commandCode))
+      map.put("address", java.lang.Integer.valueOf(address))
+      map.put("data", java.lang.Integer.valueOf(data))
+      map.put("vramFirstByteWritten", java.lang.Boolean.valueOf(vramFirstByteWritten))
+      map
 
   private class FIFO:
     private inline val MAX_SIZE = 4
@@ -111,6 +127,30 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var size = 0
     private var lastWritten : FifoEntry = _
     private var lastPopped : FifoEntry = _
+
+    def createState(sb:StateBuilder): Unit =
+      sb.w("tail",tail).
+        w("head",head).
+        w("size",size)
+
+      var slot = head
+      var sz = size
+      while sz > 0 do
+        sb.w(s"slot_$slot",fifo(slot).createState())
+        sz -= 1
+        slot = (slot + 1) % MAX_SIZE
+    def restoreState(sb:StateBuilder): Unit =
+      tail = sb.r[Int]("tail")
+      head = sb.r[Int]("head")
+      size = sb.r[Int]("size")
+      for i <- fifo.indices do
+        fifo(i) = null
+      var slot = head
+      var sz = size
+      while sz > 0 do
+        fifo(slot) = FifoEntry.restoreState(sb.getSubStateBuilder(s"slot_$slot"))
+        sz -= 1
+        slot = (slot + 1) % MAX_SIZE
 
     def dump(): VDPFifoDump =
       val dump = Array.ofDim[VDPFifoSlot](4)
@@ -187,6 +227,17 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var readCount = 0
     private var swapNibbles = false
 
+    def createState(sb:StateBuilder): Unit =
+      sb.w("readAddress",readAddress).
+        w("readBuffer",readBuffer).
+        w("readCount",readCount).
+        w("swapNibbles",swapNibbles)
+    def restoreState(sb:StateBuilder): Unit =
+      readAddress = sb.r[Int]("readAddress")
+      readBuffer = sb.r[Int]("readBuffer")
+      readCount = sb.r[Int]("readCount")
+      swapNibbles = sb.r[Boolean]("swapNibbles")
+
     final def count: Int = readCount
 
     final def modifyAddress(address: Int): Unit =
@@ -231,6 +282,19 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var readIndex, writeIndex = 0
     private var skipFirst = 0
     private var lastSkipFirst = 0
+
+    def createState(sb:StateBuilder): Unit =
+      sb.w("cache",cache).
+        w("readIndex",readIndex).
+        w("writeIndex",writeIndex).
+        w("skipFirst",skipFirst).
+        w("lastSkipFirst",lastSkipFirst)
+    def restoreState(sb:StateBuilder): Unit =
+      sb.r("cache",cache)
+      readIndex = sb.r[Int]("readIndex")
+      writeIndex = sb.r[Int]("writeIndex")
+      skipFirst = sb.r[Int]("skipFirst")
+      lastSkipFirst = sb.r[Int]("lastSkipFirst")
 
     final def reset(): Unit =
       readIndex = 0
@@ -297,9 +361,33 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var celly = 0
     private var cellxSize: SCROLL_SIZE = SCROLL_SIZE._32CELL
     private var cellySize: SCROLL_SIZE = SCROLL_SIZE._32CELL
-
     private val windowX = Array(0, 0)
     private val windowY = Array(0, 0)
+
+    def createState(sb: StateBuilder): Unit =
+      sb.w("baseAddress", baseAddress).
+        w("windowBaseAddress", windowBaseAddress).
+        w("windowActive", windowActive).
+        w("scrollx", scrollx).
+        w("posy", posy).
+        w("cellx",cellx).
+        w("celly",celly).
+        w("cellxSize",cellxSize.toString).
+        w("cellySize", cellySize.toString).
+        w("windowX",windowX).
+        w("windowY",windowY)
+
+    def restoreState(sb: StateBuilder): Unit =
+      baseAddress = sb.r[Int]("baseAddress")
+      windowActive = sb.r[Boolean]("windowActive")
+      scrollx = sb.r[Int]("scrollx")
+      posy = sb.r[Int]("posy")
+      cellx = sb.r[Int]("cellx")
+      celly = sb.r[Int]("celly")
+      cellxSize = SCROLL_SIZE.valueOf(sb.r[String]("cellxSize"))
+      cellySize = SCROLL_SIZE.valueOf(sb.r[String]("cellySize"))
+      sb.r("windowX",windowX)
+      sb.r("windowY", windowY)
 
     final def cellX: Int = cellx
 
@@ -381,6 +469,19 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var next = 0
     private var address = 0
 
+    def createState(sb: StateBuilder): Unit =
+      sb.w("_y",_y).
+        w("width",width).
+        w("height",height).
+        w("next",next).
+        w("address",address)
+    def restoreState(sb: StateBuilder): Unit =
+      _y = sb.r[Int]("_y")
+      width = sb.r[Int]("width")
+      height = sb.r[Int]("height")
+      next = sb.r[Int]("next")
+      address = sb.r[Int]("address")
+
     final def y: Int = if interlaceModeEnabled then _y >> 1 else _y
 
     final def w: Int = width
@@ -416,6 +517,21 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var spriteCacheIndex = 0
     private var address = 0
     private var zeroPos = false
+
+    def createState(sb: StateBuilder): Unit =
+      sb.w("thirdByte",thirdByte).
+        w("horizontalPosition",horizontalPosition).
+        w("cellReadCount",cellReadCount).
+        w("spriteCacheIndex",spriteCacheIndex).
+        w("address",address).
+        w("zeroPos",zeroPos)
+    def restoreState(sb: StateBuilder): Unit =
+      thirdByte = sb.r[Int]("thirdByte")
+      horizontalPosition = sb.r[Int]("horizontalPosition")
+      cellReadCount = sb.r[Int]("cellReadCount")
+      spriteCacheIndex = sb.r[Int]("spriteCacheIndex")
+      address = sb.r[Int]("address")
+      zeroPos = sb.r[Boolean]("zeroPos")
 
     final def index: Int = spriteCacheIndex
 
@@ -474,6 +590,18 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private val cache = Array.ofDim[Int](MAX_SPRITES_PER_ROW)
     private var readIndex, writeIndex = 0
     private var size = 0
+
+    def createState(sb: StateBuilder): Unit =
+      sb.w("cache",cache).
+        w("readIndex",readIndex).
+        w("writeIndex",writeIndex).
+        w("size",size)
+    def restoreState(sb: StateBuilder): Unit =
+      sb.r("cache",cache)
+      readIndex = sb.r[Int]("readIndex")
+      writeIndex = sb.r[Int]("writeIndex")
+      size = sb.r[Int]("size")
+
 
     def reset(): Unit =
       readIndex = 0
@@ -631,7 +759,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private val xscroll = Array(0,0)  // xscroll for layer A and B
   private val yscroll = Array(0,0)  // yscroll for layer A and B
   private val yscrollLatch = Array(0,0)  // yscroll latched value for layer A and B
-  private val firstCellToXScroll = 0
   private var lastIsInWindow = false
 
   private var activeDisplayLine = 0 // scanline within active raster lines (0 - V28 or V30 * 8)
@@ -765,18 +892,56 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     for pal <- 0 to 3; mode <- 0 to 2 do
       java.util.Arrays.fill(CRAM_COLORS(pal)(mode),Palette.getColor(0))
 
-    m68KBUSRequested = false
-    statusRegister = STATUS_FIFO_EMPTY_MASK | (statusRegister & 1) | STATUS_VB_MASK // preserve PAL/NTSC flag
-    readCopyCache = -1
-    writePendingFlag = false
-    pendingRead = false
     addressRegister = 0
     codeRegister = 0
-    dmaFillWriteDone = false
+    writePendingFlag = false
+    controlPortWriteDataDelayed = -1
+    pendingRead = false
     fifo.reset()
+    writeOverflowFIFOEntry = null
+    writeOverflowFIFOEntry2 = null
+    dmaFillWriteDone = false
+    readCopyCache = -1
+    vdp4read.reset()
+    vdpAccessSlot = 0
     vdpLayerPatternBuffer(A).reset()
     vdpLayerPatternBuffer(B).reset()
     vdpLayerPatternBuffer(S).reset()
+    lastIsInWindow = false
+    activeDisplayLine = 0
+    activeDisplayXPos = 0
+    xborderCount = 0
+    xborderIsLeft = false
+    inXActiveDisplay = false
+    inYActiveDisplay = false
+    frameCount = 0
+    verticalBlanking = true
+    isVerticalBorder = false
+    rasterLine = 0
+    xpos = 0
+    hcounter = 0
+    vcounter = 0
+    latchedHVCounter = 0
+    hInterruptCounter = 0
+    colorMode = Palette.PaletteType.NORMAL
+    vInterruptPending = false
+    hInterruptPending = false
+    vInterruptAsserted = false
+    hInterruptAsserted = false
+    interlaceModeEnabled = false
+    interlaceMode = INTERLACE_MODE.NO_INTERLACE
+    debugRegister = 0
+    sprite1VisibleSR.reset()
+    sprite1VisibleCurrentIndex = 0
+    sprite1FirstFetch = true
+    spritesLinePixels = 0
+    spriteLineRenderingEnabled = true
+    spriteEvaluationIndex = 0
+    sprite2CurrentIndex = 0
+    sprite2Size = 0
+    lastSpriteXPosNonZero = false
+    m68KBUSRequested = false
+    statusRegister = STATUS_FIFO_EMPTY_MASK | (statusRegister & 1) | STATUS_VB_MASK // preserve PAL/NTSC flag
     log.log(java.util.logging.Level.SEVERE) {
       writeRegister(1, 4) // start in MD mode
 
@@ -784,12 +949,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         writeRegister(12, 0) // H32
     }
     changeVDPClockDivider(hmode.initialClockDiv)
-    verticalBlanking = true
-    frameCount = 0
-
-    spriteLineRenderingEnabled = true
-    lastSpriteXPosNonZero = false
-    controlPortWriteDataDelayed = -1
+  end reset
 
   def setCPUs(m68k:M6800X0,z80:Z80): Unit =
     this.m68k = m68k
@@ -1138,6 +1298,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     props += VDPProperty("Code register",s"$codeRegister")
     props += VDPProperty("FIFO size",s"${fifo.length}")
     props += VDPProperty("Access slot",s"$vdpAccessSlot")
+    props += VDPProperty("Debug register",s"$debugRegister")
 
     VDPPropertiesDump(props.toArray,(reg,value) => writeRegister(reg,value))
 
@@ -2109,6 +2270,135 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
               setPixel(xOffset + ox, yOffset + oy, color)
         y += 1
       sprites = sprites.next.orNull
+  end drawSpritesBoundaries
+
+  // ===================== State =================================================
+  override def restoreState(sb: StateBuilder): Unit =
+    import sb.r
+    addressRegister = r[Int]("addressRegister")
+    codeRegister = r[Int]("codeRegister")
+    writePendingFlag = r[Boolean]("writePendingFlag")
+    controlPortWriteDataDelayed = r[Int]("controlPortWriteDataDelayed")
+    pendingRead = r[Boolean]("pendingRead")
+    pendingReadValue = r[Int]("pendingReadValue")
+    fifo.restoreState(sb.getSubStateBuilder("fifo"))
+
+    if r[Boolean]("writeOverflowFIFOEntryNotNull") then
+      writeOverflowFIFOEntry = FifoEntry.restoreState(sb.getSubStateBuilder("writeOverflowFIFOEntry"))
+    if r[Boolean]("writeOverflowFIFOEntry2NotNull") then
+      writeOverflowFIFOEntry2 = FifoEntry.restoreState(sb.getSubStateBuilder("writeOverflowFIFOEntry2"))
+
+    dmaFillWriteDone = r[Boolean]("dmaFillWriteDone")
+    readCopyCache = r[Int]("readCopyCache")
+    vdp4read.restoreState(sb.getSubStateBuilder("vdp4read"))
+    vdpAccessSlot = r[Int]("vdpAccessSlot")
+    r("vdpLayer2CellMappingBuffer",vdpLayer2CellMappingBuffer)
+
+    for la <- A to B do
+      val layer = ('A' + la).toChar
+      vdpLayerMappingAddress(la).restoreState(sb.getSubStateBuilder(s"vdpLayerMappingAddress_$layer"))
+
+    for pb <- A to S do
+      val layer = ('A' + pb).toChar
+      vdpLayerPatternBuffer(pb).restoreState(sb.getSubStateBuilder(s"vdpLayerPatternBuffer_$layer"))
+
+
+  override def createState(sb: StateBuilder): Unit =
+    sb.w("addressRegister",addressRegister).
+      w("codeRegister",codeRegister).
+      w("writePendingFlag",writePendingFlag).
+      w("controlPortWriteDataDelayed",controlPortWriteDataDelayed).
+      w("pendingRead",pendingRead).
+      w("pendingReadValue",pendingReadValue)
+    val fifoSB = new StateBuilder
+    fifo.createState(fifoSB)
+    sb.w("fifo",fifoSB.build())
+
+    sb.w("writeOverflowFIFOEntryNotNull",writeOverflowFIFOEntry != null)
+    if writeOverflowFIFOEntry != null then
+      sb.w("writeOverflowFIFOEntry",writeOverflowFIFOEntry.createState())
+    sb.w("writeOverflowFIFOEntry2NotNull",writeOverflowFIFOEntry2 != null)
+    if writeOverflowFIFOEntry2 != null then
+      sb.w("writeOverflowFIFOEntry2",writeOverflowFIFOEntry2.createState())
+
+    sb.w("dmaFillWriteDone",dmaFillWriteDone).
+      w("readCopyCache",readCopyCache)
+    val vdp4readAddressSB = new StateBuilder()
+    vdp4read.createState(vdp4readAddressSB)
+    sb.w("vdp4read",vdp4readAddressSB.build())
+
+    sb.w("vdpAccessSlot",vdpAccessSlot).
+      w("vdpLayer2CellMappingBuffer",vdpLayer2CellMappingBuffer)
+
+    for la <- A to B do
+      val layer = ('A' + la).toChar
+      val lsb = new StateBuilder()
+      vdpLayerMappingAddress(la).createState(lsb)
+      sb.w(s"vdpLayerMappingAddress_$layer",lsb.build())
+
+    for pb <- A to S do
+      val layer = ('A' + pb).toChar
+      val psb = new StateBuilder()
+      vdpLayerPatternBuffer(pb).createState(psb)
+      sb.w(s"vdpLayerPatternBuffer_$layer",psb.build())
+
+    sb.w("hmode",hmode.toString).
+      w("xscroll",xscroll).
+      w("yscroll",yscroll).
+      w("yscrollLatch",yscrollLatch).
+      w("lastIsInWindow",lastIsInWindow).
+      w("activeDisplayLine",activeDisplayLine).
+      w("activeDisplayXPos",activeDisplayXPos).
+      w("xborderCount",xborderCount).
+      w("xborderIsLeft",xborderIsLeft).
+      w("inXActiveDisplay",inXActiveDisplay).
+      w("inYActiveDisplay",inYActiveDisplay).
+      w("frameCount",frameCount).
+      w("verticalBlanking",verticalBlanking).
+      w("isVerticalBorder",isVerticalBorder).
+      w("rasterLine",rasterLine).
+      w("xpos",xpos).
+      w("hcounter",hcounter).
+      w("vcounter",vcounter).
+      w("latchedHVCounter",latchedHVCounter).
+      w("hInterruptCounter",hInterruptCounter).
+      w("layerPixels",layerPixels).
+      w("colorMode",colorMode.toString).
+      w("vInterruptPending",vInterruptPending).
+      w("hInterruptPending",hInterruptPending).
+      w("vInterruptAsserted",vInterruptAsserted).
+      w("hInterruptAsserted",hInterruptAsserted).
+      w("videoPixels",videoPixels).
+      w("interlaceModeEnabled",interlaceModeEnabled).
+      w("interlaceMode",interlaceMode.toString).
+      w("debugRegister",debugRegister)
+
+    for i <- spriteCache.indices do
+      val ssb = new StateBuilder()
+      spriteCache(i).createState(ssb)
+      sb.w(s"spriteCache_$i",ssb.build())
+
+    val ssrsb = new StateBuilder()
+    sprite1VisibleSR.createState(ssrsb)
+    sb.w("spriteVisibleSR",ssrsb.build())
+
+    sb.w("sprite1VisibleCurrentIndex",sprite1VisibleCurrentIndex).
+      w("sprite1FirstFetch",sprite1FirstFetch).
+      w("spritesLinePixels",spritesLinePixels).
+      w("spriteLineRenderingEnabled",spriteLineRenderingEnabled).
+      w("spriteEvaluationIndex",spriteEvaluationIndex)
+
+    for i <- sprite2Info.indices do
+      val ssb = new StateBuilder()
+      sprite2Info(i).createState(ssb)
+      sb.w(s"sprite2Info_$i",ssb.build())
+
+    sb.w("sprite2CurrentIndex",sprite2CurrentIndex).
+      w("sprite2Size",sprite2Size).
+      w("lastSpriteXPosNonZero",lastSpriteXPosNonZero).
+      w("m68KBUSRequested",m68KBUSRequested)
+
+  end createState
 
 
 

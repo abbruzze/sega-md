@@ -28,6 +28,18 @@ class BusArbiter extends SMDComponent:
   private var m68kBusState = M68KBusState.M68K_OWNER
   private var z80Waiting68KBUS = false
 
+  override def createState(sb: StateBuilder): Unit =
+    sb.w("z80ResetProcess",z80ResetProcess.toString).
+      w("z80BusState",z80BusState.toString).
+      w("m68kBusState",m68kBusState.toString).
+      w("z80Waiting68KBUS",z80Waiting68KBUS)
+
+  override def restoreState(sb: StateBuilder): Unit =
+    z80ResetProcess = Z80ResetProcess.valueOf(sb.r[String]("z80ResetProcess"))
+    z80BusState = Z80BusState.valueOf(sb.r[String]("z80BusState"))
+    m68kBusState = M68KBusState.valueOf(sb.r[String]("m68kBusState"))
+    z80Waiting68KBUS = sb.r[Boolean]("z80Waiting68KBUS")
+
   override def reset(): Unit =
     z80ResetProcess = STOPPED
     z80BusState = Z80_OWNER
