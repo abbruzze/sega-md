@@ -1,6 +1,10 @@
 package ucesoft.smd
 
-import java.util.zip.CRC32
+import ucesoft.smd.Cart.UNZIP_ERROR.{DIRECTORY_FOUND, NO_SUITABLE_CART}
+
+import java.io.{File, FileInputStream}
+import java.nio.file.StandardCopyOption
+import java.util.zip.{CRC32, ZipInputStream}
 
 /*
 Address	Size	  Description
@@ -21,6 +25,12 @@ $1F0	3 bytes	  Region support
 $1F3	13 bytes	(reserved, fill with spaces)
  */
 object Cart:
+  case class CartFile(originalFile:String,fileToLoad:String)
+  object CartFile:
+    def apply(file:String): CartFile = CartFile(file,file)
+  enum UNZIP_ERROR:
+    case NO_SUITABLE_CART, DIRECTORY_FOUND
+  
   enum SYSTEM_TYPE:
     case MEGA_DRIVE, MEGA_DRIVE_32X, MEGA_DRIVE_EVERDRIVE_EXT, MEGA_DRIVE_SSF_EXT, MEGA_DRIVE_WIFI_EXT, PICO, TERA_DRIVE68K, TERA_DRIVEX86, UNKNOWN
   enum ExtraMemoryType:
@@ -35,10 +45,26 @@ object Cart:
          Download, UNKNOWN
   case class ExtraMemory(memType:ExtraMemoryType,startAddress:Int,endAddress:Int,extraRAM:Array[Int]):
     override def toString: String = s"ExtraMemory(type=$memType,start=${startAddress.toHexString},end=${endAddress.toHexString})"
+    
+  def extractFromZIP(file:String): Either[UNZIP_ERROR,File] =
+    val zis = new ZipInputStream(new FileInputStream(file))
+    val entry = zis.getNextEntry
+    if entry != null && !entry.isDirectory then
+      val fileName = entry.getName.toUpperCase()
+      if fileName.endsWith(".BIN") || fileName.endsWith(".MD") || fileName.endsWith(".SMD") then
+        val tmpFile = File.createTempFile(fileName, null)
+        tmpFile.deleteOnExit()
+        java.nio.file.Files.copy(zis, tmpFile.toPath, StandardCopyOption.REPLACE_EXISTING)
+        zis.close()
+        Right(tmpFile)
+      else
+        Left(NO_SUITABLE_CART)
+    else
+      Left(DIRECTORY_FOUND)
 
   def createState(cart:Cart,rootSB:StateBuilder): Unit =
     val cartSB = new StateBuilder()
-    cartSB.w("rom-filename",cart.file)
+    cartSB.w("rom-filename",cart.file.originalFile)
     cart.getExtraMemoryInfo match
       case None =>
       case Some(em) =>
@@ -48,9 +74,19 @@ object Cart:
     rootSB.subStateBuilder("cart") match
       case Some(sb) =>
         val fileName = sb.r[String]("rom-filename")
+        var fileToLoad = fileName
         if !new java.io.File(fileName).exists() then
           throw new StateBuilder.StateBuilderException(s"Missing rom '$fileName'")
-        val cart = Cart(fileName,None,fixChecksum)
+        if fileName.toUpperCase().endsWith(".ZIP") then
+          extractFromZIP(fileName) match
+            case Left(Cart.UNZIP_ERROR.NO_SUITABLE_CART) =>
+              throw new StateBuilder.StateBuilderException("Cart restoring error: no suitable cart found into zip")
+            case Left(Cart.UNZIP_ERROR.DIRECTORY_FOUND) =>
+              throw new StateBuilder.StateBuilderException("Cart restoring error: found directory into zip")
+            case Right(f) =>
+              fileToLoad = f.toString
+              
+        val cart = Cart(CartFile(fileName,fileToLoad),None,fixChecksum)
         cart.getExtraMemoryInfo match
           case None =>
           case Some(em) =>
@@ -63,7 +99,7 @@ object Cart:
  * @author Alessandro Abbruzzetti
  *         Created on 28/08/2023 19:10  
  */
-class Cart(val file:String,stateSavedRom:Option[Array[Int]] = None,fixChecksum: Boolean = false):
+class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChecksum: Boolean = false):
   def this(stateSavedRom:Array[Int],fixChecksum: Boolean) = this(null,Some(stateSavedRom),fixChecksum)
   
   import Cart.*
@@ -114,7 +150,7 @@ class Cart(val file:String,stateSavedRom:Option[Array[Int]] = None,fixChecksum: 
       case Some(ssr) => 
         ssr
       case None =>
-        val f = new File(file)
+        val f = new File(file.fileToLoad)
         if !f.exists() then
           throw new IllegalArgumentException(s"Cartridge $file does not exist")
         Files.readAllBytes(f.toPath).map(_.toInt & 0xFF)
@@ -271,4 +307,4 @@ class Cart(val file:String,stateSavedRom:Option[Array[Int]] = None,fixChecksum: 
   def getSerialNumber: String = serial
 
   override def toString: String =
-    s"""Cart[file="${if file == null then "Restored from state" else new java.io.File(file).getName}" serial="$serial" system type="$systemType" CRC32="$crc32" regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
+    s"""Cart[file="${if file == null then "Restored from state" else new java.io.File(file.originalFile).getName}" serial="$serial" system type="$systemType" CRC32="$crc32" regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""

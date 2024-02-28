@@ -6,6 +6,7 @@ import ucesoft.smd.StateBuilder
  *         Created on 09/12/2023 19:54  
  */
 class FM(sampleRate: Int, override val name: String) extends AudioDevice(sampleRate, name):
+  override protected val smdComponentName = "FM"
   private val ym3438 = new Ym3438
   private var chip = new IYm3438.IYm3438_Type
   private final val LR = Array(0,0)

@@ -2302,6 +2302,56 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       val layer = ('A' + pb).toChar
       vdpLayerPatternBuffer(pb).restoreState(sb.getSubStateBuilder(s"vdpLayerPatternBuffer_$layer"))
 
+    hmode = HMode.valueOf(r[String]("hmode"))
+    r("xscroll",xscroll)
+    r("yscroll",yscroll)
+    r("yscrollLatch",yscrollLatch)
+    lastIsInWindow = r[Boolean]("lastIsInWindow")
+    activeDisplayLine = r[Int]("activeDisplayLine")
+    activeDisplayXPos = r[Int]("activeDisplayXPos")
+    xborderCount = r[Int]("xborderCount")
+    xborderIsLeft = r[Boolean]("xborderIsLeft")
+    inXActiveDisplay = r[Boolean]("inXActiveDisplay")
+    inYActiveDisplay = r[Boolean]("inYActiveDisplay")
+    frameCount = r[Int]("frameCount")
+    verticalBlanking = r[Boolean]("verticalBlanking")
+    isVerticalBorder = r[Boolean]("isVerticalBorder")
+    rasterLine = r[Int]("rasterLine")
+    xpos = r[Int]("xpos")
+    hcounter = r[Int]("hcounter")
+    vcounter = r[Int]("vcounter")
+    latchedHVCounter = r[Int]("latchedHVCounter")
+    hInterruptCounter = r[Int]("hInterruptCounter")
+    r("layerPixels",layerPixels)
+    colorMode = Palette.PaletteType.valueOf(r[String]("colorMode"))
+    vInterruptPending = r[Boolean]("vInterruptPending")
+    hInterruptPending = r[Boolean]("hInterruptPending")
+    vInterruptAsserted = r[Boolean]("vInterruptAsserted")
+    hInterruptAsserted = r[Boolean]("hInterruptAsserted")
+    r("videoPixels",videoPixels)
+    interlaceModeEnabled = r[Boolean]("interlaceModeEnabled")
+    interlaceMode = INTERLACE_MODE.valueOf(r[String]("interlaceMode"))
+    debugRegister = r[Int]("debugRegister")
+
+    for i <- spriteCache.indices do
+      spriteCache(i).restoreState(sb.getSubStateBuilder(s"spriteCache_$i"))
+
+    sprite1VisibleSR.restoreState(sb.getSubStateBuilder("sprite1VisibleSR"))
+
+    sprite1VisibleCurrentIndex = r[Int]("sprite1VisibleCurrentIndex")
+    sprite1FirstFetch = r[Boolean]("sprite1FirstFetch")
+    spritesLinePixels = r[Int]("spritesLinePixels")
+    spriteLineRenderingEnabled = r[Boolean]("spriteLineRenderingEnabled")
+    spriteEvaluationIndex = r[Int]("spriteEvaluationIndex")
+
+    for i <- sprite2Info.indices do
+      sprite2Info(i).restoreState(sb.getSubStateBuilder(s"sprite2Info_$i"))
+
+    sprite2CurrentIndex = r[Int]("sprite2CurrentIndex")
+    sprite2Size = r[Int]("sprite2Size")
+    lastSpriteXPosNonZero = r[Boolean]("lastSpriteXPosNonZero")
+    m68KBUSRequested = r[Boolean]("m68KBUSRequested")
+  end restoreState
 
   override def createState(sb: StateBuilder): Unit =
     sb.w("addressRegister",addressRegister).

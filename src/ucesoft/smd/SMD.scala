@@ -14,7 +14,7 @@ import ucesoft.smd.ui.MessageBoard.MessageLevel.NORMAL
 import ucesoft.smd.ui.{AudioVolumePanel, MessageBoard, MessageGlassPane, MouseHider, PerformanceMonitor}
 
 import java.awt.Color
-import java.io.{StringReader, StringWriter}
+import java.io.{FileOutputStream, PrintWriter, StringReader, StringWriter}
 import java.util.Properties
 import javax.swing.*
 
@@ -182,7 +182,7 @@ object SMD:
     psgAudio.setLogger(Logger.getLogger)
 
 
-    val cart = new Cart("""G:\My Drive\Emulatori\Sega Mega Drive\Mortal Kombat II (World).md""")
+    val cart = new Cart(Cart.CartFile("""G:\My Drive\Emulatori\Sega Mega Drive\Mortal Kombat II (World).md"""))
     println(cart)
 
     glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())
@@ -227,13 +227,17 @@ object SMD:
     val sw = new StringWriter()
     //yaml.dump(psgAudio.createComponentState().build(),sw)
     val rootSB = new StateBuilder()
-    Cart.createState(cart,rootSB)
+    vdp.createState(rootSB)
+//    Cart.createState(cart,rootSB)
     yaml.dump(rootSB.build(),sw)
-    println(sw)
+    val out = new PrintWriter(new FileOutputStream("""C:\Users\ealeame\OneDrive - Ericsson\Desktop\vdp.yaml"""))
+    out.println(sw.toString)
+    out.close()
+    //println(sw)
 
-    val state = yaml.load[java.util.Map[String,AnyRef]](new StringReader(sw.toString))
+    //val state = yaml.load[java.util.Map[String,AnyRef]](new StringReader(sw.toString))
     //psgAudio.restoreComponentState(new StateBuilder(state))
-    println(Cart.restoreState(new StateBuilder(state),false))
+    //println(Cart.restoreState(new StateBuilder(state),false))
 
     masterClock.start()
 

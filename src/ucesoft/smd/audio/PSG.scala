@@ -6,6 +6,7 @@ import ucesoft.smd.StateBuilder
  *         Created on 06/12/2023 18:49  
  */
 class PSG(sampleRate:Int, override val name:String) extends AudioDevice(sampleRate,name):
+  override protected val smdComponentName = "PSG"
   private var chip = new SN76489
   
   final def write(value:Int): Unit = chip.write(value)

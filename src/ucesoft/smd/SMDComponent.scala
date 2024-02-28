@@ -49,36 +49,54 @@ trait SMDComponent extends MessageBus.MessageListener:
   override def onMessage(msg: MessageBus.Message): Unit = {}
 
   final def createComponentState(): StateBuilder =
-    val sb = new StateBuilder()
-    val csb = new StateBuilder()
-    createState(csb)
-    sb.w("component",csb.build())
-    val compNames = components.map(_.smdComponentName)
-    val compNamesSet = compNames.toSet
-    if compNames.size != compNamesSet.size || compNamesSet.contains("component") then
-      throw StateBuilder.StateBuilderException(s"SMD component $smdComponentName contains a subcomponent with 'component' name or two or more subcomponents have the same name")
-    val children = new StateBuilder()
-    for comp <- components do
-      val state = comp.createComponentState()
-      children.w(comp.smdComponentName, state.build())
-    sb.w("children",children.build())
-    sb
+    try
+      val sb = new StateBuilder()
+      val csb = new StateBuilder()
+      createState(csb)
+      sb.w("component",csb.build())
+      val compNames = components.map(_.smdComponentName)
+      val compNamesSet = compNames.toSet
+      if compNames.size != compNamesSet.size || compNamesSet.contains("component") then
+        throw StateBuilder.StateBuilderException(s"SMD component $smdComponentName contains a subcomponent with 'component' name or two or more subcomponents have the same name")
+      val children = new StateBuilder()
+      for comp <- components do
+        val state = comp.createComponentState()
+        children.w(comp.smdComponentName, state.build())
+      sb.w("children",children.build())
+      sb
+    catch
+      case se:StateBuilder.StateBuilderException =>
+        se.addPath(smdComponentName)
+        throw se
+      case t: Throwable =>
+        val se = new StateBuilder.StateBuilderException(s"Unexpected error: $t")
+        se.addPath(smdComponentName)
+        throw se  
   final def restoreComponentState(sb:StateBuilder): Unit =
-    sb.subStateBuilder("component") match
-      case Some(comp) =>
-        restoreState(comp)
-        sb.subStateBuilder("children") match
-          case Some(children) =>
-            for c <- components do
-              children.subStateBuilder(c.smdComponentName) match
-                case Some(child) =>
-                  c.restoreComponentState(child)
-                case None =>
-                  throw new StateBuilder.StateBuilderException(s"Error while restoring ${c.smdComponentName} child of $smdComponentName: component not found")
-          case None =>
-            throw new StateBuilder.StateBuilderException(s"Error while restoring $smdComponentName: cannot find 'children' attribute")
-      case None =>
-        throw new StateBuilder.StateBuilderException(s"Error while restoring $smdComponentName: cannot find 'component' attribute")
+    try
+      sb.subStateBuilder("component") match
+        case Some(comp) =>
+          restoreState(comp)
+          sb.subStateBuilder("children") match
+            case Some(children) =>
+              for c <- components do
+                children.subStateBuilder(c.smdComponentName) match
+                  case Some(child) =>
+                    c.restoreComponentState(child)
+                  case None =>
+                    throw new StateBuilder.StateBuilderException(s"Error while restoring ${c.smdComponentName} child of $smdComponentName: component not found")
+            case None =>
+              throw new StateBuilder.StateBuilderException(s"Error while restoring $smdComponentName: cannot find 'children' attribute")
+        case None =>
+          throw new StateBuilder.StateBuilderException(s"Error while restoring $smdComponentName: cannot find 'component' attribute")
+    catch
+      case se: StateBuilder.StateBuilderException =>
+        se.addPath(smdComponentName)
+        throw se
+      case t: Throwable =>
+        val se = new StateBuilder.StateBuilderException(s"Unexpected error: $t")
+        se.addPath(smdComponentName)
+        throw se
 
   protected def createState(sb:StateBuilder): Unit = {}
   protected def restoreState(sb:StateBuilder): Unit = {}

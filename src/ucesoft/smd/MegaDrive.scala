@@ -2,14 +2,17 @@ package ucesoft.smd
 
 import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.audio.{FM, PSG}
-import ucesoft.smd.controller.{Controller, EmptyController, KeyboardPADController, MouseController, RealPadController}
+import ucesoft.smd.controller.EmptyController
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.misc.Preferences
 
 import java.io.{File, FileReader, IOException}
+import java.time.LocalDateTime
 import java.util.Properties
 
+object MegaDrive:
+  case class StateInfo(timestamp:LocalDateTime)
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 15/02/2024 15:24  
@@ -93,6 +96,8 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   
   override def init(): Unit =
     add(masterClock)
+    add(fmAudio)
+    add(psgAudio)
     add(mmu)
     add(m68k)
     add(z80)
@@ -151,10 +156,11 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   
   private def modelChanged(newModel:Model): Unit =
     _model = newModel
-    psgAudio.setCPUFrequency(model.videoType.clockFrequency / Z80_CLOCK_DIVIDER)
+    psgAudio.setCPUFrequency(_model.videoType.clockFrequency / Z80_CLOCK_DIVIDER)
     psgSampleCycles = psgAudio.getCyclesPerSample
     vdp.setModel(_model)
     mmu.setModel(_model)
+    clockRateChanged(_model.videoType.clockFrequency)
     // TODO
     
   private def cartInserted(cart:Cart): Unit =
@@ -207,6 +213,35 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
           psgAudio.clock()
       end if
   end clock
-  // ============================================================
+  // ================= State ====================================
+  //def getStateInfo():
+  override def createState(sb: StateBuilder): Unit =
+    // Internal state
+    sb.w("timestamp",LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"))).
+      w("version",Version.VERSION).
+      w("buildDate",Version.BUILD_DATE)
+
+    val modelSB = new StateBuilder()
+    modelSB.w("videoType",model.videoType.toString).
+      w("modelType",model.modelType.toString).
+      w("version",model.versionNumber)
+    sb.w("model",modelSB.build())
+
+    val loopSB = new StateBuilder()
+    loopSB.w("m68Div",m68Div).
+      w("z80Div",z80Div).
+      w("m68Acc",m68Acc).
+      w("z80Acc",z80Acc).
+      w("psgCycles",psgCycles).
+      w("fmCycles",fmCycles).
+      w("m68WaitCycles",m68WaitCycles).
+      w("z80WaitCycles",z80WaitCycles)
+    sb.w("loop",loopSB.build())
+    
+    // Cart
+    val cartSB = new StateBuilder()
+    Cart.createState(_cart,cartSB)
+    sb.w("cart",cartSB.build())
+  override def restoreState(sb: StateBuilder): Unit = ???
 
 

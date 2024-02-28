@@ -5,7 +5,11 @@ import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 import scala.reflect.ClassTag
 
 object StateBuilder:
-  class StateBuilderException(msg:String) extends IllegalArgumentException(msg)
+  class StateBuilderException(msg:String) extends IllegalArgumentException(msg):
+    private var componentPath : List[String] = Nil
+    def addPath(p:String): Unit = componentPath ::= p
+    def getComponentPath: String = componentPath.mkString(".")
+    
   sealed trait StateSimpleType[T]
 
   object StateSimpleType:

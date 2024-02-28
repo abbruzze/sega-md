@@ -1,17 +1,18 @@
 package ucesoft.smd.ui
 
 import com.formdev.flatlaf.FlatLightLaf
+import org.yaml.snakeyaml.{DumperOptions, Yaml}
 import ucesoft.smd.VDP.SCREEN_WIDTH
+import ucesoft.smd.{Cart, Display, Logger, MegaDrive, MessageBus, StateBuilder, Version, ui}
 import ucesoft.smd.controller.{Controller, EmptyController, KeyboardPADController, MouseController, RealPadController}
 import ucesoft.smd.debugger.Debugger
 import ucesoft.smd.misc.Preferences
 import ucesoft.smd.ui.MessageBoard.MessageLevel.ADMIN
-import ucesoft.smd.{Cart, Display, Logger, MegaDrive, MessageBus, ui}
 
 import java.awt.event.{WindowAdapter, WindowEvent}
-import java.io.{File, FileInputStream}
+import java.io.{File, FileInputStream, FileOutputStream, PrintWriter}
 import java.nio.file.StandardCopyOption
-import java.util.zip.ZipInputStream
+import java.util.zip.{GZIPOutputStream, ZipInputStream}
 import javax.swing.filechooser.FileFilter
 import javax.swing.{ImageIcon, JCheckBoxMenuItem, JDialog, JFileChooser, JFrame, JMenu, JMenuBar, JMenuItem, JOptionPane, KeyStroke, SwingUtilities, UIManager}
 import scala.collection.mutable.ListBuffer
@@ -57,11 +58,14 @@ class MegaDriveUI:
   private var performanceMonitor : PerformanceMonitor = _
 
   private var lastDirectory = new File(scala.util.Properties.userHome)
+  private var lastSaveStateFile : String = _
   private var fixChecksum = false
 
   // MenuItems
+  private val stateMenu = new JMenu("State")
   private val cartMenu = new JMenu("Cart")
   private val debugMenu = new JMenu("Debug")
+  private val quickSaveStateItem = new JMenuItem("Quick save state")
   private val debuggerCB = new JCheckBoxMenuItem("Debugger")
   private val warpModeCB = new JCheckBoxMenuItem("Warp mode")
   private val audioPanelCB = new JCheckBoxMenuItem("Audio settings")
@@ -69,7 +73,7 @@ class MegaDriveUI:
 
   def boot(): Unit =
     // main frame
-    frame = new JFrame(s"Mega Drive emulator v1.0") // TODO add Version generated class info
+    frame = new JFrame(s"Mega Drive emulator v${Version.VERSION}")
     frame.setResizable(false)
     frame.addWindowListener(new WindowAdapter {
       override def windowClosing(e: WindowEvent): Unit = shutdown()
@@ -195,18 +199,21 @@ class MegaDriveUI:
     frame.setJMenuBar(menubar)
 
     val fileMenu = new JMenu("File")
+    stateMenu.setEnabled(false)
     debugMenu.setEnabled(false)
     val toolsMenu = new JMenu("Tools")
     cartMenu.setEnabled(false)
     val helpMenu = new JMenu("Help")
 
     menubar.add(fileMenu)
+    menubar.add(stateMenu)
     menubar.add(debugMenu)
     menubar.add(toolsMenu)
     menubar.add(cartMenu)
     menubar.add(helpMenu)
 
     buildFileMenu(fileMenu)
+    buildStateMenu(stateMenu)
     buildToolsMenu(toolsMenu)
     buildDebugMenu(debugMenu)
   end buildMenuBar
@@ -216,6 +223,16 @@ class MegaDriveUI:
     fileMenu.add(loadCartItem)
     loadCartItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_L,java.awt.event.InputEvent.ALT_DOWN_MASK))
     loadCartItem.addActionListener(_ => attachCart(None))
+  private def buildStateMenu(stateMenu:JMenu): Unit =
+    val saveStateItem = new JMenuItem("Save state ...")
+    stateMenu.add(saveStateItem)
+    saveStateItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_S, java.awt.event.InputEvent.ALT_DOWN_MASK))
+    saveStateItem.addActionListener(_ => saveState(None))
+    quickSaveStateItem.setEnabled(false)
+    stateMenu.add(quickSaveStateItem)
+    quickSaveStateItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_Q, java.awt.event.InputEvent.ALT_DOWN_MASK))
+    quickSaveStateItem.addActionListener(_ => saveState(Some(lastSaveStateFile)))
+
   private def buildDebugMenu(debugMenu:JMenu): Unit =
     debugMenu.add(debuggerCB)
     debuggerCB.addActionListener(_ => debugger.showDebugger(debuggerCB.isSelected))
@@ -287,6 +304,7 @@ class MegaDriveUI:
       build()
     )
     debugger.setCart(cart)
+    stateMenu.setEnabled(true)
     debugMenu.setEnabled(true)
     pauseCB.setEnabled(true)
     MouseHider.hideMouseOn(megaDrive.display)
@@ -295,6 +313,7 @@ class MegaDriveUI:
 
   private def detachCart(): Unit =
     cart = null
+    stateMenu.setEnabled(true)
     debugMenu.setEnabled(false)
     debugger.enableTracing(false)
     debugger.showDebugger(false)
@@ -304,6 +323,7 @@ class MegaDriveUI:
 
   private def chooseCart(): Option[File] =
     val fc = new JFileChooser()
+    fc.setDialogTitle("Choose cartridge to play")
     fc.setFileFilter(new FileFilter {
       override def accept(f: File): Boolean =
         val fileName = f.getName.toUpperCase()
@@ -314,28 +334,22 @@ class MegaDriveUI:
     fc.setCurrentDirectory(lastDirectory)
     fc.showOpenDialog(frame) match
       case JFileChooser.APPROVE_OPTION =>
+        lastDirectory = fc.getSelectedFile.getParentFile
         Some(fc.getSelectedFile)
       case _ =>
         None
 
   private def extractFromZIP(file:File): Option[File] =
     try
-      val zis = new ZipInputStream(new FileInputStream(file))
-      val entry = zis.getNextEntry
-      if entry != null && !entry.isDirectory then
-        val fileName = entry.getName.toUpperCase()
-        if fileName.endsWith(".BIN") || fileName.endsWith(".MD") || fileName.endsWith(".SMD") then
-          val tmpFile = File.createTempFile(fileName,null)
-          tmpFile.deleteOnExit()
-          java.nio.file.Files.copy(zis,tmpFile.toPath,StandardCopyOption.REPLACE_EXISTING)
-          zis.close()
-          Some(tmpFile)
-        else
+      Cart.extractFromZIP(file.toString) match
+        case Right(f) =>
+          Some(f)
+        case Left(Cart.UNZIP_ERROR.NO_SUITABLE_CART) =>
           JOptionPane.showMessageDialog(frame,s"Error while extracting from zip file '${file.getName}': no suitable cartridge extension found","Zip error",JOptionPane.ERROR_MESSAGE)
           None
-      else
-        JOptionPane.showMessageDialog(frame,s"Error while extracting from zip file '${file.getName}': directory found","Zip error",JOptionPane.ERROR_MESSAGE)
-        None
+        case Left(Cart.UNZIP_ERROR.DIRECTORY_FOUND) =>
+          JOptionPane.showMessageDialog(frame, s"Error while extracting from zip file '${file.getName}': directory found", "Zip error", JOptionPane.ERROR_MESSAGE)
+          None
     catch
       case t:Throwable =>
         JOptionPane.showMessageDialog(frame,s"Error while extracting from zip file '${file.getName}': $t","Zip error",JOptionPane.ERROR_MESSAGE)
@@ -351,7 +365,7 @@ class MegaDriveUI:
     val loadingDialog = new LoadingDialog(frame, s"Loading cart ${file.getName} ...")
     loadingDialog.setVisible(true)
     try
-      val cart = new Cart(f.toString, None, fixChecksum = fixChecksum)
+      val cart = new Cart(Cart.CartFile(file.toString,f.toString), None, fixChecksum = fixChecksum)
       println(cart)
       if cart.getSystemType == Cart.SYSTEM_TYPE.UNKNOWN then
         JOptionPane.showMessageDialog(frame, s"Unknown system for cartridge '${file.getName}'", "Cartridge loading warning", JOptionPane.WARNING_MESSAGE)
@@ -371,5 +385,51 @@ class MegaDriveUI:
 
   private def setAudio(on:Boolean): Unit =
     MessageBus.send(MessageBus.AudioEnabledMessage(this,on))
+
+  private def saveState(file:Option[String]): Unit =
+    pause()
+    try
+      val outFileName = file match
+        case Some(f) => f
+        case None =>
+          val fc = new JFileChooser()
+          fc.setDialogTitle("Choose where to store the state")
+          fc.setCurrentDirectory(lastDirectory)
+          fc.showSaveDialog(frame) match
+            case JFileChooser.APPROVE_OPTION =>
+              var file = fc.getSelectedFile
+              if !file.getName.toUpperCase().endsWith(".YAML.GZ") then
+                file = new File(file.toString + ".yaml.gz")
+              if file.exists() then
+                JOptionPane.showConfirmDialog(frame,"File already exists, do you want to overwrite it ?","File exists",JOptionPane.YES_NO_OPTION) match
+                  case JOptionPane.YES_OPTION =>
+                    file.toString
+                  case _ =>
+                    return
+              else
+                file.toString
+            case _ =>
+              return
+
+      val sb = megaDrive.createComponentState()
+      val options = new DumperOptions
+      options.setIndent(2)
+      options.setPrettyFlow(true)
+      options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
+      val yaml = new Yaml(options)
+      val out = new PrintWriter(new GZIPOutputStream(new FileOutputStream(outFileName)))
+      yaml.dump(sb.build(),out)
+      out.close()
+      lastSaveStateFile = outFileName
+      quickSaveStateItem.setEnabled(true)
+      glassPane.addMessage(MessageBoard.builder.message("State saved").adminLevel().bold().xleft().ybottom().delay(1000).fadingMilliseconds(500).build())
+    catch
+      case e:StateBuilder.StateBuilderException =>
+        JOptionPane.showMessageDialog(frame,s"Error while saving state. Component [${e.getComponentPath}]: ${e.getMessage}","State error",JOptionPane.ERROR_MESSAGE)
+      case t:Throwable =>
+        t.printStackTrace()
+        JOptionPane.showMessageDialog(frame,s"Unexpected error while saving state: $t","State error",JOptionPane.ERROR_MESSAGE)
+    finally
+      play()
 
 
