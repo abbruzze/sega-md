@@ -3,18 +3,17 @@ package ucesoft.smd.ui
 import com.formdev.flatlaf.FlatLightLaf
 import org.yaml.snakeyaml.{DumperOptions, Yaml}
 import ucesoft.smd.VDP.SCREEN_WIDTH
-import ucesoft.smd.{Cart, Display, Logger, MegaDrive, MessageBus, StateBuilder, Version, ui}
-import ucesoft.smd.controller.{Controller, EmptyController, KeyboardPADController, MouseController, RealPadController}
+import ucesoft.smd.controller.*
 import ucesoft.smd.debugger.Debugger
-import ucesoft.smd.misc.Preferences
+import ucesoft.smd.misc.{FullScreenMode, Preferences}
 import ucesoft.smd.ui.MessageBoard.MessageLevel.ADMIN
+import ucesoft.smd.*
 
 import java.awt.event.{WindowAdapter, WindowEvent}
-import java.io.{File, FileInputStream, FileOutputStream, PrintWriter}
-import java.nio.file.StandardCopyOption
-import java.util.zip.{GZIPOutputStream, ZipInputStream}
+import java.io.*
+import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 import javax.swing.filechooser.FileFilter
-import javax.swing.{ImageIcon, JCheckBoxMenuItem, JDialog, JFileChooser, JFrame, JMenu, JMenuBar, JMenuItem, JOptionPane, KeyStroke, SwingUtilities, UIManager}
+import javax.swing.*
 import scala.collection.mutable.ListBuffer
 
 object MegaDriveUI:
@@ -45,7 +44,8 @@ end MegaDriveUI
  * @author Alessandro Abbruzzetti
  *         Created on 20/02/2024 15:49  
  */
-class MegaDriveUI:
+class MegaDriveUI extends MessageBus.MessageListener:
+  private inline val MESSAGE_STD_WAIT = 2000
   // motherboard
   private val megaDrive = new MegaDrive
 
@@ -61,6 +61,8 @@ class MegaDriveUI:
   private var lastSaveStateFile : String = _
   private var fixChecksum = false
 
+  private var extraRAMDirectory : File = _
+
   // MenuItems
   private val stateMenu = new JMenu("State")
   private val cartMenu = new JMenu("Cart")
@@ -70,6 +72,55 @@ class MegaDriveUI:
   private val warpModeCB = new JCheckBoxMenuItem("Warp mode")
   private val audioPanelCB = new JCheckBoxMenuItem("Audio settings")
   private val pauseCB = new JCheckBoxMenuItem("Pause")
+  private val fullScreenMode = new JMenuItem("Full screen mode")
+
+  override def onMessage(msg: MessageBus.Message): Unit =
+    msg match
+      case MessageBus.CartRemoved(_,cart) =>
+        cart.getExtraMemoryInfo match
+          case Some(mf) =>
+            saveCartExtraMemory(cart)
+          case None =>
+      case MessageBus.CartInserted(_,cart) =>
+        cart.getExtraMemoryInfo match
+          case Some(mf) =>
+            loadCartExtraMemory(cart)
+          case None =>
+      case _ =>
+
+  private def saveCartExtraMemory(cart:Cart): Unit =
+    cart.getExtraMemoryInfo match
+      case Some(mf) =>
+        val mem = mf.extraRAM.map(_.toByte)
+        val dir = Option(extraRAMDirectory).getOrElse(new File(cart.file.originalFile).getParentFile)
+        var cartFile = new File(cart.file.originalFile).getName
+        val extPos = cartFile.lastIndexOf('.')
+        if extPos != -1 then
+          cartFile = cartFile.substring(0,extPos)
+        cartFile += ".ram"
+        val file = new File(dir,cartFile)
+        val out = new FileOutputStream(file)
+        out.write(mem)
+        out.close()
+        glassPane.addMessage(MessageBoard.builder.message("Extra ram saved").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
+      case None =>
+  private def loadCartExtraMemory(cart:Cart): Unit =
+    cart.getExtraMemoryInfo match
+      case Some(mf) =>
+        val dir = Option(extraRAMDirectory).getOrElse(new File(cart.file.originalFile).getParentFile)
+        var cartFile = new File(cart.file.originalFile).getName
+        val extPos = cartFile.lastIndexOf('.')
+        if extPos != -1 then
+          cartFile = cartFile.substring(0,extPos)
+        cartFile += ".ram"
+        val file = new File(dir,cartFile)
+
+        if file.exists() then
+          val in = new FileInputStream(file)
+          val mem = in.readAllBytes().map(_.toInt & 0xFF)
+          in.close()
+          System.arraycopy(mem,0,mf.extraRAM,0,mf.extraRAM.length)
+      case None =>
 
   def boot(): Unit =
     // main frame
@@ -87,7 +138,7 @@ class MegaDriveUI:
     frame.getContentPane.add("Center",display)
     frame.pack()
 
-    debugger = new Debugger(megaDrive.m68k,megaDrive.mmu,megaDrive.mmu.get68KRAM,megaDrive.z80,megaDrive.mmu.getZ80RAM,megaDrive.vdp,glassPane,() => debuggerCB.setSelected(false))
+    debugger = new Debugger(megaDrive.m68k,megaDrive.mmu,megaDrive.mmu.get68KRAM,megaDrive.z80,megaDrive.mmu.getZ80RAM,megaDrive.vdp,() => debuggerCB.setSelected(false))
     val logger = Logger.setLogger(debugger.log)
     megaDrive.setLogger(logger)
 
@@ -96,6 +147,9 @@ class MegaDriveUI:
 
     buildMenuBar()
 
+    // Real pad
+    RealPadController.discoverControllers()
+
     // DND
     frame.setTransferHandler(new DNDHandler(handleDND))
   end boot
@@ -103,10 +157,13 @@ class MegaDriveUI:
   protected def makeController(pos: Int): Controller =
     megaDrive.conf.getProperty(Controller.formatProp(Controller.CONTROLLER_DEVICE_PROP, pos)) match
       case KeyboardPADController.DEVICE_PROP_VALUE | null =>
+        Logger.getLogger.info("Controller %d set as keyboard pad",pos + 1)
         new KeyboardPADController(frame,megaDrive.conf,pos,megaDrive.masterClock)
       case RealPadController.DEVICE_PROP_VALUE =>
+        Logger.getLogger.info("Controller %d set as real pad",pos + 1)
         new RealPadController(megaDrive.conf,pos,megaDrive.masterClock)
       case MouseController.DEVICE_PROP_VALUE =>
+        Logger.getLogger.info("Controller %d set as mouse",pos + 1)
         new MouseController(pos,megaDrive.display)
       case unknown =>
         Logger.getLogger.warning("Cannot make controller %d from configuration file: unknown device %s", pos, unknown)
@@ -124,7 +181,19 @@ class MegaDriveUI:
     pauseCB.setSelected(false)
     megaDrive.masterClock.play()
 
-  private def shutdown(): Unit = ??? // TODO
+  private def shutdown(): Unit =
+    val loadingDialog = new LoadingDialog(frame, s"Shutting down emulator ...")
+    loadingDialog.setVisible(true)
+    try
+      frame.dispose()
+      megaDrive.cart.foreach(cart => {
+        MessageBus.send(MessageBus.CartRemoved(this,cart))
+      })
+      savePreferences()
+    finally
+      loadingDialog.dispose()
+
+  private def savePreferences(): Unit = ???
 
   private def errorHandler(t:Throwable): Unit =
     t.printStackTrace()
@@ -145,7 +214,10 @@ class MegaDriveUI:
   private def openDebugger(): Unit =
     debugger.enableTracing(true)
 
-  private def configure(args:Array[String]): Unit = {} // TODO
+  private def configure(args:Array[String]): Unit =
+    // check controllers
+    megaDrive.mmu.setController(0,makeController(0))
+    megaDrive.mmu.setController(1,makeController(1))
 
   private def run(): Unit =
     val log = Logger.getLogger
@@ -171,13 +243,14 @@ class MegaDriveUI:
       frame.setVisible(true)
       glassPane = new MessageGlassPane(frame)
       glassPane.setLevel(ADMIN)
+      debugger.setMessageBoard(glassPane)
       showWelcome()
     }
   end run
 
   private def showWelcome(): Unit =
     // TODO
-    glassPane.addMessage(MessageBoard.builder.message("Welcome").adminLevel().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).build())
+    glassPane.addMessage(MessageBoard.builder.message("Welcome").adminLevel().bold().xcenter().ycenter().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
 
   private def reset(hard:Boolean): Unit =
     if !megaDrive.masterClock.isPaused then
@@ -265,7 +338,37 @@ class MegaDriveUI:
     warpModeCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_W, java.awt.event.InputEvent.ALT_DOWN_MASK))
     warpModeCB.addActionListener(_ => setWarpMode(warpModeCB.isSelected))
 
+    fullScreenMode.setEnabled(false)
+    fullScreenMode.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, java.awt.event.InputEvent.ALT_DOWN_MASK))
+    fullScreenMode.addActionListener(_ => enableFullScreenMode(true))
+    toolsMenu.add(fullScreenMode)
+
+    val controllerItem = new JMenuItem("Controllers ...")
+    controllerItem.addActionListener(_ => openControllersPanel())
+    controllerItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_J, java.awt.event.InputEvent.ALT_DOWN_MASK))
+    toolsMenu.add(controllerItem)
+
   private def handleDND(file:File) : Unit = attachCart(Some(file))
+
+  private def openControllersPanel(): Unit =
+    val panel = new ControllerConfigPanel(frame,megaDrive.conf,megaDrive.mmu.getController,megaDrive.mmu.setController)
+    panel.dialog.setVisible(true)
+  private def enableFullScreenMode(selectScreen:Boolean): Unit =
+    var selectedScreenIndex = 0
+    val devices = FullScreenMode.getScreenDeviceIDs
+    if devices.length > 1 then
+      pause()
+      try
+        JOptionPane.showInputDialog(frame,"Select screen","Screen selection for full screen mode",JOptionPane.INFORMATION_MESSAGE,null,devices.asInstanceOf[Array[Object]],devices(0)) match
+          case null =>
+            return
+          case sel =>
+            val index = devices.indexOf(sel.toString)
+            if index != -1 then
+              selectedScreenIndex = index
+      finally
+        play()
+    FullScreenMode.goFullScreen(selectedScreenIndex,glassPane,frame,megaDrive.display,SCREEN_WIDTH, megaDrive.model.videoType.totalLines,null) // TODO
 
   private def attachCart(file:Option[File]): Unit =
     if cart != null then
@@ -299,7 +402,7 @@ class MegaDriveUI:
       bold().
       xcenter().
       ybottom().
-      delay(2000).
+      delay(MESSAGE_STD_WAIT).
       fadingMilliseconds(2000).
       build()
     )
@@ -307,6 +410,7 @@ class MegaDriveUI:
     stateMenu.setEnabled(true)
     debugMenu.setEnabled(true)
     pauseCB.setEnabled(true)
+    fullScreenMode.setEnabled(true)
     MouseHider.hideMouseOn(megaDrive.display)
 
     reset(hard = true)
@@ -319,6 +423,7 @@ class MegaDriveUI:
     debugger.showDebugger(false)
     pauseCB.setEnabled(false)
     MouseHider.showMouseOn(megaDrive.display)
+    fullScreenMode.setEnabled(false)
     // TODO
 
   private def chooseCart(): Option[File] =
@@ -412,14 +517,7 @@ class MegaDriveUI:
               return
 
       val sb = megaDrive.createComponentState()
-      val options = new DumperOptions
-      options.setIndent(2)
-      options.setPrettyFlow(true)
-      options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
-      val yaml = new Yaml(options)
-      val out = new PrintWriter(new GZIPOutputStream(new FileOutputStream(outFileName)))
-      yaml.dump(sb.build(),out)
-      out.close()
+      saveStateAsYAML(sb,outFileName)
       lastSaveStateFile = outFileName
       quickSaveStateItem.setEnabled(true)
       glassPane.addMessage(MessageBoard.builder.message("State saved").adminLevel().bold().xleft().ybottom().delay(1000).fadingMilliseconds(500).build())
@@ -431,5 +529,33 @@ class MegaDriveUI:
         JOptionPane.showMessageDialog(frame,s"Unexpected error while saving state: $t","State error",JOptionPane.ERROR_MESSAGE)
     finally
       play()
+  end saveState
+
+  private def saveStateAsYAML(sb:StateBuilder,fileName:String): Unit =
+    val loadingDialog = new LoadingDialog(frame, s"Backing up state $fileName ...")
+    loadingDialog.setVisible(true)
+    try
+      val options = new DumperOptions
+      options.setIndent(2)
+      options.setPrettyFlow(true)
+      options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK)
+      val yaml = new Yaml(options)
+      val out = new PrintWriter(new GZIPOutputStream(new FileOutputStream(fileName)))
+      yaml.dump(sb.build(), out)
+      out.close()
+    finally
+      loadingDialog.dispose()
+
+  private def loadStateAsYAML(fileName:String): StateBuilder =
+    val loadingDialog = new LoadingDialog(frame, s"Restoring state $fileName ...")
+    loadingDialog.setVisible(true)
+    try
+      val yaml = new Yaml()
+      val in = new InputStreamReader(new GZIPInputStream(new FileInputStream(fileName)))
+      val state = yaml.load[java.util.Map[String,AnyRef]](in)
+      in.close()
+      new StateBuilder(state)
+    finally
+      loadingDialog.dispose()
 
 

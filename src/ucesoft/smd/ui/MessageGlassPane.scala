@@ -10,7 +10,7 @@ import javax.swing.{ImageIcon, JFrame, JLabel, JPanel, SwingUtilities}
  * @author Alessandro Abbruzzetti
  *         Created on 13/12/2023 15:59  
  */
-class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable with MessageBoard.MessageBoardListener:
+class MessageGlassPane(private var frame:JFrame) extends ComponentListener with Runnable with MessageBoard.MessageBoardListener:
   import MessageBoard.*
 
   private inline val FONT_WINDOW_WIDTH_RATIO = 30.0f
@@ -38,13 +38,17 @@ class MessageGlassPane(frame:JFrame) extends ComponentListener with Runnable wit
           g.drawImage(logoImage,xoff + ((size.width - xoff) - width) / 2,yoff + ((size.height - yoff) - height) / 2,width,height,null)
       super.paintComponent(g)
 
-  frame.addComponentListener(this)
-  frame.getRootPane.addComponentListener(new ComponentAdapter:
-    override def componentResized(e: ComponentEvent): Unit =
-      if enabled then
-        renderMessage()
-  )
+  changeFrame(frame)
   thread.start()
+
+  def changeFrame(f:JFrame): Unit =
+    frame = f
+    frame.addComponentListener(this)
+    frame.getRootPane.addComponentListener(new ComponentAdapter:
+      override def componentResized(e: ComponentEvent): Unit =
+        if enabled then
+          renderMessage()
+    )
 
   def run(): Unit =
     panelReadyWait.await()

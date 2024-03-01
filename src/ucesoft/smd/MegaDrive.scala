@@ -12,7 +12,7 @@ import java.time.LocalDateTime
 import java.util.Properties
 
 object MegaDrive:
-  case class StateInfo(timestamp:LocalDateTime)
+  case class StateInfo(timestamp:LocalDateTime,version:String,buildDate:LocalDateTime,cartInfo:Cart.CartInfo)
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 15/02/2024 15:24  
@@ -127,7 +127,8 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     busArbiter.set(m68k, z80, fmAudio)
     
     for c <- 0 to 2 do
-      mmu.setController(c,new EmptyController(c))
+      if mmu.getController(c) == null then
+        mmu.setController(c,new EmptyController(c))
       
     MessageBus.add(this)
     MessageBus.add(vdp)
@@ -214,7 +215,20 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
       end if
   end clock
   // ================= State ====================================
-  //def getStateInfo():
+  def getStateInfo(sb: StateBuilder): Option[MegaDrive.StateInfo] =
+    try
+      val dateFormatter = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")
+      val ts = LocalDateTime.from(dateFormatter.parse(sb.r[String]("timestamp")))
+      val version = sb.r[String]("version")
+      val buildDate = LocalDateTime.from(dateFormatter.parse(sb.r[String]("buildDate")))
+      Cart.getInfo(sb.getSubStateBuilder("cart")) match
+        case Some(cartInfo) =>
+          Some(MegaDrive.StateInfo(ts,version,buildDate,cartInfo))
+        case None =>
+          None
+    catch
+      case _:StateBuilder.StateBuilderException =>
+        None
   override def createState(sb: StateBuilder): Unit =
     // Internal state
     sb.w("timestamp",LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"))).

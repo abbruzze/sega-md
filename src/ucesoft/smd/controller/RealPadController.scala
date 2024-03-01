@@ -59,6 +59,7 @@ object RealPadController:
   def getControllerByName(name:String) : Option[Controller] = controllers.find(_.getName.trim == name)
 
 class RealPadController(config:Properties, override val index: Int, override val clock: Clock) extends PadController(index,clock) with Runnable:
+  override val device : ControllerDevice = ControllerDevice.RealPad
   import RealPadController.*
   private inline val DIR_THRESHOLD = 0.5f
 

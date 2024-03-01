@@ -25,6 +25,7 @@ $1F0	3 bytes	  Region support
 $1F3	13 bytes	(reserved, fill with spaces)
  */
 object Cart:
+  case class CartInfo(fileName:String,crc32:String)
   case class CartFile(originalFile:String,fileToLoad:String)
   object CartFile:
     def apply(file:String): CartFile = CartFile(file,file)
@@ -61,10 +62,20 @@ object Cart:
         Left(NO_SUITABLE_CART)
     else
       Left(DIRECTORY_FOUND)
+      
+  def getInfo(sb:StateBuilder): Option[CartInfo] =
+    try
+      val fileName = sb.r[String]("rom-filename")
+      val crc32 = sb.r[String]("rom-crc32")
+      Some(CartInfo(fileName,crc32))
+    catch
+      case _: StateBuilder.StateBuilderException =>
+        None
 
   def createState(cart:Cart,rootSB:StateBuilder): Unit =
     val cartSB = new StateBuilder()
     cartSB.w("rom-filename",cart.file.originalFile)
+    cartSB.w("rom-crc32",cart.crc32)
     cart.getExtraMemoryInfo match
       case None =>
       case Some(em) =>

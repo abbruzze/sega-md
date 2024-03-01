@@ -209,6 +209,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   def setController(index:Int,c:Controller): Unit =
     controllers(index) = c
+  def getController(index:Int): Controller = controllers(index)
 
   def enableZ80ToRead68KRam(enable:Boolean): Unit =
     allowZ80ToRead68KRam = enable

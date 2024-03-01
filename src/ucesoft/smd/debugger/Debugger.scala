@@ -42,7 +42,6 @@ class Debugger(m68k:M68000,
                z80:Z80,
                z80Ram:Array[Int],
                vdp:VDP,
-               messageBoard: MessageBoardListener,
                windowCloseOperation: () => Unit) extends VDP.VDPNewFrameListener:
   import Debugger.*
   private enum StepState:
@@ -161,6 +160,8 @@ class Debugger(m68k:M68000,
     z80Debugger,
     () => z80BreakItem.setSelected(false)
   ).dialog
+
+  private var messageBoard: MessageBoardListener = _
 
   private val tabbedPane = new JTabbedPane()
 
@@ -800,7 +801,8 @@ class Debugger(m68k:M68000,
   end M68KDebugger
 
   // ==================================================================================================
-
+  def setMessageBoard(mb:MessageBoardListener): Unit =
+    messageBoard = mb
   def setCart(cart:Cart): Unit =
     this.cart = cart
     if cart == null then
@@ -1099,7 +1101,8 @@ class Debugger(m68k:M68000,
       frameByFrameLock.notify()
     }
     frameCount += 1
-    messageBoard.addMessage(MessageBoard.builder.message(s"$frameCount  ").ytop().xright().delay(500).fadingMilliseconds(100).adminLevel().build())
+    if messageBoard != null then
+      messageBoard.addMessage(MessageBoard.builder.message(s"$frameCount  ").ytop().xright().delay(500).fadingMilliseconds(100).adminLevel().build())
 
   private def breakGUI(): Unit =
     if tabbedPane.getSelectedIndex == 1 then

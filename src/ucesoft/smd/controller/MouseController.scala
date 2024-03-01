@@ -42,6 +42,7 @@ object MouseController:
   All buttons (start, left, middle, right) are active-high logic, so they return '1' when pressed and '0' when released.
  */
 class MouseController(override val index: Int,display:Display) extends Controller with MouseMotionListener with MouseListener:
+  override val device : ControllerDevice = ControllerDevice.Mouse
   private inline val LEFT_BUTTON_MASK = 0x1
   private inline val RIGHT_BUTTON_MASK = 0x2
   private inline val MIDDLE_BUTTON_MASK = 0x4

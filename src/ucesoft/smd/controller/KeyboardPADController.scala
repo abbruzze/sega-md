@@ -14,7 +14,7 @@ object KeyboardPADController:
 class KeyboardPADController(component:java.awt.Component,config:Properties,override val index: Int, override val clock: Clock) extends PadController(index, clock) with KeyListener:
   import java.awt.event.KeyEvent.*
   import PadController.*
-  
+  override val device : ControllerDevice = ControllerDevice.KeyboardPad
   private val DEFAULT_KEYMAPS = Array(
     Map(
       VK_A -> A,
@@ -62,9 +62,13 @@ class KeyboardPADController(component:java.awt.Component,config:Properties,overr
     checkType(config)
     val reverseDefaultMap = DEFAULT_KEYMAPS(index).map(kv => (kv._2,kv._1))
     buttonAndDirectionsPropNames.zipWithIndex.map(b => {
-      val key = config.getProperty(Controller.formatProp(b._1, index))
+      val property = Controller.formatProp(b._1, index)
+      val key = config.getProperty(property)
       if key == null then 
-        (reverseDefaultMap(b._2),b._2)
+        val kv = (reverseDefaultMap(b._2),b._2)
+        val keyName = KeyEvent.getKeyText(kv._1)
+        config.setProperty(property,s"${kv._1}")
+        kv
       else
         (key.toInt,b._2)
     }).toMap

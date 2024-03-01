@@ -20,7 +20,7 @@ object PadControllerButtonsSelectionPanel:
  * @author Alessandro Abbruzzetti
  *         Created on 16/01/2024 14:29  
  */
-class PadControllerButtonsSelectionPanel(frame:JFrame,index:Int,config:Properties,realPadControllerName:Option[String],action: Option[Properties] => Unit) extends JPanel:
+class PadControllerButtonsSelectionPanel(frame:JDialog,index:Int,config:Properties,realPadControllerName:Option[String],action: Option[Properties] => Unit) extends JPanel:
   import ucesoft.smd.controller.PadController.*
   private val workingConfig = new Properties()
   private val keyLabels = Array.ofDim[JLabel](12)
@@ -49,7 +49,11 @@ class PadControllerButtonsSelectionPanel(frame:JFrame,index:Int,config:Propertie
       val button = new JButton(BUTTONS_NAMES(r))
       keysPanel.add(button)
       button.addActionListener(_ => configureButton(r))
-      val value = workingConfig.getProperty(Controller.formatProp(buttonAndDirectionsPropNames(r),index),"EMPTY")
+      var value = workingConfig.getProperty(Controller.formatProp(buttonAndDirectionsPropNames(r),index))
+      if value == null then
+        value = "EMPTY"
+      else
+        value = KeyEvent.getKeyText(value.toInt)
       keyLabels(r) = new JLabel(value)
       if value == "EMPTY" then
         keyLabels(r).setForeground(Color.RED)
@@ -72,6 +76,7 @@ class PadControllerButtonsSelectionPanel(frame:JFrame,index:Int,config:Propertie
     buttonPanel.add(cancelButton)
     add("South",buttonPanel)
     dialog.getContentPane.add("Center",this)
+    dialog.setLocationRelativeTo(frame)
     dialog.pack()
 
     if !keyboardMode then
@@ -118,7 +123,7 @@ class PadControllerButtonsSelectionPanel(frame:JFrame,index:Int,config:Propertie
       override def keyReleased(e: KeyEvent): Unit = {}
       override def keyPressed(e: KeyEvent): Unit =
         waitingDialog.dispose()
-        val keyName = s"${KeyEvent.getKeyText(e.getKeyCode)},${e.getKeyCode}"
+        val keyName = s"${e.getKeyCode}"
         keyLabels(b).setText(KeyEvent.getKeyText(e.getKeyCode))
         keyLabels(b).setForeground(Color.WHITE)
         workingConfig.setProperty(Controller.formatProp(buttonAndDirectionsPropNames(b),index),keyName)

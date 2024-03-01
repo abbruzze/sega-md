@@ -169,7 +169,8 @@ object SMD:
     glassPane.setLevel(NORMAL)
     vdp.setMessageListener(glassPane)
 
-    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp,glassPane,() => {})
+    val deb = new Debugger(m68k,mmu,mmu.get68KRAM,z80,mmu.getZ80RAM,vdp,() => {})
+    deb.setMessageBoard(glassPane)
     deb.enableTracing(true)
     val logger = Logger.setLogger(deb.log)
     logger.setLevel(java.util.logging.Level.INFO)
