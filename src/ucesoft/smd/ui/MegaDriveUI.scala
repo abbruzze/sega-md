@@ -11,6 +11,8 @@ import ucesoft.smd.*
 
 import java.awt.event.{WindowAdapter, WindowEvent}
 import java.io.*
+import java.util.Properties
+import java.util.logging.Level
 import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 import javax.swing.filechooser.FileFilter
 import javax.swing.*
@@ -154,14 +156,14 @@ class MegaDriveUI extends MessageBus.MessageListener:
     frame.setTransferHandler(new DNDHandler(handleDND))
   end boot
 
-  protected def makeController(pos: Int): Controller =
-    megaDrive.conf.getProperty(Controller.formatProp(Controller.CONTROLLER_DEVICE_PROP, pos)) match
+  protected def makeController(conf:Properties,pos: Int): Controller =
+    conf.getProperty(Controller.formatProp(Controller.CONTROLLER_DEVICE_PROP, pos)) match
       case KeyboardPADController.DEVICE_PROP_VALUE | null =>
         Logger.getLogger.info("Controller %d set as keyboard pad",pos + 1)
-        new KeyboardPADController(frame,megaDrive.conf,pos,megaDrive.masterClock)
+        new KeyboardPADController(frame,conf,pos,megaDrive.masterClock)
       case RealPadController.DEVICE_PROP_VALUE =>
         Logger.getLogger.info("Controller %d set as real pad",pos + 1)
-        new RealPadController(megaDrive.conf,pos,megaDrive.masterClock)
+        new RealPadController(conf,pos,megaDrive.masterClock)
       case MouseController.DEVICE_PROP_VALUE =>
         Logger.getLogger.info("Controller %d set as mouse",pos + 1)
         new MouseController(pos,megaDrive.display)
@@ -172,9 +174,10 @@ class MegaDriveUI extends MessageBus.MessageListener:
   private def swing(action : => Unit) : Unit = SwingUtilities.invokeLater(() => action)
 
   private def pause(): Unit =
-    megaDrive.masterClock.pause()
-    pauseCB.setSelected(true)
-    glassPane.addMessage(MessageBoard.builder.message("Paused").adminLevel().bold().xleft().ytop().delay().fadingMilliseconds(500).build())
+    if !megaDrive.masterClock.isPaused then
+      megaDrive.masterClock.pause()
+      pauseCB.setSelected(true)
+      glassPane.addMessage(MessageBoard.builder.message("Paused").adminLevel().bold().xleft().ytop().delay().fadingMilliseconds(500).build())
 
   private def play(): Unit =
     glassPane.interrupt()
@@ -216,8 +219,8 @@ class MegaDriveUI extends MessageBus.MessageListener:
 
   private def configure(args:Array[String]): Unit =
     // check controllers
-    megaDrive.mmu.setController(0,makeController(0))
-    megaDrive.mmu.setController(1,makeController(1))
+    megaDrive.mmu.setController(0,makeController(megaDrive.conf,0))
+    megaDrive.mmu.setController(1,makeController(megaDrive.conf,1))
 
   private def run(): Unit =
     val log = Logger.getLogger
@@ -351,8 +354,14 @@ class MegaDriveUI extends MessageBus.MessageListener:
   private def handleDND(file:File) : Unit = attachCart(Some(file))
 
   private def openControllersPanel(): Unit =
-    val panel = new ControllerConfigPanel(frame,megaDrive.conf,megaDrive.mmu.getController,megaDrive.mmu.setController)
-    panel.dialog.setVisible(true)
+    pause()
+    try
+      Logger.getLogger.log(Level.INFO) {
+        val panel = new ControllerConfigPanel(frame, megaDrive.conf, megaDrive.mmu.getController, megaDrive.mmu.setController, makeController)
+        panel.dialog.setVisible(true)
+      }
+    finally
+      play()
   private def enableFullScreenMode(selectScreen:Boolean): Unit =
     var selectedScreenIndex = 0
     val devices = FullScreenMode.getScreenDeviceIDs

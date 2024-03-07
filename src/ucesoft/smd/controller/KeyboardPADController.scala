@@ -51,6 +51,7 @@ class KeyboardPADController(component:java.awt.Component,config:Properties,overr
   private var keyMap = buildFromProperties(config)
 
   override def disconnect(): Unit =
+    super.disconnect()
     component.removeKeyListener(this)
   
   def updateConfig(config:Properties): Unit =

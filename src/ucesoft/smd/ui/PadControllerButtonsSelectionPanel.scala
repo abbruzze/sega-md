@@ -1,26 +1,23 @@
 package ucesoft.smd.ui
 
 import com.formdev.flatlaf.FlatLightLaf
-import ucesoft.smd.controller.{Controller, RealPadController}
+import ucesoft.smd.controller.{Controller, KeyboardPADController, RealPadController}
 
 import java.awt.event.{KeyEvent, KeyListener}
 import java.awt.{BorderLayout, Color, FlowLayout, GridLayout}
 import java.util.Properties
 import javax.swing.*
 
-object PadControllerButtonsSelectionPanel:
-  def main(args:Array[String]): Unit =
-    FlatLightLaf.setup()
-    JFrame.setDefaultLookAndFeelDecorated(false)
-    JDialog.setDefaultLookAndFeelDecorated(false)
-    UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarculaLaf")
-    val panel = new PadControllerButtonsSelectionPanel(null,1,new Properties(),None,prop => println(prop))
-    panel.dialog.setVisible(true)
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 16/01/2024 14:29  
  */
-class PadControllerButtonsSelectionPanel(frame:JDialog,index:Int,config:Properties,realPadControllerName:Option[String],action: Option[Properties] => Unit) extends JPanel:
+class PadControllerButtonsSelectionPanel(frame:JDialog,
+                                         index:Int,
+                                         config:Properties,
+                                         realPadControllerName:Option[String],
+                                         is3Buttons:Boolean,
+                                         action: Option[Properties] => Unit) extends JPanel:
   import ucesoft.smd.controller.PadController.*
   private val workingConfig = new Properties()
   private val keyLabels = Array.ofDim[JLabel](12)
@@ -35,6 +32,11 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,index:Int,config:Properti
     import scala.jdk.CollectionConverters.*
     for e <- config.keys().asScala do
       workingConfig.setProperty(e.toString,config.getProperty(e.toString))
+
+    val deviceProp = realPadControllerName match
+      case Some(_) => RealPadController.DEVICE_PROP_VALUE
+      case None => KeyboardPADController.DEVICE_PROP_VALUE
+    workingConfig.setProperty(Controller.formatProp(Controller.CONTROLLER_DEVICE_PROP,index),deviceProp)
       
     setLayout(new BorderLayout())
     val devicePanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
@@ -47,6 +49,8 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,index:Int,config:Properti
 
     for r <- 0 to BUTTONS do
       val button = new JButton(BUTTONS_NAMES(r))
+      if is3Buttons && (BUTTONS_NAMES(r) == "X" || BUTTONS_NAMES(r) == "Y" || BUTTONS_NAMES(r) == "Z" || BUTTONS_NAMES(r) == "MODE") then
+        button.setEnabled(false)
       keysPanel.add(button)
       button.addActionListener(_ => configureButton(r))
       var value = workingConfig.getProperty(Controller.formatProp(buttonAndDirectionsPropNames(r),index))
@@ -81,8 +85,6 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,index:Int,config:Properti
 
     if !keyboardMode then
       RealPadController.discoverControllers()
-      for c <- RealPadController.getControllersNames do
-        println(c)
 
   private def configureButton(b: Int): Unit =
     waitingDialog = new JDialog(dialog,true)
@@ -123,8 +125,8 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,index:Int,config:Properti
       override def keyReleased(e: KeyEvent): Unit = {}
       override def keyPressed(e: KeyEvent): Unit =
         waitingDialog.dispose()
-        val keyName = s"${e.getKeyCode}"
-        keyLabels(b).setText(KeyEvent.getKeyText(e.getKeyCode))
+        val keyName = s"${e.getExtendedKeyCode}"
+        keyLabels(b).setText(KeyEvent.getKeyText(e.getExtendedKeyCode))
         keyLabels(b).setForeground(Color.WHITE)
         workingConfig.setProperty(Controller.formatProp(buttonAndDirectionsPropNames(b),index),keyName)
     )

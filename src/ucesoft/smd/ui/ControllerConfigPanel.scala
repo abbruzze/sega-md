@@ -1,40 +1,60 @@
 package ucesoft.smd.ui
 
-import ucesoft.smd.controller.{Controller, ControllerDevice, RealPadController}
+import ucesoft.smd.controller.Controller.formatProp
 import ucesoft.smd.controller.ControllerDevice.{Empty, KeyboardPad, Mouse, RealPad}
+import ucesoft.smd.controller.RealPadController.CONTROLLER_NAME_PROP
+import ucesoft.smd.controller.{Controller, ControllerDevice, ControllerType, PadController, RealPadController}
 
-import java.awt.BorderLayout
+import java.awt.{BorderLayout, GridLayout}
 import java.util.Properties
-import javax.swing.{JButton, JComboBox, JDialog, JFrame, JLabel, JOptionPane, JPanel, JTabbedPane}
+import javax.swing.*
 
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 01/03/2024 17:47  
  */
-class ControllerConfigPanel(frame:JFrame,config:Properties,getController:Int => Controller,setController:(Int,Controller) => Unit) extends JPanel:
+class ControllerConfigPanel(frame:JFrame,
+                            config:Properties,
+                            getController:Int => Controller,
+                            setController:(Int,Controller) => Unit,
+                            makeController: (Properties,Int) => Controller) extends JPanel:
   val dialog = new JDialog(frame,s"Controller configuration panel",true)
+  private val workingProps = new Properties()
+  private val applyButton = new JButton("Apply")
+  private val combos = Array.ofDim[JComboBox[String]](2)
   init()
 
   private def init(): Unit =
     setLayout(new BorderLayout())
-    val tabbedPane = new JTabbedPane()
+    val controllersPane = new JPanel(new GridLayout(2,0))
     for tab <- 0 to 1 do
       val panel = new JPanel(new BorderLayout())
-      tabbedPane.add(s"Controller #${tab + 1}",panel)
+      controllersPane.add(panel)
+      panel.setBorder(BorderFactory.createTitledBorder(s"Controller #${tab + 1}"))
       var dummyPanel = new JPanel()
       val controller = getController(tab)
-      val deviceCombo = new JComboBox[String](Array("Pad - Keyboard","Pad - real pad","Mouse","Empty"))
+
+      combos(tab) = new JComboBox[String](Array(
+        "Pad - Keyboard 3 buttons", // 0
+        "Pad - Keyboard 6 buttons", // 1
+        "Pad - real pad 3 buttons", // 2
+        "Pad - real pad 6 buttons", // 3
+        "Mouse", // 4
+        "Mouse with start on CTRL", // 5
+        "Empty") // 6
+      )
+
       controller.device match
         case Empty =>
-          deviceCombo.setSelectedIndex(3)
+          combos(tab).setSelectedIndex(6)
         case KeyboardPad =>
-          deviceCombo.setSelectedIndex(0)
+          combos(tab).setSelectedIndex(if controller.getControllerType == ControllerType.PAD3Buttons then 0 else 1)
         case Mouse =>
-          deviceCombo.setSelectedIndex(2)
+          combos(tab).setSelectedIndex(if controller.getControllerType == ControllerType.Mouse then 4 else 5)
         case RealPad =>
-          deviceCombo.setSelectedIndex(1)
+          combos(tab).setSelectedIndex(if controller.getControllerType == ControllerType.PAD3Buttons then 2 else 3)
       dummyPanel.add(new JLabel("Device:"))
-      dummyPanel.add(deviceCombo)
+      dummyPanel.add(combos(tab))
       panel.add("Center",dummyPanel)
       dummyPanel = new JPanel()
       val confButton = new JButton("Configure")
@@ -42,28 +62,69 @@ class ControllerConfigPanel(frame:JFrame,config:Properties,getController:Int => 
       dummyPanel.add(confButton)
       panel.add("South",dummyPanel)
 
-      confButton.addActionListener(_ => configure(tab,ControllerDevice.fromOrdinal(deviceCombo.getSelectedIndex)))
-      deviceCombo.addActionListener(_ => confButton.setEnabled(deviceCombo.getSelectedIndex != 3))
+      confButton.addActionListener(_ => {
+        val (device,dtype) = getDeviceAndType(tab)
+        configure(tab,device,dtype)
+      })
+      combos(tab).addActionListener(_ => {
+        confButton.setEnabled(combos(tab).getSelectedIndex != 6)
+        applyButton.setEnabled(true)
+      })
 
-    add("Center",tabbedPane)
+    add("Center",controllersPane)
+    val dummyPanel = new JPanel()
+    applyButton.setEnabled(false)
+    applyButton.addActionListener(_ => apply())
+    val cancelButton = new JButton("Cancel")
+    cancelButton.addActionListener(_ => dialog.dispose())
+    dummyPanel.add(applyButton)
+    dummyPanel.add(cancelButton)
     dialog.getContentPane.add("Center",this)
+    dialog.getContentPane.add("South",dummyPanel)
     dialog.setResizable(false)
     dialog.setLocationRelativeTo(frame)
-    dialog.setSize(300,200)
+    dialog.setSize(300,300)
+
+  private def getDeviceAndType(i:Int): (ControllerDevice,ControllerType) =
+    combos(i).getSelectedIndex match
+      case 0 => (ControllerDevice.KeyboardPad, ControllerType.PAD3Buttons)
+      case 1 => (ControllerDevice.KeyboardPad, ControllerType.PAD6Buttons)
+      case 2 => (ControllerDevice.RealPad, ControllerType.PAD3Buttons)
+      case 3 => (ControllerDevice.RealPad, ControllerType.PAD6Buttons)
+      case 4 => (ControllerDevice.Mouse, ControllerType.Mouse)
+      case 5 => (ControllerDevice.Mouse, ControllerType.MouseStartWithCTRLAndLeft)
+      case 6 => (ControllerDevice.Empty, ControllerType.Unknown)
+  private def apply(): Unit =
+    applyButton.setEnabled(false)
+    import scala.jdk.CollectionConverters.*
+    for prop <- workingProps.keys().asScala do
+      config.setProperty(prop.toString, workingProps.getProperty(prop.toString))
+
+    for c <- 0 to 1 do
+      val old = getController(0)
+      val newC = makeController(config,c)
+      val (_,deviceType) = getDeviceAndType(c)
+      newC.setControllerType(deviceType)
+      newC.copyStateFrom(old)
+      setController(c,newC)
+
+    JOptionPane.showMessageDialog(this,"Changes applied","Changes applied",JOptionPane.INFORMATION_MESSAGE)
 
   private def applyProp(prop:Option[Properties]): Unit =
     prop match
       case Some(p) =>
-        import scala.jdk.CollectionConverters._
+        applyButton.setEnabled(true)
+        import scala.jdk.CollectionConverters.*
         for prop <- p.keys().asScala do
-          config.setProperty(prop.toString,p.getProperty(prop.toString))
+          workingProps.setProperty(prop.toString,p.getProperty(prop.toString))
       case None =>
 
-  private def configure(index:Int,controllerDevice: ControllerDevice): Unit =
+  private def configure(index:Int,controllerDevice: ControllerDevice,controllerType: ControllerType): Unit =
     val controllerConfig = if controllerDevice == getController(index).device then config else new Properties()
     controllerDevice match
+      case Empty =>
       case KeyboardPad =>
-        val selectionPanel = new PadControllerButtonsSelectionPanel(dialog,index,controllerConfig,None,applyProp)
+        val selectionPanel = new PadControllerButtonsSelectionPanel(dialog,index,controllerConfig,None,controllerType == ControllerType.PAD3Buttons,applyProp)
         selectionPanel.dialog.setVisible(true)
       case RealPad =>
         RealPadController.discoverControllers()
@@ -75,5 +136,8 @@ class ControllerConfigPanel(frame:JFrame,config:Properties,getController:Int => 
           case null =>
             dialog.dispose()
           case device =>
-            val selectionPanel = new PadControllerButtonsSelectionPanel(dialog, index, controllerConfig, Some(device.toString), applyProp)
+            workingProps.setProperty(formatProp(CONTROLLER_NAME_PROP,index),device.toString)
+            val selectionPanel = new PadControllerButtonsSelectionPanel(dialog, index, controllerConfig, Some(device.toString),controllerType == ControllerType.PAD3Buttons, applyProp)
             selectionPanel.dialog.setVisible(true)
+      case Mouse =>
+        // TODO

@@ -63,6 +63,14 @@ abstract class PadController(override val index: Int, val clock: Clock) extends 
 
   protected final val buttons = Array.fill[Int](12)(1) // U,D,L,R,A,B,C,S,X,Y,Z,M
 
+  override def copyStateFrom(c:Controller): Unit =
+    c match
+      case p:PadController =>
+        counter6Button = p.counter6Button
+        timeoutID = p.timeoutID
+        lastWrite = p.lastWrite
+        control = p.control
+
   override def disconnect(): Unit =
     if timeoutID != null then
       timeoutID.cancel()

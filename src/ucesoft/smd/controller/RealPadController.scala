@@ -13,7 +13,6 @@ import java.util.Properties
  */
 object RealPadController:
   inline val DEVICE_PROP_VALUE = "real_pad"
-  inline val USB_TYPE = "usb"
   inline val CONTROLLER_NAME_PROP = CONTROLLER_PROP + "name"
   inline val CONTROLLER_POLLING_PROP = CONTROLLER_PROP + "pollingMillis"
 
@@ -44,6 +43,7 @@ object RealPadController:
         override def run(): Unit =
           System.setProperty("jinput.loglevel", "SEVERE")
           controllers = ControllerEnvironment.getDefaultEnvironment.getControllers
+          println(s"Got ${controllers.length} controllers")
           Logger.getLogger.info("JInput controllers discovery terminated [%d]",controllers.length)
 
       thread.start()
@@ -91,8 +91,8 @@ class RealPadController(config:Properties, override val index: Int, override val
     val controllerName = config.getProperty(formatProp(CONTROLLER_NAME_PROP,index))
 
     val controllers = getControllers
-    for c <- controllers do
-      println(c.getName)
+//    for c <- controllers do
+//      println(c.getName)
     controller = controllers.find(c => c.getName.trim == controllerName && (c.getType == Controller.Type.GAMEPAD || c.getType == Controller.Type.STICK))
     controller match
       case Some(c) =>
@@ -100,10 +100,11 @@ class RealPadController(config:Properties, override val index: Int, override val
         xAxisComponent = c.getComponent(Component.Identifier.Axis.X)
         yAxisComponent = c.getComponent(Component.Identifier.Axis.Y)
         buttonsComponent = buttonsPropNames.zipWithIndex.map((b, i) =>
-          (i,c.getComponents.find(_.getIdentifier.getName == config.getProperty(formatProp(b,index), s"${i + 1}")))
+          (i,c.getComponents.find(_.getName.trim == config.getProperty(formatProp(b,index), s"Button ${i + 1}").trim))
         ).filter(_._2.isDefined).map((i,c) => (i,c.get)).toList
+
         if getControllerType == ControllerType.PAD3Buttons then
-          buttonsComponent = buttonsComponent.filter(_._1 > S)
+          buttonsComponent = buttonsComponent.filterNot(_._1 > S)
         for b <- buttonsComponent do
           log.info(s"Assigned button ${BUTTONS_NAMES(b._1)} to ${b._2}")
       case None =>
@@ -127,6 +128,7 @@ class RealPadController(config:Properties, override val index: Int, override val
       else if y > DIR_THRESHOLD then buttons(D) = 0
       // buttons
       for (b,c) <- buttonsComponent do
-        if c.getPollData != 0.0 then buttons(b) = 0
+        if c.getPollData != 0.0 then
+          buttons(b) = 0
 
     log.info("USB controller %d thread stopped",index)

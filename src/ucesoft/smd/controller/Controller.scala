@@ -25,6 +25,9 @@ abstract class Controller extends SMDComponent:
   protected var control = 0
   protected var controllerType: ControllerType = ControllerType.Unknown
 
+  def copyStateFrom(p:Controller): Unit =
+    control = p.control
+
   def setControllerType(ct:ControllerType): Unit =
     controllerType = ct
   def getControllerType : ControllerType = controllerType

@@ -144,7 +144,7 @@ class MouseController(override val index: Int,display:Display) extends Controlle
 
   override def mousePressed(e: MouseEvent): Unit =
     if SwingUtilities.isLeftMouseButton(e) then
-      if e.isControlDown then
+      if e.isControlDown && mouseStartWithCTRLandLeftEnabled then
         buttonsState |= START_BUTTON_MASK
       else
         buttonsState |= LEFT_BUTTON_MASK
