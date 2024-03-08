@@ -5,6 +5,7 @@ import java.awt.{Color, Font, Graphics}
 import java.util.concurrent
 import java.util.concurrent.{CountDownLatch, Executors, LinkedBlockingDeque}
 import javax.swing.{ImageIcon, JFrame, JLabel, JPanel, SwingUtilities}
+import scala.compiletime.uninitialized
 
 /**
  * @author Alessandro Abbruzzetti
@@ -15,7 +16,7 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
 
   private inline val FONT_WINDOW_WIDTH_RATIO = 30.0f
   private var xoff, yoff = 0
-  private var msg : Message = _
+  private var msg : Message = uninitialized
   private var enabled = true
   private val queue = new LinkedBlockingDeque[Message]
   private val thread = new Thread(this,"MessageGlassThread")

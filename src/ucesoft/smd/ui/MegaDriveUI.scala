@@ -47,23 +47,25 @@ end MegaDriveUI
  *         Created on 20/02/2024 15:49  
  */
 class MegaDriveUI extends MessageBus.MessageListener:
+  import scala.compiletime.uninitialized
+  
   private inline val MESSAGE_STD_WAIT = 2000
   // motherboard
   private val megaDrive = new MegaDrive
 
-  private var frame : JFrame = _
-  private var glassPane: MessageGlassPane = _
-  private var debugger : Debugger = _
-  private var cart : Cart = _
+  private var frame : JFrame = uninitialized
+  private var glassPane: MessageGlassPane = uninitialized
+  private var debugger : Debugger = uninitialized
+  private var cart : Cart = uninitialized
 
-  private var audioPanel : AudioVolumePanel = _
-  private var performanceMonitor : PerformanceMonitor = _
+  private var audioPanel : AudioVolumePanel = uninitialized
+  private var performanceMonitor : PerformanceMonitor = uninitialized
 
   private var lastDirectory = new File(scala.util.Properties.userHome)
-  private var lastSaveStateFile : String = _
+  private var lastSaveStateFile : String = uninitialized
   private var fixChecksum = false
 
-  private var extraRAMDirectory : File = _
+  private var extraRAMDirectory : File = uninitialized
 
   // MenuItems
   private val stateMenu = new JMenu("State")

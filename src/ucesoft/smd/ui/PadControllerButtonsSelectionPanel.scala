@@ -7,6 +7,7 @@ import java.awt.event.{KeyEvent, KeyListener}
 import java.awt.{BorderLayout, Color, FlowLayout, GridLayout}
 import java.util.Properties
 import javax.swing.*
+import scala.compiletime.uninitialized
 
 /**
  * @author Alessandro Abbruzzetti
@@ -23,7 +24,7 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,
   private val keyLabels = Array.ofDim[JLabel](12)
   private val keyboardMode = realPadControllerName.isEmpty
   val dialog = new JDialog(frame,s"Controller $index configuration",true)
-  private var waitingDialog : JDialog = _
+  private var waitingDialog : JDialog = uninitialized
   private val BUTTONS = if keyboardMode then 11 else 7
 
   init()

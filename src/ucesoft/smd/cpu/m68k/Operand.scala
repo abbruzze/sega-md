@@ -5,7 +5,7 @@ abstract class Operand(protected val ctx: M6800X0.Context):
   val requiresBUS : Boolean = true
   protected var reg = 0
   protected var address = 0
-  protected var size : Size = _
+  protected var size : Size = scala.compiletime.uninitialized
   
   def init(reg:Int,size: Size,disassemblingAddress:Option[Int] = None,includeIdleBusCycles:Boolean = true): Unit =
     this.reg = reg

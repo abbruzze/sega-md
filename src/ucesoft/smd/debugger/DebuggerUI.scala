@@ -4,11 +4,10 @@ import ucesoft.smd.VDP
 import ucesoft.smd.cpu.m68k.*
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger.AddressBreakType
-import ucesoft.smd.debugger.DebuggerUI.DisassemblerBreakHandler
 
-import java.awt.event.{ActionEvent, FocusEvent, FocusListener, MouseAdapter, MouseEvent}
-import java.awt.{BorderLayout, Color, Component, FlowLayout, GridLayout}
-import java.io.{FileOutputStream, FileWriter, PrintWriter}
+import java.awt.event.*
+import java.awt.{BorderLayout, Color, Component, FlowLayout}
+import java.io.{FileOutputStream, PrintWriter}
 import java.util.zip.GZIPOutputStream
 import javax.swing.*
 import javax.swing.border.EmptyBorder
@@ -44,7 +43,7 @@ object DebuggerUI {
     override def getColumnCount: Int = columns.length
     override def getRowCount: Int = 1
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef = Reg(values(columnIndex), modified(columnIndex))
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
 
     def contentUpdated(): Unit =
       for c <- columns.indices do
@@ -74,7 +73,7 @@ object DebuggerUI {
     override def getColumnCount: Int = 8
     override def getRowCount: Int = 1
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef = Reg(values(columnIndex), modified(columnIndex))
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
     def contentUpdated(): Unit =
       val rtype = if data then RegisterType.Data else RegisterType.Address
       for r <- 0 to 7 do
@@ -124,7 +123,7 @@ object DebuggerUI {
     override def getRowCount: Int = 1
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
       Reg(if values(columnIndex) then 1 else 0, modified(columnIndex))
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[java.lang.Boolean]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[java.lang.Boolean]
 
     def contentUpdated(): Unit =
       for c <- columns.indices do
@@ -158,7 +157,7 @@ object DebuggerUI {
           Reg(intValue, modified(columnIndex))
         case _ =>
           Reg(if values(columnIndex) then 1 else 0, modified(columnIndex))
-    override def getColumnClass(columnIndex: Int): Class[_] =
+    override def getColumnClass(columnIndex: Int): Class[?] =
       columnIndex match
         case 2 =>
           classOf[String]
@@ -194,7 +193,7 @@ object DebuggerUI {
     override def getColumnName(column: Int): String = columns(column)
     override def getColumnCount: Int = columns.length
     override def getRowCount: Int = 1
-    override def getColumnClass(columnIndex: Int): Class[_] =
+    override def getColumnClass(columnIndex: Int): Class[?] =
       columnIndex match
         case 3 | 4 => classOf[java.lang.Integer]
         case _ => classOf[String]
@@ -260,7 +259,7 @@ object DebuggerUI {
     override def getColumnCount: Int = columns.length
     override def getRowCount: Int = rows.size
     override def isCellEditable(rowIndex: Int, columnIndex: Int): Boolean = noteEditable && columnIndex == 4
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
     override def setValueAt(aValue: Any, rowIndex: Int, columnIndex: Int): Unit =
       rows(rowIndex).notes = aValue.toString
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
@@ -337,7 +336,7 @@ object DebuggerUI {
     override def isCellEditable(rowIndex: Int, columnIndex: Int): Boolean =
       columnIndex == 1 && properties.properties(rowIndex).register.isDefined
 
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
       columnIndex match
         case 0 =>
@@ -517,7 +516,7 @@ object DebuggerUI {
     override def getColumnName(column: Int): String = columns(column)
     override def getColumnCount: Int = columns.length
     override def getRowCount: Int = events.size
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
       columnIndex match
         case 0 =>
@@ -626,7 +625,7 @@ object DebuggerUI {
 
     def getBreaks: List[AddressBreakType] = breaks.toList
 
-    override def getColumnClass(columnIndex: Int): Class[_] =
+    override def getColumnClass(columnIndex: Int): Class[?] =
       columnIndex match
         case 0 => classOf[java.lang.Boolean]
         case _ => classOf[String]
@@ -875,7 +874,7 @@ object DebuggerUI {
 
   class VDPFifoTableModel extends AbstractTableModel:
     private val columns = Array("","0","1","2","3")
-    private var fifoDump : VDP.VDPFifoDump = _
+    private var fifoDump : VDP.VDPFifoDump = scala.compiletime.uninitialized
 
     def setDump(dump:VDP.VDPFifoDump): Unit =
       fifoDump = dump
@@ -883,7 +882,7 @@ object DebuggerUI {
     override def getColumnName(column: Int): String = columns(column)
     override def getColumnCount: Int = columns.length
     override def getRowCount: Int = 4
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
       if columnIndex == 0 then
         rowIndex match
@@ -944,7 +943,7 @@ object DebuggerUI {
     private var stopIfAddress = false
     private var address = 0
     private var gzipped = false
-    private var out : PrintWriter = _
+    private var out : PrintWriter = scala.compiletime.uninitialized
 
     init()
 

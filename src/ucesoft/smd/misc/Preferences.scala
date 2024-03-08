@@ -11,7 +11,7 @@ object Preferences {
   class PreferenceIllegalArgumentException(msg:String) extends Exception(msg)
 
   trait PreferenceChangeListener {
-    def preferenceHasChanged(pref:Preference[_]) : Unit
+    def preferenceHasChanged(pref:Preference[?]) : Unit
   }
 
   trait PreferenceConv[T] {
@@ -44,10 +44,10 @@ object Preferences {
 
     def isAdjusting : Boolean = adjusting
     def isLoaded : Boolean = loaded
-    def descriptionAndEnumerates: String = s"$description [default = '$value'${if !enumerated.isEmpty then s" allowed = ${enumerated.mkString(",")}" else ""}]"
+    def descriptionAndEnumerates: String = s"$description [default = '$value'${if enumerated.nonEmpty then s" allowed = ${enumerated.mkString(",")}" else ""}]"
 
     listeners ::= new PreferenceChangeListener {
-      override def preferenceHasChanged(pref: Preference[_]): Unit = listener(value)
+      override def preferenceHasChanged(pref: Preference[?]): Unit = listener(value)
     }
 
     def addChangeListener(l:PreferenceChangeListener) : Unit = if (!listeners.contains(l)) listeners ::= l
@@ -86,7 +86,7 @@ object Preferences {
 class Preferences {
   import Preferences.*
 
-  private[this] val prefs = new collection.mutable.ListBuffer[Preference[_]]
+  private[this] val prefs = new collection.mutable.ListBuffer[Preference[?]]
 
   def add[T](cmdLine:String,description:String,value:T,enumerated:Set[T] = Set.empty[T],canBeSaved:Boolean = true)(listener : T => Unit)(implicit prefConv:PreferenceConv[T]) : Preference[T] = {
     val p = Preference(cmdLine,description,value,enumerated,canBeSaved)(listener)
@@ -132,7 +132,7 @@ class Preferences {
     }
   }
 
-  def preferences : List[Preference[_]] = prefs.toList
+  def preferences : List[Preference[?]] = prefs.toList
 
   def parseAndLoad(args:Array[String],props:Properties) : Option[String] = {
     var p = 0

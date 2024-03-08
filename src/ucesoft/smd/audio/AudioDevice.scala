@@ -24,8 +24,8 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
   private var bufferInMillis = 10
   private val thread = new Thread(this,s"AudioDevice-$name")
   private var muted = false
-  private var sourceLine : SourceDataLine = _
-  private var volumeLine : FloatControl = _
+  private var sourceLine : SourceDataLine = scala.compiletime.uninitialized
+  private var volumeLine : FloatControl = scala.compiletime.uninitialized
   private var volume = 0
   private var stopped = false
   private val stereoLR = Array(0,0)

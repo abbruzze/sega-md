@@ -64,7 +64,7 @@ class Debugger(m68k:M68000,
       bus
     }
     protected var tracingOnFile = false
-    protected var tracingListener: TraceListener = _
+    protected var tracingListener: TraceListener = scala.compiletime.uninitialized
 
     protected def onCPUEnabled(enabled:Boolean): Unit = {}
 
@@ -82,7 +82,7 @@ class Debugger(m68k:M68000,
   end InternalDebugger
 
   private val frame = new JFrame("Debugger")
-  private var cart : Cart = _
+  private var cart : Cart = scala.compiletime.uninitialized
   private val logPanel = new RSyntaxTextArea(10,100)
   private val onOffButton = new JToggleButton(new ImageIcon(getClass.getResource("/resources/trace/on.png")))
   private val vdpMemDump = vdp.getMemoryDump
@@ -161,7 +161,7 @@ class Debugger(m68k:M68000,
     () => z80BreakItem.setSelected(false)
   ).dialog
 
-  private var messageBoard: MessageBoardListener = _
+  private var messageBoard: MessageBoardListener = scala.compiletime.uninitialized
 
   private val tabbedPane = new JTabbedPane()
 
@@ -181,7 +181,7 @@ class Debugger(m68k:M68000,
     private val distable = new JTable(disassembledTableModel)
     private var stepByStep = false
     private var stepAlways = false
-    private var stepDisassemble : Z80.DisassembledInfo = _
+    private var stepDisassemble : Z80.DisassembledInfo = scala.compiletime.uninitialized
     private val breaks = new collection.mutable.HashMap[Int,AddressBreakType]
     private var breakOnReset = false
     private var breakOnInt,breakOnNMI = false
@@ -432,8 +432,8 @@ class Debugger(m68k:M68000,
   end Z80Debugger
 
   private class M68KDebugger extends InternalDebugger with GenericDebugger:
-    private var stepInstruction : Instruction = _
-    private var stepDisassemble : DisassembledInstruction = _
+    private var stepInstruction : Instruction = scala.compiletime.uninitialized
+    private var stepDisassemble : DisassembledInstruction = scala.compiletime.uninitialized
     private val dataRegisterTableModel = new M68KRegisterTableModel(m68k, data = true)
     private val addressRegisterTableModel = new M68KRegisterTableModel(m68k, data = false)
     private val statusRegisterTableModel = new M68KStatusRegisterTableModel(m68k)

@@ -13,6 +13,7 @@ import java.awt.{Color, FlowLayout, Paint}
 import java.awt.event.{ActionEvent, ActionListener, WindowAdapter, WindowEvent}
 import java.lang.management.ManagementFactory
 import javax.swing.*
+import scala.compiletime.uninitialized
 
 /**
  * @author Alessandro Abbruzzetti
@@ -36,8 +37,8 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
   final val dialog = new JDialog(frame,"Performance monitor")
   private val timer = new Timer(1000,this)
   private val darkTheme = StandardChartTheme.createDarknessTheme()
-  private var emuPlot : XYPlot = _
-  private var emuPlotPaint : Paint = _
+  private var emuPlot : XYPlot = uninitialized
+  private var emuPlotPaint : Paint = uninitialized
   private var state = NORMAL_RES
   private var lowResThreshold = 80
   private var lowResObservationPeriodInSec = 10

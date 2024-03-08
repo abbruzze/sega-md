@@ -10,7 +10,7 @@ import javax.swing.filechooser.FileFilter
 
 class GIFPanel(display:Array[Display],displayName:Array[String]) extends JPanel with Runnable {
   private var delayInMillis = 0
-  private var out : FileOutputStream = _
+  private var out : FileOutputStream = scala.compiletime.uninitialized
   @volatile private var recording = false
   private val fileTextField = new JTextField(20)
   private val delayTextField = new JTextField("1000",10)

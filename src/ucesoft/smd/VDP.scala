@@ -125,8 +125,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private final val fifo = Array.ofDim[FifoEntry](MAX_SIZE)
     private var tail, head = -1
     private var size = 0
-    private var lastWritten : FifoEntry = _
-    private var lastPopped : FifoEntry = _
+    private var lastWritten : FifoEntry = scala.compiletime.uninitialized
+    private var lastPopped : FifoEntry = scala.compiletime.uninitialized
 
     def createState(sb:StateBuilder): Unit =
       sb.w("tail",tail).
@@ -630,15 +630,15 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   private final val BLANK_COLOR = java.awt.Color.BLACK.getRGB
 
-  private var model : Model = _
+  private var model : Model = scala.compiletime.uninitialized
   private val VRAM = Array.ofDim[Int](0x10000)
   private val CRAM = Array.ofDim[Int](128)      // 128 bytes,  64 word entries: |----bbb-|ggg-rrr-|
   private val CRAM_COLORS = Array.fill[Int](4,3,16)(Palette.getColor(0))  // 16 colors x 4 palette
   private val VSRAM = Array.ofDim[Int](80)
   private val regs = Array.ofDim[Int](24)
 
-  private var m68k : M6800X0 = _
-  private var z80 : Z80 = _
+  private var m68k : M6800X0 = scala.compiletime.uninitialized
+  private var z80 : Z80 = scala.compiletime.uninitialized
 
   private inline val STATUS_FIFO_EMPTY_MASK   = 0x0200
   private inline val STATUS_FIFO_FULL_MASK    = 0x0100
@@ -742,7 +742,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var pendingReadValue = 0
 
   private val fifo = new FIFO
-  private var writeOverflowFIFOEntry,writeOverflowFIFOEntry2 : FifoEntry = _
+  private var writeOverflowFIFOEntry,writeOverflowFIFOEntry2 : FifoEntry = scala.compiletime.uninitialized
 
   private var dmaFillWriteDone = false
   private var readCopyCache = -1 // -1 means not read yet
@@ -787,8 +787,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var vInterruptAsserted = false
   private var hInterruptAsserted = false
 
-  private var display : Display = _
-  private var videoPixels : Array[Int] = _
+  private var display : Display = scala.compiletime.uninitialized
+  private var videoPixels : Array[Int] = scala.compiletime.uninitialized
   private final val SCREEN_WIDTH = VDP.SCREEN_WIDTH
 
   private var interlaceModeEnabled = false
@@ -799,11 +799,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var layerSEnabled = true
   private var debugRegister = 0
 
-  private var dmaEventListener : DMAEventListener = _
+  private var dmaEventListener : DMAEventListener = scala.compiletime.uninitialized
   
-  private var clockRateListener : VDPChangeClockRateListener = _
-  private var newFrameListener : VDPNewFrameListener = _
-  private var messageListener : MessageBoardListener = _
+  private var clockRateListener : VDPChangeClockRateListener = scala.compiletime.uninitialized
+  private var newFrameListener : VDPNewFrameListener = scala.compiletime.uninitialized
+  private var messageListener : MessageBoardListener = scala.compiletime.uninitialized
 
   private final val MAX_SPRITES_PER_ROW = math.max(HMode.H32.maxSpritePerLine,HMode.H40.maxSpritePerLine)
   private val MAX_SPRITE_PER_FRAME = math.max(HMode.H32.maxSpritePerFrame,HMode.H40.maxSpritePerFrame)
@@ -828,7 +828,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var lastSpriteXPosNonZero = false
 
   // references to other components
-  private var m68KMemory : Memory = _
+  private var m68KMemory : Memory = scala.compiletime.uninitialized
   private var m68KBUSRequested = false
 
   private var drawSpriteBoundariesEnabled = false
@@ -1161,7 +1161,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case CRAM_READ =>
         val value = CRAM(address & 0x7F) << 8 | CRAM((address + 1) & 0x7F)
         log.info("CRAM read request: address=%X value=%X",address,value)
-        //pendingReadValue = value & 0xEEE // TODO fifoData & 0xF111 | value & 0xEEE
         val fifoData = if fifo.length == 0 then 0 else fifo.peek.data
         pendingReadValue = fifoData & 0xF111 | value & 0xEEE
       case VSRAM_READ =>
@@ -1170,7 +1169,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           VSRAM(address) << 8 | VSRAM(address + 1)
         else VSRAM(0) << 8 | VSRAM(0)
         log.info("VSRAM read request: address=%X value=%X fifo size=%d",address,value,fifo.length)
-        //pendingReadValue = value & 0x7FF // TODO fifoData & 0xF800 | value & 0x7FF
         val fifoData = if fifo.length == 0 then 0 else fifo.peek.data
         pendingReadValue = fifoData & 0xF800 | value & 0x7FF
       case _ =>
@@ -1672,7 +1670,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   end doAccessSlotHScroll
 
   /*
-    TODO: https://gendev.spritesmind.net/forum/viewtopic.php?f=22&t=737&start=30
+    https://gendev.spritesmind.net/forum/viewtopic.php?f=22&t=737&start=30
     Ok, I took some time to test how it works on real hardware. i were right about VSRAM addresses $4E and $4C being used for vertical scrolling
     of the left-most column when partially scrolled horizontally, but it's not exactly as I thought.
     Here are the conclusions of my tests in column vscroll mode:
@@ -2275,6 +2273,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   // ===================== State =================================================
   override def restoreState(sb: StateBuilder): Unit =
     import sb.r
+    r("vram",VRAM)
+    r("cram",CRAM)
+    r("vsram",VSRAM)
+    r("cram_palette",CRAM_COLORS)
+    r("regs",regs)
     addressRegister = r[Int]("addressRegister")
     codeRegister = r[Int]("codeRegister")
     writePendingFlag = r[Boolean]("writePendingFlag")
@@ -2354,6 +2357,12 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   end restoreState
 
   override def createState(sb: StateBuilder): Unit =
+    // model is stored in MegaDrive component
+    sb.w("vram",VRAM).
+      w("cram",CRAM).
+      w("vsram",VSRAM).
+      w("cram_palette",CRAM_COLORS).
+      w("regs",regs)
     sb.w("addressRegister",addressRegister).
       w("codeRegister",codeRegister).
       w("writePendingFlag",writePendingFlag).

@@ -3,7 +3,7 @@ name := "Sega-MD"
 
 version := "0.9"
 
-scalaVersion := "3.3.1"
+scalaVersion := "3.4.0"
 
 scalacOptions ++= Seq(
   "-language:postfixOps",

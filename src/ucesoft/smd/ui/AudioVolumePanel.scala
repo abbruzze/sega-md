@@ -4,15 +4,15 @@ import ucesoft.smd.MessageBus
 import ucesoft.smd.audio.AudioDevice
 
 import java.awt.event.{WindowAdapter, WindowEvent}
-import java.awt.{BorderLayout, Dimension, FlowLayout, GridLayout}
-import javax.swing.{BorderFactory, Box, BoxLayout, JCheckBox, JDialog, JFrame, JPanel, JSlider, SwingConstants}
+import java.awt.{BorderLayout, Dimension, FlowLayout}
+import javax.swing.*
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 23/01/2024 10:59  
  */
 class AudioVolumePanel(frame:JFrame,audioDevices:Array[AudioDevice],closeAction:() => Unit) extends JPanel with MessageBus.MessageListener:
   final val dialog = new JDialog(frame,"Audio controls")
-  private var sliders : Array[(JSlider,AudioDevice,JCheckBox)] = _
+  private var sliders : Array[(JSlider,AudioDevice,JCheckBox)] = scala.compiletime.uninitialized
   init()
 
   override def onMessage(msg: MessageBus.Message): Unit =

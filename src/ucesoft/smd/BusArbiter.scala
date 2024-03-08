@@ -4,6 +4,8 @@ import ucesoft.smd.audio.FM
 import ucesoft.smd.cpu.m68k.M6800X0
 import ucesoft.smd.cpu.z80.Z80
 
+import scala.compiletime.uninitialized
+
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 30/11/2023 15:36  
@@ -20,9 +22,9 @@ class BusArbiter extends SMDComponent:
   import Z80ResetProcess.*
   import Z80BusState.*
 
-  private var z80 : Z80 = _
-  private var m68k : M6800X0 = _
-  private var fm : FM = _
+  private var z80 : Z80 = uninitialized
+  private var m68k : M6800X0 = uninitialized
+  private var fm : FM = uninitialized
   private var z80ResetProcess = STOPPED
   private var z80BusState = Z80_OWNER
   private var m68kBusState = M68KBusState.M68K_OWNER

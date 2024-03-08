@@ -8,50 +8,50 @@ import javax.imageio.ImageIO
 import javax.swing.*
 
 class Display(width: Int, height: Int, title: String, frame: JFrame, clk:Clock) extends JComponent with MouseMotionListener with MouseListener with SMDComponent {
-  private[this] val dimension = new Dimension(0, 0)
-  private[this] var dashIndex = 0
-  private[this] val mouseZoomStartPoint,mouseZoomEndPoint = new Point
-  private[this] val mouseZoomLineColors = Array(Color.WHITE,Color.YELLOW, Color.RED)
-  private[this] var mouseZoomColorIndex = 0
-  private[this] var mouseZoomEnabled = false
-  private[this] var clipArea,zoomArea: (Point, Point) = _
-  private[this] var totalFrameCounter,frameCounter = 0L
-  private[this] var framePerSecond = 0
-  private[this] var ts = 0L
-  private[this] var normalDisplayMem = Array.fill(width * height)(0xFF000000)
-  private[this] var interlacedDisplayMem = Array.fill(width * height * 2)(0xFF000000)
-  private[this] var ptrDisplayMem = normalDisplayMem
-  private[this] var normalDisplayImage = new MemoryImageSource(width, height, normalDisplayMem, 0, width)
-  private[this] var interlacedDisplayImage = new MemoryImageSource(width, height * 2, interlacedDisplayMem, 0, width)
-  private[this] var displayImage = normalDisplayImage
-  private[this] var normalScreen = {
+  private val dimension = new Dimension(0, 0)
+  private var dashIndex = 0
+  private val mouseZoomStartPoint,mouseZoomEndPoint = new Point
+  private val mouseZoomLineColors = Array(Color.WHITE,Color.YELLOW, Color.RED)
+  private var mouseZoomColorIndex = 0
+  private var mouseZoomEnabled = false
+  private var clipArea,zoomArea: (Point, Point) = scala.compiletime.uninitialized
+  private var totalFrameCounter,frameCounter = 0L
+  private var framePerSecond = 0
+  private var ts = 0L
+  private var normalDisplayMem = Array.fill(width * height)(0xFF000000)
+  private var interlacedDisplayMem = Array.fill(width * height * 2)(0xFF000000)
+  private var ptrDisplayMem = normalDisplayMem
+  private var normalDisplayImage = new MemoryImageSource(width, height, normalDisplayMem, 0, width)
+  private var interlacedDisplayImage = new MemoryImageSource(width, height * 2, interlacedDisplayMem, 0, width)
+  private var displayImage = normalDisplayImage
+  private var normalScreen = {
     normalDisplayImage.setAnimated(true)
     normalDisplayImage.setFullBufferUpdates(false)
     createImage(normalDisplayImage)
   }
-  private[this] var interlacedScreen = {
+  private var interlacedScreen = {
     interlacedDisplayImage.setAnimated(true)
     interlacedDisplayImage.setFullBufferUpdates(false)
     createImage(interlacedDisplayImage)
   }
-  private[this] var screen = normalScreen
-  private[this] var drawRasterLine = false
-  private[this] var rasterLine = 0
-  private[this] var lpX, lpY = 0
-  private[this] var zoomFactorX,zoomFactorY = 0.0
-  private[this] var interlaced = false
-  private[this] var renderingHints = RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR
+  private var screen = normalScreen
+  private var drawRasterLine = false
+  private var rasterLine = 0
+  private var lpX, lpY = 0
+  private var zoomFactorX,zoomFactorY = 0.0
+  private var interlaced = false
+  private var renderingHints = RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR
 
-  private[this] var rotationAngleRad = 0.0
-  private[this] var flipX,flipY = false
+  private var rotationAngleRad = 0.0
+  private var flipX,flipY = false
 
-  private[this] var singleFrameMode = false
-  private[this] var singleFrameCounter = 0
-  private[this] val singleFrameModeMonitor = new Object
+  private var singleFrameMode = false
+  private var singleFrameCounter = 0
+  private val singleFrameModeMonitor = new Object
 
-  private[this] var waitFrameAndSaveSnapshotFile : File = _
-  private[this] var waitFrameAndSaveSnapshotCounter = 0
-  private[this] var waitFrameAndSaveSnapshotCallback : () => Unit = _
+  private var waitFrameAndSaveSnapshotFile : File = scala.compiletime.uninitialized
+  private var waitFrameAndSaveSnapshotCounter = 0
+  private var waitFrameAndSaveSnapshotCallback : () => Unit = scala.compiletime.uninitialized
 
   addMouseMotionListener(this)
   addMouseListener(this)

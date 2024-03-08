@@ -1,6 +1,5 @@
 package ucesoft.smd
 
-import java.io.{PrintWriter, StringWriter}
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.logging.Level
@@ -28,7 +27,7 @@ class Logger private () :
 
   final def log(level:Level,fmt:String,pars:Any*): Unit =
     if level.intValue() >= this.level.intValue() then
-      addLog(format(level,fmt.format(pars:_*)))
+      addLog(format(level,fmt.format(pars*)))
 
   def log[T](tmpLevel:Level)(body : => T): T =
     val currentLevel = level
@@ -38,10 +37,10 @@ class Logger private () :
     finally
       setLevel(currentLevel)
 
-  final def debug(format:String,pars:Any*): Unit = log(Level.FINE,format,pars:_*)
-  final def info(format:String,pars:Any*): Unit = log(Level.INFO,format,pars:_*)
-  final def warning(format:String,pars:Any*): Unit = log(Level.WARNING,format,pars:_*)
-  final def error(format:String,pars:Any*): Unit = log(Level.SEVERE,format,pars:_*)
+  final def debug(format:String,pars:Any*): Unit = log(Level.FINE,format,pars*)
+  final def info(format:String,pars:Any*): Unit = log(Level.INFO,format,pars*)
+  final def warning(format:String,pars:Any*): Unit = log(Level.WARNING,format,pars*)
+  final def error(format:String,pars:Any*): Unit = log(Level.SEVERE,format,pars*)
 
   def addLog(log:String): Unit =
     println(log)

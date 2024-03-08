@@ -7,6 +7,7 @@ import ucesoft.smd.cpu.m68k.{M68000, Memory, Size}
 import ucesoft.smd.cpu.z80.Z80
 
 import scala.annotation.tailrec
+import scala.compiletime.uninitialized
 
 object MMU:
   inline val Z80_CPU_MEM_OPTION = 1 << 2 // Z80 cpu must use this as read/write option
@@ -119,28 +120,28 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   private final val z80ram = Array.ofDim[Int](0x2000)
   private var bankRegisterShifter,bankRegisterBitCounter,bankRegister = 0
   private var allowZ80ToRead68KRam = false
-  private var cart : Cart = _
-  private var rom : Array[Int] = _
+  private var cart : Cart = uninitialized
+  private var rom : Array[Int] = uninitialized
   private val os_rom : Array[Int] = loadOSRom()
-  private var extraRam : Array[Int] = _
+  private var extraRam : Array[Int] = uninitialized
   private var extraRamStartAddress, extraRamEndAddress = 0
   private var osRomEnabled = false
   private var tmssActive = false
   private val tmssBuffer = Array(0,0,0,0)
   private var tmssUnlocked = false
   private var lastWordOnBus = 0
-  private var lockUpAction : () => Unit = _
+  private var lockUpAction : () => Unit = uninitialized
 
   private val controllers = Array.ofDim[Controller](3)
-  private var model : Model = _
+  private var model : Model = uninitialized
 
-  private var m68k : M68000 = _
-  private var z80 : Z80 = _
-  private var vdp : VDP = _
-  private var psg : PSG = _
-  private var fm : FM = _
+  private var m68k : M68000 = uninitialized
+  private var z80 : Z80 = uninitialized
+  private var vdp : VDP = uninitialized
+  private var psg : PSG = uninitialized
+  private var fm : FM = uninitialized
 
-  private var ssf2Rom : Array[Int] = _
+  private var ssf2Rom : Array[Int] = uninitialized
 
   hardReset()
 

@@ -27,10 +27,10 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   inline private val DIV_Z80 = 15.0
 
   private var _model = Model(ModelType.Oversea,VideoType.NTSC,0)
-  private var _display : Display = _
-  private var _cart : Cart = _
+  private var _display : Display = scala.compiletime.uninitialized
+  private var _cart : Cart = scala.compiletime.uninitialized
 
-  private var configurationFile : File = _
+  private var configurationFile : File = scala.compiletime.uninitialized
   
   // ============== Public =======================================================
 

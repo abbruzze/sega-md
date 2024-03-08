@@ -32,7 +32,7 @@ class ColorDumper(cram:Array[Int]) extends JPanel:
     override def getColumnCount: Int = columns.length
     override def getRowCount: Int = 4
 
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[java.lang.Integer]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[java.lang.Integer]
 
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
       columnIndex match

@@ -64,8 +64,8 @@ class RealPadController(config:Properties, override val index: Int, override val
   private inline val DIR_THRESHOLD = 0.5f
 
   private var controller : Option[Controller] = None
-  private var xAxisComponent : Component = _
-  private var yAxisComponent : Component = _
+  private var xAxisComponent : Component = scala.compiletime.uninitialized
+  private var yAxisComponent : Component = scala.compiletime.uninitialized
   private var buttonsComponent : List[(Int,Component)] = Nil
   private val thread = new Thread(this,s"RealController($index)")
   private var running = true

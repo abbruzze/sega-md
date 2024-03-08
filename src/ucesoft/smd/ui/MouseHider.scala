@@ -3,6 +3,7 @@ package ucesoft.smd.ui
 import java.awt.event.{MouseEvent, MouseListener, MouseMotionListener}
 import java.awt.{Cursor, Point, Toolkit}
 import javax.swing.{JComponent, SwingUtilities, Timer}
+import scala.compiletime.uninitialized
 
 /**
  * @author Alessandro Abbruzzetti
@@ -16,7 +17,7 @@ object MouseHider extends MouseMotionListener with MouseListener:
   }
   private val timer = new Timer(DELAY,_ => hideCursor())
 
-  private var component: JComponent = _
+  private var component: JComponent = uninitialized
 
   private def hideCursor(): Unit =
     SwingUtilities.getWindowAncestor(component).setCursor(emptyCursor)

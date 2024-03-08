@@ -147,12 +147,29 @@ class StateBuilder(map:java.util.Map[String,AnyRef] = new java.util.LinkedHashMa
         case BOOLEAN_CLASS => obj.asInstanceOf[java.lang.Boolean].booleanValue().asInstanceOf[T]
     }
 
+  private def copyArrays[T](dst:Array[Array[T]],src:java.util.ArrayList[java.util.ArrayList[T]]): Boolean =
+    if dst.length == src.size then
+      var c = 0
+      while c < dst.length do
+        if dst(c).length != src.get(c).size() then return false
+        var j = 0
+        val src2 = src.get(c)
+        while j < dst(c).length do
+          dst(c)(j) = src2.get(j)
+          j += 1
+        c += 1
+      true
+    else
+      false
   def r[T](n:String,target:Array[T])(using ct: ClassTag[T], rt: StateSimpleType[T]): Unit =
     checkName(n)
     guard(n) {
       map.get(n) match
         case a: java.util.ArrayList[T] if a.size == target.length =>
-          for i <- 0 until a.size() do target(i) = a.get(i)
+          var c = 0
+          while c < target.length do
+            target(c) = a.get(c)
+            c += 1
         case _ =>
           throw StateBuilderException(s"State reading error: invalid array size or type for attribute '$n'")
     }
@@ -163,11 +180,21 @@ class StateBuilder(map:java.util.Map[String,AnyRef] = new java.util.LinkedHashMa
       map.get(n) match
         case a: java.util.ArrayList[java.util.ArrayList[T]] if a.size == target.length =>
           for i <- target.indices do
+            if !copyArrays(target,a) then
+              throw StateBuilderException(s"State reading error: invalid array sub-size for attribute '$n'")
+        case _ =>
+          throw StateBuilderException(s"State reading error: invalid array size or type for attribute '$n'")
+    }
+
+  def r[T](n: String, target: Array[Array[Array[T]]])(using ct: ClassTag[T], rt: StateSimpleType[T]): Unit =
+    checkName(n)
+    guard(n) {
+      map.get(n) match
+        case a: java.util.ArrayList[java.util.ArrayList[java.util.ArrayList[T]]] if a.size == target.length =>
+          for i <- target.indices do
             val dst = target(i)
             val src = a.get(i)
-            if src.size == dst.length then
-              for i <- 0 until a.size() do dst(i) = src.get(i)
-            else
+            if !copyArrays(dst,src) then
               throw StateBuilderException(s"State reading error: invalid array sub-size for attribute '$n'")
         case _ =>
           throw StateBuilderException(s"State reading error: invalid array size or type for attribute '$n'")

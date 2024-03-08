@@ -5,6 +5,7 @@ import ucesoft.smd.Cart.UNZIP_ERROR.{DIRECTORY_FOUND, NO_SUITABLE_CART}
 import java.io.{File, FileInputStream}
 import java.nio.file.StandardCopyOption
 import java.util.zip.{CRC32, ZipInputStream}
+import scala.compiletime.uninitialized
 
 /*
 Address	Size	  Description
@@ -125,9 +126,9 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
 
   private val log = Logger.getLogger
 
-  private var rom : Array[Int] = _
-  private var extraMemory : ExtraMemory = _
-  private var cartNameDomestic, cartNameOversea : String = _
+  private var rom : Array[Int] = uninitialized
+  private var extraMemory : ExtraMemory = uninitialized
+  private var cartNameDomestic, cartNameOversea : String = uninitialized
   private var systemType = SYSTEM_TYPE.MEGA_DRIVE
   private var regions : List[Region] = Nil
   private var devices : List[Device] = Nil
