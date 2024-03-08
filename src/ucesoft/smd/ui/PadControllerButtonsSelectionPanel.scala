@@ -57,7 +57,7 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,
       var value = workingConfig.getProperty(Controller.formatProp(buttonAndDirectionsPropNames(r),index))
       if value == null then
         value = "EMPTY"
-      else
+      else if realPadControllerName.isEmpty then
         value = KeyEvent.getKeyText(value.toInt)
       keyLabels(r) = new JLabel(value)
       if value == "EMPTY" then

@@ -5,7 +5,7 @@ import org.yaml.snakeyaml.{DumperOptions, Yaml}
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.controller.*
 import ucesoft.smd.debugger.Debugger
-import ucesoft.smd.misc.{FullScreenMode, Preferences}
+import ucesoft.smd.misc.{CartInfoPanel, FullScreenMode, Preferences}
 import ucesoft.smd.ui.MessageBoard.MessageLevel.ADMIN
 import ucesoft.smd.*
 
@@ -48,7 +48,7 @@ end MegaDriveUI
  */
 class MegaDriveUI extends MessageBus.MessageListener:
   import scala.compiletime.uninitialized
-  
+
   private inline val MESSAGE_STD_WAIT = 2000
   // motherboard
   private val megaDrive = new MegaDrive
@@ -294,6 +294,7 @@ class MegaDriveUI extends MessageBus.MessageListener:
     buildStateMenu(stateMenu)
     buildToolsMenu(toolsMenu)
     buildDebugMenu(debugMenu)
+    buildCartMenu(cartMenu)
   end buildMenuBar
 
   private def buildFileMenu(fileMenu:JMenu): Unit =
@@ -320,9 +321,19 @@ class MegaDriveUI extends MessageBus.MessageListener:
     pauseCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_P, java.awt.event.InputEvent.ALT_DOWN_MASK))
     pauseCB.addActionListener(_ => if pauseCB.isSelected then pause() else play())
     pauseCB.setEnabled(false)
+    toolsMenu.addSeparator()
     toolsMenu.add(audioPanelCB)
     audioPanelCB.addActionListener(_ => audioPanel.dialog.setVisible(audioPanelCB.isSelected))
     audioPanelCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_A, java.awt.event.InputEvent.ALT_DOWN_MASK))
+    val volUpItem = new JMenuItem("Increase volume")
+    toolsMenu.add(volUpItem)
+    volUpItem.addActionListener(_ => MessageBus.send(MessageBus.AudioChangeVolume(this,up = true)))
+    volUpItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_PLUS,0))
+    val volDownItem = new JMenuItem("Decrease volume")
+    toolsMenu.add(volDownItem)
+    volDownItem.addActionListener(_ => MessageBus.send(MessageBus.AudioChangeVolume(this, up = false)))
+    volDownItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_MINUS,0))
+    toolsMenu.addSeparator()
     val perfMonitorItem = new JCheckBoxMenuItem("Performance monitor")
     toolsMenu.add(perfMonitorItem)
     perfMonitorItem.addActionListener(_ => {
@@ -352,6 +363,11 @@ class MegaDriveUI extends MessageBus.MessageListener:
     controllerItem.addActionListener(_ => openControllersPanel())
     controllerItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_J, java.awt.event.InputEvent.ALT_DOWN_MASK))
     toolsMenu.add(controllerItem)
+
+  private def buildCartMenu(cartMenu:JMenu): Unit =
+    val cartInfoItem = new JMenuItem("Cart info ...")
+    cartMenu.add(cartInfoItem)
+    cartInfoItem.addActionListener(_ => showCartInfo())
 
   private def handleDND(file:File) : Unit = attachCart(Some(file))
 
@@ -422,6 +438,7 @@ class MegaDriveUI extends MessageBus.MessageListener:
     debugMenu.setEnabled(true)
     pauseCB.setEnabled(true)
     fullScreenMode.setEnabled(true)
+    cartMenu.setEnabled(true)
     MouseHider.hideMouseOn(megaDrive.display)
 
     reset(hard = true)
@@ -435,6 +452,7 @@ class MegaDriveUI extends MessageBus.MessageListener:
     pauseCB.setEnabled(false)
     MouseHider.showMouseOn(megaDrive.display)
     fullScreenMode.setEnabled(false)
+    cartMenu.setEnabled(false)
     // TODO
 
   private def chooseCart(): Option[File] =
@@ -501,6 +519,9 @@ class MegaDriveUI extends MessageBus.MessageListener:
 
   private def setAudio(on:Boolean): Unit =
     MessageBus.send(MessageBus.AudioEnabledMessage(this,on))
+
+  private def showCartInfo(): Unit =
+    JOptionPane.showMessageDialog(frame, new CartInfoPanel(cart), "Command options", JOptionPane.INFORMATION_MESSAGE)
 
   private def saveState(file:Option[String]): Unit =
     pause()

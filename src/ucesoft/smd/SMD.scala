@@ -183,7 +183,7 @@ object SMD:
     psgAudio.setLogger(Logger.getLogger)
 
 
-    val cart = new Cart(Cart.CartFile("""G:\My Drive\Emulatori\Sega Mega Drive\Mortal Kombat II (World).md"""))
+    val cart = new Cart(Cart.CartFile("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic 3D Blast ~ Sonic 3D Flickies' Island (USA, Europe, Korea).md"""))
     println(cart)
 
     glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())

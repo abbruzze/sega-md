@@ -22,6 +22,17 @@ class AudioVolumePanel(frame:JFrame,audioDevices:Array[AudioDevice],closeAction:
         muteAll(on)
       case AudioEnabledMessage(_,enabled) =>
         muteAll(!enabled)
+      case AudioChangeVolume(_,up) =>
+        for (slider,device,_) <- sliders do
+          val vol = slider.getValue
+          if up then
+            if vol < slider.getMaximum then
+              slider.setValue(vol + 1)
+              device.setMasterVolume(vol + 1)
+          else
+            if vol > slider.getMinimum then
+              slider.setValue(vol - 1)
+              device.setMasterVolume(vol - 1)
       case _ =>
   private def muteAll(mute:Boolean): Unit =
     for (_,device,cb) <- sliders do
