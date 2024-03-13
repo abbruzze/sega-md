@@ -17,27 +17,32 @@ object Cheat:
     override def toString: String =
       s"GameCheats($name,$regions,${cheats.mkString("[",",","]")}"
   case class Game(name:String,crc32:String,size:String,year:String)
-  case class CheatCode(address:Int,value:Int):
+  case class CheatCode(code:String,address:Int,value:Int):
     private var romOldValue = 0
     private var romPatched = false
+    
+    def reset(): Unit =
+      romPatched = false
 
     def isROMPatched: Boolean = romPatched
-    def patchROM(rom:Array[Int]): Unit =
+    def patch(mem:Array[Int],addressMask:Int): Unit =
+      val adr = address & addressMask
       romPatched = true
       if value < 256 then
-        romOldValue = rom(address)
-        rom(address) = value
+        romOldValue = mem(adr)
+        mem(adr) = value
       else
-        romOldValue = rom(address) << 8 | rom(address + 1)
-        rom(address) = (value >> 8) & 0xFF
-        rom(address + 1) = value & 0xFF
-    def restoreROM(rom:Array[Int]): Unit =
+        romOldValue = mem(adr) << 8 | mem(adr + 1)
+        mem(adr) = (value >> 8) & 0xFF
+        mem(adr + 1) = value & 0xFF
+    def restore(mem:Array[Int],addressMask:Int): Unit =
       if romPatched then
+        val adr = address & addressMask
         if value < 256 then
-          rom(address) = romOldValue
+          mem(adr) = romOldValue
         else
-          rom(address) = (romOldValue >> 8) & 0xFF
-          rom(address + 1) = romOldValue & 0xFF
+          mem(adr) = (romOldValue >> 8) & 0xFF
+          mem(adr + 1) = romOldValue & 0xFF
         romPatched = false
 
   private val GENESIS_CODES = Array(
@@ -114,7 +119,7 @@ object Cheat:
   private def decodeRaw(code:String): Option[CheatCode] =
     code match
       case RAW_CODE_RE(a,v) =>
-        Some(CheatCode(Integer.parseInt(a,16),Integer.parseInt(v,16)))
+        Some(CheatCode(code,Integer.parseInt(a,16),Integer.parseInt(v,16)))
       case _ =>
         None
   private def decodeGG(code:String): Option[CheatCode] =
@@ -152,4 +157,4 @@ object Cheat:
       address <<= 8
       address |= temp
 
-    Some(CheatCode(address,value))
+    Some(CheatCode(code,address,value))

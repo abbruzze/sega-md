@@ -3,6 +3,7 @@ package ucesoft.smd.controller
 import net.java.games.input.{Component, Controller, ControllerEnvironment}
 import ucesoft.smd.controller.Controller.*
 import ucesoft.smd.controller.PadController.*
+import ucesoft.smd.misc.Preferences
 import ucesoft.smd.{Clock, Logger}
 
 import java.util.Properties
@@ -14,7 +15,6 @@ import java.util.Properties
 object RealPadController:
   inline val DEVICE_PROP_VALUE = "real_pad"
   inline val CONTROLLER_NAME_PROP = CONTROLLER_PROP + "name"
-  inline val CONTROLLER_POLLING_PROP = CONTROLLER_PROP + "pollingMillis"
 
   private var controllers: Array[Controller] = Array()
   private var discoverDone = false
@@ -58,7 +58,7 @@ object RealPadController:
   def getControllersNames: Array[String] = controllers.filter(c => c.getType == Controller.Type.GAMEPAD || c.getType == Controller.Type.STICK).map(_.getName.trim)
   def getControllerByName(name:String) : Option[Controller] = controllers.find(_.getName.trim == name)
 
-class RealPadController(config:Properties, override val index: Int, override val clock: Clock) extends PadController(index,clock) with Runnable:
+class RealPadController(config:Properties,pref:Preferences,override val index: Int, override val clock: Clock) extends PadController(index,clock) with Runnable:
   override val device : ControllerDevice = ControllerDevice.RealPad
   import RealPadController.*
   private inline val DIR_THRESHOLD = 0.5f
@@ -111,7 +111,8 @@ class RealPadController(config:Properties, override val index: Int, override val
         log.warning("USB controller %s not found",controllerName)
 
   override def run(): Unit =
-    val polling = config.getProperty(formatProp(CONTROLLER_POLLING_PROP,index),"10").toInt
+    val millis = pref.get[Int](Preferences.REAL_PAD_POLLING_MILLIS).map(_.value).getOrElse(10).toString
+    val polling = config.getProperty(formatProp(millis,index),"10").toInt
     running = true
     log.info("USB controller %d thread started",index)
     val c = controller.get

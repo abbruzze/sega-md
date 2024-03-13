@@ -17,8 +17,7 @@ object FullScreenMode:
                    component:JComponent,
                    width:Int,
                    height:Int,
-                   mouseListener:MouseListener,
-                   keyListeners:KeyListener*) : Unit =
+                   menuKeyListener: KeyListener = null) : Unit =
     val env = GraphicsEnvironment.getLocalGraphicsEnvironment
     val device = env.getScreenDevices()(screenDeviceIndex)
     val conf = device.getDefaultConfiguration
@@ -45,8 +44,16 @@ object FullScreenMode:
       window.validate()
       window.setVisible(true)
       window.toFront()
-      window.addMouseListener(mouseListener)
-      for(kl <- keyListeners) window.addKeyListener(kl)
+      
+      for kl <- frame.getKeyListeners do
+        window.addKeyListener(kl)
+      for ml <- frame.getMouseListeners do
+        window.addMouseListener(ml)
+      for mml <- frame.getMouseMotionListeners do
+        window.addMouseMotionListener(mml)
+      if menuKeyListener != null then
+        window.addKeyListener(menuKeyListener)
+      
       window.addKeyListener(new KeyAdapter:
         override def keyPressed(e:KeyEvent) : Unit =
           e.getKeyCode match

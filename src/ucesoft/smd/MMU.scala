@@ -143,8 +143,6 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   private var ssf2Rom : Array[Int] = uninitialized
 
-  hardReset()
-
   private def loadOSRom(): Array[Int] =
     val os = getClass.getResource("/resources/rom/Genesis_OS_ROM.bin")
     if os == null then
@@ -155,18 +153,23 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       log.info("OS ROM loaded")
       rom
 
-  override def reset(): Unit = {
+  override def init(): Unit =
+    hardReset()
+
+  override def reset(): Unit =
     bankRegisterShifter = 0
     bankRegisterBitCounter = 0
     bankRegister = 0
     for i <- 0 to 2 do
       if controllers(i) != null then
         controllers(i).resetComponent()
-  }
+
+    java.util.Arrays.fill(m68kram,0)
+    java.util.Arrays.fill(z80ram,0)
+    z80ram(0) = 0x76 // HALT
 
   override def hardReset(): Unit = {
     reset()
-    z80ram(0) = 0x76 // HALT
 
     tmssActive = osRomEnabled
     java.util.Arrays.fill(tmssBuffer,0)
@@ -229,10 +232,16 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   def setVDP(vdp:VDP): Unit =
     this.vdp = vdp
     
-  def patchROM(patch:CheatCode): Unit =
-    patch.patchROM(rom)
-  def restoreROM(patch:CheatCode): Unit =
-    patch.restoreROM(rom)
+  def patch(patch:CheatCode): Unit =
+    if patch.address >= 0xE0_0000 then
+      patch.patch(m68kram,0xFFFF)
+    else
+      patch.patch(rom,0xFF_FFFF)
+  def restore(patch:CheatCode): Unit =
+    if patch.address >= 0xE0_0000 then
+      patch.restore(m68kram,0xFFFF)
+    else
+      patch.restore(rom,0xFF_FFFF)
 
   // ========================= M68000 access ======================================
   override final def read(address: Int, size: Size, readOptions: Int): Int =

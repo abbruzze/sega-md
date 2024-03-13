@@ -469,6 +469,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     private var next = 0
     private var address = 0
 
+    def reset(): Unit =
+      _y = 0
+      next = 0
+      width = 0
+      height = 0
+      address = 0
+
     def createState(sb: StateBuilder): Unit =
       sb.w("_y",_y).
         w("width",width).
@@ -832,10 +839,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var m68KBUSRequested = false
 
   private var drawSpriteBoundariesEnabled = false
-
-  // ============================= Constructor =========================================
-  hardReset()
-  // ===================================================================================
+  
   def getVDPFifoDump: VDPFifoDump =
     fifo.dump()
   def enableDrawSpriteBoundaries(enabled:Boolean): Unit =
@@ -875,6 +879,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     if model != null then
       vcounter = model.videoType.topBlankingInitialVCounter(REG_M2)
     hcounter = hmode.hCounterInitialValue
+
+    if videoPixels != null then
+      java.util.Arrays.fill(videoPixels,0xFF000000)
 
   private def initVRAM(): Unit =
     val VRAM_PATTERN = Array(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00)
@@ -931,6 +938,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     interlaceModeEnabled = false
     interlaceMode = INTERLACE_MODE.NO_INTERLACE
     debugRegister = 0
+    for s <- spriteCache do
+      s.reset()
     sprite1VisibleSR.reset()
     sprite1VisibleCurrentIndex = 0
     sprite1FirstFetch = true

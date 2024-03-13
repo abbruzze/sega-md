@@ -5,11 +5,13 @@ import org.yaml.snakeyaml.{DumperOptions, Yaml}
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.controller.*
 import ucesoft.smd.debugger.Debugger
-import ucesoft.smd.misc.{CartInfoPanel, FullScreenMode, Preferences}
+import ucesoft.smd.misc.{CartInfoPanel, FullScreenMode, GIFPanel, Preferences}
 import ucesoft.smd.ui.MessageBoard.MessageLevel.ADMIN
 import ucesoft.smd.*
+import ucesoft.smd.cheat.Cheat.CheatCode
+import ucesoft.smd.cheat.CheatManager
 
-import java.awt.event.{WindowAdapter, WindowEvent}
+import java.awt.event.{KeyAdapter, KeyEvent, WindowAdapter, WindowEvent}
 import java.io.*
 import java.util.Properties
 import java.util.logging.Level
@@ -46,7 +48,7 @@ end MegaDriveUI
  * @author Alessandro Abbruzzetti
  *         Created on 20/02/2024 15:49  
  */
-class MegaDriveUI extends MessageBus.MessageListener:
+class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   import scala.compiletime.uninitialized
 
   private inline val MESSAGE_STD_WAIT = 2000
@@ -77,6 +79,9 @@ class MegaDriveUI extends MessageBus.MessageListener:
   private val audioPanelCB = new JCheckBoxMenuItem("Audio settings")
   private val pauseCB = new JCheckBoxMenuItem("Pause")
   private val fullScreenMode = new JMenuItem("Full screen mode")
+
+  // cheats
+  private val cheatList = new ListBuffer[CheatCode]
 
   override def onMessage(msg: MessageBus.Message): Unit =
     msg match
@@ -136,6 +141,7 @@ class MegaDriveUI extends MessageBus.MessageListener:
     frame.setIconImage(new ImageIcon(getClass.getResource("/resources/sonic_ring.png")).getImage)
     // display
     val display = new Display(SCREEN_WIDTH, megaDrive.model.videoType.totalLines, frame.getTitle, frame, megaDrive.masterClock)
+    display.setFocusable(true)
     megaDrive.setDisplay(display)
     display.setClipArea(megaDrive.model.videoType.getClipArea(h40 = false).getTuple)                // starts with H32
     display.setPreferredSize(megaDrive.model.videoType.getClipArea(h40 = true).getPreferredSize(2)) // preferred size is relative to H40, double size
@@ -146,7 +152,7 @@ class MegaDriveUI extends MessageBus.MessageListener:
     val logger = Logger.setLogger(debugger.log)
     megaDrive.setLogger(logger)
 
-    audioPanel = new AudioVolumePanel(frame,Array(megaDrive.fmAudio,megaDrive.psgAudio),() => audioPanelCB.setSelected(false))
+    audioPanel = new AudioVolumePanel(frame,Array(megaDrive.fmAudio,megaDrive.psgAudio),megaDrive.pref,() => audioPanelCB.setSelected(false))
     MessageBus.add(audioPanel)
 
     buildMenuBar()
@@ -162,10 +168,10 @@ class MegaDriveUI extends MessageBus.MessageListener:
     conf.getProperty(Controller.formatProp(Controller.CONTROLLER_DEVICE_PROP, pos)) match
       case KeyboardPADController.DEVICE_PROP_VALUE | null =>
         Logger.getLogger.info("Controller %d set as keyboard pad",pos + 1)
-        new KeyboardPADController(frame,conf,pos,megaDrive.masterClock)
+        new KeyboardPADController(megaDrive.display,conf,pos,megaDrive.masterClock)
       case RealPadController.DEVICE_PROP_VALUE =>
         Logger.getLogger.info("Controller %d set as real pad",pos + 1)
-        new RealPadController(conf,pos,megaDrive.masterClock)
+        new RealPadController(conf,megaDrive.pref,pos,megaDrive.masterClock)
       case MouseController.DEVICE_PROP_VALUE =>
         Logger.getLogger.info("Controller %d set as mouse",pos + 1)
         new MouseController(pos,megaDrive.display)
@@ -182,9 +188,10 @@ class MegaDriveUI extends MessageBus.MessageListener:
       glassPane.addMessage(MessageBoard.builder.message("Paused").adminLevel().bold().xleft().ytop().delay().fadingMilliseconds(500).build())
 
   private def play(): Unit =
-    glassPane.interrupt()
-    pauseCB.setSelected(false)
-    megaDrive.masterClock.play()
+    if cart != null then
+      glassPane.interrupt()
+      pauseCB.setSelected(false)
+      megaDrive.masterClock.play()
 
   private def shutdown(): Unit =
     val loadingDialog = new LoadingDialog(frame, s"Shutting down emulator ...")
@@ -364,12 +371,34 @@ class MegaDriveUI extends MessageBus.MessageListener:
     controllerItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_J, java.awt.event.InputEvent.ALT_DOWN_MASK))
     toolsMenu.add(controllerItem)
 
+    val cheatItem = new JMenuItem("Cheats ...")
+    toolsMenu.add(cheatItem)
+    cheatItem.addActionListener(_ => showCheatPanel())
+
+    val gifItem = new JMenuItem("GIF recording ...")
+    toolsMenu.add(gifItem)
+    gifItem.addActionListener(_ => showGIFRecordingPanel())
+  end buildToolsMenu
+
   private def buildCartMenu(cartMenu:JMenu): Unit =
     val cartInfoItem = new JMenuItem("Cart info ...")
     cartMenu.add(cartInfoItem)
     cartInfoItem.addActionListener(_ => showCartInfo())
 
   private def handleDND(file:File) : Unit = attachCart(Some(file))
+
+  // =======================================================================
+  private def showGIFRecordingPanel(): Unit =
+    val gifDialog = GIFPanel.createGIFPanel(frame,Array(megaDrive.display),Array("main"))
+    gifDialog.setVisible(true)
+
+  private def showCheatPanel(): Unit =
+    pause()
+    try
+      val cp = new CheatPanel(frame,this,megaDrive.cart.map(_.getOverseaName),megaDrive.pref,cart != null)
+      cp.dialog.setVisible(true)
+    finally
+      play()
 
   private def openControllersPanel(): Unit =
     pause()
@@ -395,7 +424,10 @@ class MegaDriveUI extends MessageBus.MessageListener:
               selectedScreenIndex = index
       finally
         play()
-    FullScreenMode.goFullScreen(selectedScreenIndex,glassPane,frame,megaDrive.display,SCREEN_WIDTH, megaDrive.model.videoType.totalLines,null) // TODO
+    FullScreenMode.goFullScreen(selectedScreenIndex,glassPane,frame,megaDrive.display,SCREEN_WIDTH, megaDrive.model.videoType.totalLines,new KeyAdapter:
+      override def keyPressed(e: KeyEvent): Unit =
+        {/* Add keys */} // TODO
+    )
 
   private def attachCart(file:Option[File]): Unit =
     if cart != null then
@@ -441,6 +473,14 @@ class MegaDriveUI extends MessageBus.MessageListener:
     cartMenu.setEnabled(true)
     MouseHider.hideMouseOn(megaDrive.display)
 
+    if cheatList.nonEmpty then
+      JOptionPane.showConfirmDialog(frame,s"Apply ${cheatList.size} configured cheats on this cartridge ?","Cheats confirm",JOptionPane.YES_NO_OPTION) match
+        case JOptionPane.YES_OPTION =>
+          for c <- cheatList do
+            c.reset()
+            megaDrive.mmu.patch(c)
+        case _ =>
+
     reset(hard = true)
 
   private def detachCart(): Unit =
@@ -453,6 +493,9 @@ class MegaDriveUI extends MessageBus.MessageListener:
     MouseHider.showMouseOn(megaDrive.display)
     fullScreenMode.setEnabled(false)
     cartMenu.setEnabled(false)
+
+    for c <- cheatList do
+      c.reset()
     // TODO
 
   private def chooseCart(): Option[File] =
@@ -589,5 +632,20 @@ class MegaDriveUI extends MessageBus.MessageListener:
       new StateBuilder(state)
     finally
       loadingDialog.dispose()
+
+  // cheat manager
+  override def addCheat(_cheat: CheatCode): Unit =
+    val cheat = _cheat.copy()
+    cheatList += cheat
+    megaDrive.mmu.patch(cheat)
+  override def removeCheat(_cheat: CheatCode): Unit =
+    val cheat = _cheat.copy()
+    cheatList -= cheat
+    megaDrive.mmu.restore(cheat)
+  override def removeAllCheats(): Unit =
+    for c <- cheatList do
+      megaDrive.mmu.restore(c)
+    cheatList.clear()
+  override def getCheats: List[CheatCode] = cheatList.toList
 
 

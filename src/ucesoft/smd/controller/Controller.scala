@@ -25,6 +25,7 @@ abstract class Controller extends SMDComponent:
   protected var control = 0
   protected var controllerType: ControllerType = ControllerType.Unknown
 
+
   def copyStateFrom(p:Controller): Unit =
     control = p.control
 
@@ -47,5 +48,6 @@ class EmptyController(override val index: Int) extends Controller:
   override val device : ControllerDevice = ControllerDevice.Empty
   override def readData(): Int = 0xFF
   override def writeData(value: Int): Unit = {}
+  override def writeControl(value: Int): Unit = {}
 
 

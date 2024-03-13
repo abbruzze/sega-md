@@ -44,6 +44,7 @@ class Debugger(m68k:M68000,
                vdp:VDP,
                windowCloseOperation: () => Unit) extends VDP.VDPNewFrameListener:
   import Debugger.*
+  private inline val MAX_LOG_LINES = 1000
   private enum StepState:
     case NoStep, WaitReturn, WaitTarget
 
@@ -164,6 +165,8 @@ class Debugger(m68k:M68000,
   private var messageBoard: MessageBoardListener = scala.compiletime.uninitialized
 
   private val tabbedPane = new JTabbedPane()
+
+  private var logLines = 0
 
   // =============================================================================================================
   private trait GenericDebugger extends DisassemblerBreakHandler:
@@ -928,7 +931,10 @@ class Debugger(m68k:M68000,
     logSeverityInfoButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.INFO))
     logSeverityWarningButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.WARNING))
     logSeverityOffButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.OFF))
-    clearLog.addActionListener(_ => logPanel.setText(""))
+    clearLog.addActionListener(_ => {
+      logLines = 0
+      logPanel.setText("")
+    })
 
     tabbedPane.add("M68K",m68kDebugger)
     tabbedPane.add("Z80",z80Debugger)
@@ -1024,6 +1030,8 @@ class Debugger(m68k:M68000,
   def enableTracing(enabled: Boolean): Unit =
     selectedDebugger.enableTracing(enabled)
     checkTracingState(enabled)
+    if !enabled then
+      windowCloseOperation()
 
   protected def selectDebugger(index:Int): Unit =
     swing {
@@ -1070,8 +1078,13 @@ class Debugger(m68k:M68000,
       m68KramDialog.setVisible(true)
 
   def log(msg: String): Unit = swing {
-    logPanel.append(msg)
-    logPanel.append("\n")
+    if logLines == MAX_LOG_LINES then
+      logPanel.append("Hey, too many logs here, please clear this panel to keep reading new logs")
+      logLines += 1
+    else if logLines < MAX_LOG_LINES then
+      logPanel.append(msg)
+      logPanel.append("\n")
+      logLines += 1
   }
 
   private def checkVDPNewFrameState(): Unit =

@@ -7,6 +7,10 @@ object Preferences {
   // GENERAL ======================================================
   val XY_PREF = "frame.xy"
   val AUTOSAVE_PREF = "autosave-pref"
+  val PSG_AUDIO_BUFF_MILLIS = "psg-buffer-millis"
+  val FM_AUDIO_BUFF_MILLIS = "fm-buffer-millis"
+  val REAL_PAD_POLLING_MILLIS = "real-pad-polling-millis"
+  val CHEAT_CODES = "cheat-code-list"
   
   class PreferenceIllegalArgumentException(msg:String) extends Exception(msg)
 

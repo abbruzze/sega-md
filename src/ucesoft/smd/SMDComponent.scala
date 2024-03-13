@@ -39,7 +39,8 @@ trait SMDComponent extends MessageBus.MessageListener:
 
   final def hardResetComponent(): Unit =
     log.info("Hard resetting %s",smdComponentName)
-    components.foreach(_.hardResetComponent())
+    components.foreach(
+      _.hardResetComponent())
     hardReset()
 
   def setLogger(logger: Logger): Unit =

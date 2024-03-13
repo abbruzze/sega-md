@@ -122,4 +122,4 @@ class BusArbiter extends SMDComponent:
             m68kReleaseZ80BUS()
           case _ =>
       case STOPPED =>
-        log.warning("Z80 stop reset sequence ignored, never started")
+        log.warning("Z80 stop reset sequence ignored, never started PC=%06X",m68k.getLastInstructionPC)

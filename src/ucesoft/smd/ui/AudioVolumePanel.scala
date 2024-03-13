@@ -2,6 +2,7 @@ package ucesoft.smd.ui
 
 import ucesoft.smd.MessageBus
 import ucesoft.smd.audio.AudioDevice
+import ucesoft.smd.misc.Preferences
 
 import java.awt.event.{WindowAdapter, WindowEvent}
 import java.awt.{BorderLayout, Dimension, FlowLayout}
@@ -10,7 +11,7 @@ import javax.swing.*
  * @author Alessandro Abbruzzetti
  *         Created on 23/01/2024 10:59  
  */
-class AudioVolumePanel(frame:JFrame,audioDevices:Array[AudioDevice],closeAction:() => Unit) extends JPanel with MessageBus.MessageListener:
+class AudioVolumePanel(frame:JFrame,audioDevices:Array[AudioDevice],pref:Preferences,closeAction:() => Unit) extends JPanel with MessageBus.MessageListener:
   final val dialog = new JDialog(frame,"Audio controls")
   private var sliders : Array[(JSlider,AudioDevice,JCheckBox)] = scala.compiletime.uninitialized
   init()
@@ -40,7 +41,7 @@ class AudioVolumePanel(frame:JFrame,audioDevices:Array[AudioDevice],closeAction:
       device.mute(mute)
 
   private def init(): Unit  =
-    inline val XGAP = 15
+    inline val XGAP = 5
     setLayout(new BorderLayout())
     val controlPanel = new JPanel()
     val boxLayout = new BoxLayout(controlPanel,BoxLayout.X_AXIS)
@@ -61,6 +62,30 @@ class AudioVolumePanel(frame:JFrame,audioDevices:Array[AudioDevice],closeAction:
       devicePanel.add("North",muteCB)
       devicePanel.add("Center",volumeSlider)
       devicePanel.setBorder(BorderFactory.createTitledBorder(device.name))
+      val audioBufferPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      val buffers = Array("5","10","20","50","100")
+      val audioBufferCombo = new JComboBox[String](buffers)
+      audioBufferPanel.add(new JLabel("Buffer in millis:",SwingConstants.RIGHT))
+      audioBufferPanel.add(audioBufferCombo)
+      devicePanel.add("South",audioBufferPanel)
+      val buffer = device.name match
+        case "PSG" =>
+          pref.get[String](Preferences.PSG_AUDIO_BUFF_MILLIS).map(_.value).getOrElse("10")
+        case "FM" =>
+          pref.get[String](Preferences.FM_AUDIO_BUFF_MILLIS).map(_.value).getOrElse("10")
+        case _ =>
+          "10"
+      audioBufferCombo.setSelectedItem(buffer)
+      audioBufferCombo.addActionListener(_ => {
+        val millis = audioBufferCombo.getSelectedItem.toString.toInt
+        device.setBufferInMillis(millis)
+        device.name match
+          case "PSG" =>
+            pref.update(Preferences.PSG_AUDIO_BUFF_MILLIS, millis)
+          case "FM" =>
+            pref.update(Preferences.FM_AUDIO_BUFF_MILLIS, millis)
+          case _ =>
+      })
 
       muteCB.addActionListener(_ => device.mute(muteCB.isSelected))
       volumeSlider.addChangeListener(e => {
