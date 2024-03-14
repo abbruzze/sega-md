@@ -1,9 +1,10 @@
 package ucesoft.smd.ui
 
-import ucesoft.smd.controller.Controller.formatProp
+import ucesoft.smd.MessageBus
+import ucesoft.smd.controller.Controller.{CONTROLLER_DEVICE_PROP, formatProp}
 import ucesoft.smd.controller.ControllerDevice.{Empty, KeyboardPad, Mouse, RealPad}
 import ucesoft.smd.controller.RealPadController.CONTROLLER_NAME_PROP
-import ucesoft.smd.controller.{Controller, ControllerDevice, ControllerType, PadController, RealPadController}
+import ucesoft.smd.controller.{Controller, ControllerDevice, ControllerType, EmptyController, MouseController, PadController, RealPadController}
 
 import java.awt.{BorderLayout, GridLayout}
 import java.util.Properties
@@ -108,6 +109,7 @@ class ControllerConfigPanel(frame:JFrame,
       newC.copyStateFrom(old)
       setController(c,newC)
 
+    MessageBus.send(MessageBus.ControllerConfigurationChanged(this))
     JOptionPane.showMessageDialog(this,"Changes applied","Changes applied",JOptionPane.INFORMATION_MESSAGE)
 
   private def applyProp(prop:Option[Properties]): Unit =
@@ -122,7 +124,6 @@ class ControllerConfigPanel(frame:JFrame,
   private def configure(index:Int,controllerDevice: ControllerDevice,controllerType: ControllerType): Unit =
     val controllerConfig = if controllerDevice == getController(index).device then config else new Properties()
     controllerDevice match
-      case Empty =>
       case KeyboardPad =>
         val selectionPanel = new PadControllerButtonsSelectionPanel(dialog,index,controllerConfig,None,controllerType == ControllerType.PAD3Buttons,applyProp)
         selectionPanel.dialog.setVisible(true)
@@ -140,4 +141,8 @@ class ControllerConfigPanel(frame:JFrame,
             val selectionPanel = new PadControllerButtonsSelectionPanel(dialog, index, controllerConfig, Some(device.toString),controllerType == ControllerType.PAD3Buttons, applyProp)
             selectionPanel.dialog.setVisible(true)
       case Mouse =>
-        // TODO
+        workingProps.setProperty(formatProp(CONTROLLER_DEVICE_PROP,index),MouseController.DEVICE_PROP_VALUE)
+        JOptionPane.showMessageDialog(dialog,"Mouse controller configured","Mouse configuration",JOptionPane.INFORMATION_MESSAGE)
+      case Empty =>
+        workingProps.setProperty(formatProp(CONTROLLER_DEVICE_PROP, index), EmptyController.DEVICE_PROP_VALUE)
+        JOptionPane.showMessageDialog(dialog, "Empty controller configured", "Empty controller configuration", JOptionPane.INFORMATION_MESSAGE)

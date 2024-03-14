@@ -822,7 +822,7 @@ class Debugger(m68k:M68000,
 
   private def swing(f: => Unit) : Unit =
     if !SwingUtilities.isEventDispatchThread then
-      SwingUtilities.invokeAndWait(() => f)
+      SwingUtilities.invokeLater(() => f)
     else f
 
   private def init(): Unit =
@@ -1050,6 +1050,10 @@ class Debugger(m68k:M68000,
       frame.setVisible(true)
     else
       onOffButton.setToolTipText("Enable tracing")
+      m68kDebugger.enableTracing(false)
+      m68kDebugger.nextStep()
+      z80Debugger.nextStep()
+      z80Debugger.enableTracing(false)
     onOffButton.setSelected(enabled)
 
   private def stepIn(): Unit =

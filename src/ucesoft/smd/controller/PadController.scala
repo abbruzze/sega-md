@@ -70,6 +70,7 @@ abstract class PadController(override val index: Int, val clock: Clock) extends 
         timeoutID = p.timeoutID
         lastWrite = p.lastWrite
         control = p.control
+      case _ =>
 
   override def disconnect(): Unit =
     if timeoutID != null then

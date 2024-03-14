@@ -44,6 +44,9 @@ abstract class Controller extends SMDComponent:
 
   protected def performDataWrite(data:Int): Unit = {}
   
+object EmptyController:
+  inline val DEVICE_PROP_VALUE = "empty"  
+  
 class EmptyController(override val index: Int) extends Controller:
   override val device : ControllerDevice = ControllerDevice.Empty
   override def readData(): Int = 0xFF

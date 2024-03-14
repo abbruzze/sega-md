@@ -209,7 +209,7 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
   final def isRunning : Boolean = running
 
   final def pause(): Unit =
-    if Thread.currentThread() != thread then
+    if Thread.currentThread() != thread && running then
       if !suspended then
         suspended = true
         suspendedNotifier.await()

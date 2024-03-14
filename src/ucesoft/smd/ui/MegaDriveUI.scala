@@ -79,6 +79,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private val audioPanelCB = new JCheckBoxMenuItem("Audio settings")
   private val pauseCB = new JCheckBoxMenuItem("Pause")
   private val fullScreenMode = new JMenuItem("Full screen mode")
+  private val mouseEnabledCB = new JCheckBoxMenuItem("Mouse capture enabled")
 
   // cheats
   private val cheatList = new ListBuffer[CheatCode]
@@ -95,6 +96,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
           case Some(mf) =>
             loadCartExtraMemory(cart)
           case None =>
+      case MessageBus.ControllerConfigurationChanged(_) =>
+        checkControllers()
       case _ =>
 
   private def saveCartExtraMemory(cart:Cart): Unit =
@@ -155,6 +158,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     audioPanel = new AudioVolumePanel(frame,Array(megaDrive.fmAudio,megaDrive.psgAudio),megaDrive.pref,() => audioPanelCB.setSelected(false))
     MessageBus.add(audioPanel)
 
+    MessageBus.add(this)
+
     buildMenuBar()
 
     // Real pad
@@ -175,9 +180,18 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       case MouseController.DEVICE_PROP_VALUE =>
         Logger.getLogger.info("Controller %d set as mouse",pos + 1)
         new MouseController(pos,megaDrive.display)
+      case EmptyController.DEVICE_PROP_VALUE =>
+        Logger.getLogger.info("Controller %d set as empty",pos + 1)
+        new EmptyController(pos)
       case unknown =>
         Logger.getLogger.warning("Cannot make controller %d from configuration file: unknown device %s", pos, unknown)
         EmptyController(pos)
+
+  private def checkControllers(): Unit =
+    val mouseConfigured = megaDrive.mmu.getController(0).device == ControllerDevice.Mouse || megaDrive.mmu.getController(1).device == ControllerDevice.Mouse
+    mouseEnabledCB.setEnabled(mouseConfigured)
+    if !mouseConfigured then
+      MouseHider.hideMouseOn(megaDrive.display)
 
   private def swing(action : => Unit) : Unit = SwingUtilities.invokeLater(() => action)
 
@@ -225,11 +239,14 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   end errorHandler
   private def openDebugger(): Unit =
     debugger.enableTracing(true)
+  private def closeDebugger(): Unit =
+    debugger.enableTracing(false)
+    debugger.showDebugger(false)
 
   private def configure(args:Array[String]): Unit =
     // check controllers
     megaDrive.mmu.setController(0,makeController(megaDrive.conf,0))
-    megaDrive.mmu.setController(1,makeController(megaDrive.conf,1))
+    megaDrive.mmu.setController(1,new EmptyController(1))
 
   private def run(): Unit =
     val log = Logger.getLogger
@@ -378,6 +395,11 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     val gifItem = new JMenuItem("GIF recording ...")
     toolsMenu.add(gifItem)
     gifItem.addActionListener(_ => showGIFRecordingPanel())
+
+    mouseEnabledCB.setEnabled(false)
+    toolsMenu.add(mouseEnabledCB)
+    mouseEnabledCB.addActionListener(_ => enableMouseCapture(mouseEnabledCB.isSelected))
+    mouseEnabledCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_M, java.awt.event.InputEvent.ALT_DOWN_MASK))
   end buildToolsMenu
 
   private def buildCartMenu(cartMenu:JMenu): Unit =
@@ -388,6 +410,17 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private def handleDND(file:File) : Unit = attachCart(Some(file))
 
   // =======================================================================
+  private def enableMouseCapture(enabled:Boolean): Unit =
+    for c <- 0 to 1 do
+      val controller = megaDrive.mmu.getController(c)
+      controller.device match
+        case ControllerDevice.Mouse =>
+          MouseHider.showMouseOn(megaDrive.display)
+          controller.asInstanceOf[MouseController].mouseEnabled(enabled)
+        case _ =>
+
+    if !enabled then
+      MouseHider.hideMouseOn(megaDrive.display)
   private def showGIFRecordingPanel(): Unit =
     val gifDialog = GIFPanel.createGIFPanel(frame,Array(megaDrive.display),Array("main"))
     gifDialog.setVisible(true)
@@ -432,6 +465,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private def attachCart(file:Option[File]): Unit =
     if cart != null then
       if !megaDrive.masterClock.isPaused then
+        closeDebugger()
         pause()
 
     val fileToLoad = file match
