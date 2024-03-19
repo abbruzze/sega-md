@@ -31,6 +31,8 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   private var _cart : Cart = scala.compiletime.uninitialized
 
   private var configurationFile : File = scala.compiletime.uninitialized
+
+  private var fixChecksum = false
   
   // ============== Public =======================================================
 
@@ -214,9 +216,13 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
           psgAudio.clock()
       end if
   end clock
+
+  def isChecksumFixed: Boolean = fixChecksum
+  def setChecksumFixed(enabled:Boolean): Unit = fixChecksum = enabled
   // ================= State ====================================
-  def getStateInfo(sb: StateBuilder): Option[MegaDrive.StateInfo] =
+  def getStateInfo(_sb: StateBuilder): Option[MegaDrive.StateInfo] =
     try
+      val sb = _sb.getSubStateBuilder("component")
       val dateFormatter = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")
       val ts = LocalDateTime.from(dateFormatter.parse(sb.r[String]("timestamp")))
       val version = sb.r[String]("version")
@@ -253,9 +259,30 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     sb.w("loop",loopSB.build())
     
     // Cart
-    val cartSB = new StateBuilder()
-    Cart.createState(_cart,cartSB)
-    sb.w("cart",cartSB.build())
-  override def restoreState(sb: StateBuilder): Unit = ???
+    Cart.createState(_cart,sb)
+  override def restoreState(sb: StateBuilder): Unit =
+    val modelSB = sb.getSubStateBuilder("model")
+    val videoType = VideoType.valueOf(modelSB.r[String]("videoType"))
+    val modelType = ModelType.valueOf(modelSB.r[String]("modelType"))
+    val version = modelSB.r[Int]("version")
+
+    val stateModel = Model(modelType,videoType,version)
+    val loopSB = sb.getSubStateBuilder("loop")
+    import loopSB.*
+    m68Div = r[Int]("m68Div")
+    z80Div = r[Int]("z80Div")
+    m68Acc = r[Int]("m68Acc")
+    z80Acc = r[Int]("z80Acc")
+    psgCycles = r[Int]("psgCycles")
+    fmCycles = r[Int]("fmCycles")
+    m68WaitCycles = r[Int]("m68WaitCycles")
+    z80WaitCycles = r[Int]("z80WaitCycles")
+
+    if stateModel != _model then
+      MessageBus.send(MessageBus.ModelChanged(this,stateModel))
+
+    val cart = Cart.restoreState(sb,fixChecksum)
+    MessageBus.send(MessageBus.CartInserted(this,cart))
+    MessageBus.send(MessageBus.StateRestored(this,cart))
 
 

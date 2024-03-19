@@ -18,6 +18,7 @@ object MessageBus:
   case class CartInserted(override val source:AnyRef,cart:Cart) extends Message
   case class CartRemoved(override val source:AnyRef,cart:Cart) extends Message
   case class ControllerConfigurationChanged(override val source:AnyRef) extends Message
+  case class StateRestored(override val source:AnyRef,cart:Cart) extends Message
   // ============================================
   trait MessageListener:
     def onMessage(msg:Message): Unit

@@ -2287,6 +2287,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     r("vsram",VSRAM)
     r("cram_palette",CRAM_COLORS)
     r("regs",regs)
+    writeRegister(12, regs(12))
     addressRegister = r[Int]("addressRegister")
     codeRegister = r[Int]("codeRegister")
     writePendingFlag = r[Boolean]("writePendingFlag")
@@ -2448,7 +2449,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     val ssrsb = new StateBuilder()
     sprite1VisibleSR.createState(ssrsb)
-    sb.w("spriteVisibleSR",ssrsb.build())
+    sb.w("sprite1VisibleSR",ssrsb.build())
 
     sb.w("sprite1VisibleCurrentIndex",sprite1VisibleCurrentIndex).
       w("sprite1FirstFetch",sprite1FirstFetch).

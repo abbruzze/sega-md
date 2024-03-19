@@ -5,7 +5,7 @@ import org.yaml.snakeyaml.{DumperOptions, Yaml}
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.controller.*
 import ucesoft.smd.debugger.Debugger
-import ucesoft.smd.misc.{CartInfoPanel, FullScreenMode, GIFPanel, Preferences}
+import ucesoft.smd.misc.{CartInfoPanel, FullScreenMode, GIFPanel, Preferences, StateInfoPanel}
 import ucesoft.smd.ui.MessageBoard.MessageLevel.ADMIN
 import ucesoft.smd.*
 import ucesoft.smd.cheat.Cheat.CheatCode
@@ -64,13 +64,14 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private var performanceMonitor : PerformanceMonitor = uninitialized
 
   private var lastDirectory = new File(scala.util.Properties.userHome)
+  private var lastStateDirectory = new File(scala.util.Properties.userHome)
   private var lastSaveStateFile : String = uninitialized
-  private var fixChecksum = false
+  private var pendingModelToApply : Model = uninitialized
 
   private var extraRAMDirectory : File = uninitialized
 
   // MenuItems
-  private val stateMenu = new JMenu("State")
+  private val saveStateItem = new JMenuItem("Save state ...")
   private val cartMenu = new JMenu("Cart")
   private val debugMenu = new JMenu("Debug")
   private val quickSaveStateItem = new JMenuItem("Quick save state")
@@ -80,6 +81,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private val pauseCB = new JCheckBoxMenuItem("Pause")
   private val fullScreenMode = new JMenuItem("Full screen mode")
   private val mouseEnabledCB = new JCheckBoxMenuItem("Mouse capture enabled")
+  private val zoom4CB = new JCheckBoxMenuItem("Zoom 4x")
 
   // cheats
   private val cheatList = new ListBuffer[CheatCode]
@@ -98,6 +100,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
           case None =>
       case MessageBus.ControllerConfigurationChanged(_) =>
         checkControllers()
+      case MessageBus.StateRestored(_,cart) =>
+        playCart(cart,fromRestoredState = true)
       case _ =>
 
   private def saveCartExtraMemory(cart:Cart): Unit =
@@ -194,6 +198,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       MouseHider.hideMouseOn(megaDrive.display)
 
   private def swing(action : => Unit) : Unit = SwingUtilities.invokeLater(() => action)
+  private def par(action : => Unit) : Unit = new Thread(() => action,"Par").start()
 
   private def pause(): Unit =
     if !megaDrive.masterClock.isPaused then
@@ -208,18 +213,21 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       megaDrive.masterClock.play()
 
   private def shutdown(): Unit =
-    val loadingDialog = new LoadingDialog(frame, s"Shutting down emulator ...")
-    loadingDialog.setVisible(true)
-    try
-      frame.dispose()
-      megaDrive.cart.foreach(cart => {
-        MessageBus.send(MessageBus.CartRemoved(this,cart))
-      })
-      savePreferences()
-    finally
-      loadingDialog.dispose()
+    par {
+      val loadingDialog = new LoadingDialog(frame, s"Shutting down emulator ...")
+      loadingDialog.setVisible(true)
+      try
+        frame.dispose()
+        megaDrive.cart.foreach(cart => {
+          MessageBus.send(MessageBus.CartRemoved(this, cart))
+        })
+        savePreferences()
+        sys.exit(0)
+      finally
+        loadingDialog.dispose()
+    }
 
-  private def savePreferences(): Unit = ???
+  private def savePreferences(): Unit = {} // TODO
 
   private def errorHandler(t:Throwable): Unit =
     t.printStackTrace()
@@ -281,14 +289,15 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     // TODO
     glassPane.addMessage(MessageBoard.builder.message("Welcome").adminLevel().bold().xcenter().ycenter().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
 
-  private def reset(hard:Boolean): Unit =
+  private def reset(hard:Boolean,fromRestoredState:Boolean): Unit =
     if !megaDrive.masterClock.isPaused then
       pause()
     try
-      if hard then
-        megaDrive.hardResetComponent()
-      else
-        megaDrive.resetComponent()
+      if !fromRestoredState then
+        if hard then
+          megaDrive.hardResetComponent()
+        else
+          megaDrive.resetComponent()
     finally
       if !megaDrive.masterClock.isRunning then
         megaDrive.masterClock.start()
@@ -301,7 +310,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     frame.setJMenuBar(menubar)
 
     val fileMenu = new JMenu("File")
-    stateMenu.setEnabled(false)
+    val stateMenu = new JMenu("State")
     debugMenu.setEnabled(false)
     val toolsMenu = new JMenu("Tools")
     cartMenu.setEnabled(false)
@@ -326,15 +335,22 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     fileMenu.add(loadCartItem)
     loadCartItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_L,java.awt.event.InputEvent.ALT_DOWN_MASK))
     loadCartItem.addActionListener(_ => attachCart(None))
+    val resetItem = new JMenuItem("Reset")
+    fileMenu.add(resetItem)
+    resetItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_R,java.awt.event.InputEvent.ALT_DOWN_MASK))
+    resetItem.addActionListener(_ => reset(hard = true,fromRestoredState = false))
   private def buildStateMenu(stateMenu:JMenu): Unit =
-    val saveStateItem = new JMenuItem("Save state ...")
+    saveStateItem.setEnabled(false)
     stateMenu.add(saveStateItem)
     saveStateItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_S, java.awt.event.InputEvent.ALT_DOWN_MASK))
-    saveStateItem.addActionListener(_ => saveState(None))
+    saveStateItem.addActionListener(_ => par(saveState(None)))
     quickSaveStateItem.setEnabled(false)
     stateMenu.add(quickSaveStateItem)
     quickSaveStateItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_Q, java.awt.event.InputEvent.ALT_DOWN_MASK))
-    quickSaveStateItem.addActionListener(_ => saveState(Some(lastSaveStateFile)))
+    quickSaveStateItem.addActionListener(_ => par(saveState(Some(lastSaveStateFile))))
+    val loadStateItem = new JMenuItem("Load state ...")
+    stateMenu.add(loadStateItem)
+    loadStateItem.addActionListener(_ => par(loadState(None)))
 
   private def buildDebugMenu(debugMenu:JMenu): Unit =
     debugMenu.add(debuggerCB)
@@ -400,6 +416,10 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     toolsMenu.add(mouseEnabledCB)
     mouseEnabledCB.addActionListener(_ => enableMouseCapture(mouseEnabledCB.isSelected))
     mouseEnabledCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_M, java.awt.event.InputEvent.ALT_DOWN_MASK))
+
+    toolsMenu.add(zoom4CB)
+    zoom4CB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_4, java.awt.event.InputEvent.ALT_DOWN_MASK))
+    zoom4CB.addActionListener(_ => zoom(if zoom4CB.isSelected then 4 else 2))
   end buildToolsMenu
 
   private def buildCartMenu(cartMenu:JMenu): Unit =
@@ -410,6 +430,9 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private def handleDND(file:File) : Unit = attachCart(Some(file))
 
   // =======================================================================
+  private def zoom(factor:Int): Unit =
+    megaDrive.display.setPreferredSize(megaDrive.model.videoType.getClipArea(h40 = true).getPreferredSize(factor))
+    frame.pack()
   private def enableMouseCapture(enabled:Boolean): Unit =
     for c <- 0 to 1 do
       val controller = megaDrive.mmu.getController(c)
@@ -457,10 +480,23 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
               selectedScreenIndex = index
       finally
         play()
-    FullScreenMode.goFullScreen(selectedScreenIndex,glassPane,frame,megaDrive.display,SCREEN_WIDTH, megaDrive.model.videoType.totalLines,new KeyAdapter:
-      override def keyPressed(e: KeyEvent): Unit =
-        {/* Add keys */} // TODO
-    )
+    FullScreenMode.goFullScreen(selectedScreenIndex,glassPane,frame,megaDrive.display,SCREEN_WIDTH, megaDrive.model.videoType.totalLines) match
+      case Some(w) =>
+        megaDrive.display.addKeyListener(new KeyAdapter:
+          override def keyPressed(e: KeyEvent): Unit =
+            import KeyEvent.*
+            e.getKeyCode match
+              case VK_ESCAPE =>
+                FullScreenMode.restore(w)
+                megaDrive.display.removeKeyListener(this)
+              case VK_R =>
+                reset(hard = true,fromRestoredState = false)
+              case VK_W =>
+                warpModeCB.setSelected(!warpModeCB.isSelected)
+                setWarpMode(warpModeCB.isSelected)
+              case _ =>
+        )
+      case None =>
 
   private def attachCart(file:Option[File]): Unit =
     if cart != null then
@@ -476,19 +512,22 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
 
     fileToLoad match
       case Some(f) =>
-        loadCart(f) match
-          case Some(newCart) =>
-            playCart(newCart)
-          case None =>
-            if cart != null then
-              play()
+        par {
+          loadCart(f) match
+            case Some(newCart) =>
+              playCart(newCart,fromRestoredState = false)
+            case None =>
+              if cart != null then
+                play()
+        }
       case None =>
 
-  private def playCart(newCart:Cart): Unit =
+  private def playCart(newCart:Cart,fromRestoredState: Boolean): Unit =
     if cart != null then
       detachCart()
     cart = newCart
-    MessageBus.send(MessageBus.CartInserted(this,cart))
+    if !fromRestoredState then
+      MessageBus.send(MessageBus.CartInserted(this,cart))
     glassPane.addMessage(MessageBoard.builder.
       message(cart.getOverseaName).
       adminLevel().
@@ -500,7 +539,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       build()
     )
     debugger.setCart(cart)
-    stateMenu.setEnabled(true)
+    saveStateItem.setEnabled(true)
     debugMenu.setEnabled(true)
     pauseCB.setEnabled(true)
     fullScreenMode.setEnabled(true)
@@ -515,11 +554,11 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
             megaDrive.mmu.patch(c)
         case _ =>
 
-    reset(hard = true)
+    reset(hard = true,fromRestoredState)
 
   private def detachCart(): Unit =
     cart = null
-    stateMenu.setEnabled(true)
+    saveStateItem.setEnabled(true)
     debugMenu.setEnabled(false)
     debugger.enableTracing(false)
     debugger.showDebugger(false)
@@ -576,7 +615,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     val loadingDialog = new LoadingDialog(frame, s"Loading cart ${file.getName} ...")
     loadingDialog.setVisible(true)
     try
-      val cart = new Cart(Cart.CartFile(file.toString,f.toString), None, fixChecksum = fixChecksum)
+      val cart = new Cart(Cart.CartFile(file.toString,f.toString), None, fixChecksum = megaDrive.isChecksumFixed)
       println(cart)
       if cart.getSystemType == Cart.SYSTEM_TYPE.UNKNOWN then
         JOptionPane.showMessageDialog(frame, s"Unknown system for cartridge '${file.getName}'", "Cartridge loading warning", JOptionPane.WARNING_MESSAGE)
@@ -600,6 +639,46 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private def showCartInfo(): Unit =
     JOptionPane.showMessageDialog(frame, new CartInfoPanel(cart), "Command options", JOptionPane.INFORMATION_MESSAGE)
 
+  private def loadState(file:Option[String]): Unit =
+    pause()
+    try
+      val fileName = file match
+        case Some(f) => f
+        case None =>
+          val fc = new JFileChooser()
+          fc.setDialogTitle("Choose from where to load the state")
+          fc.setCurrentDirectory(lastStateDirectory)
+          fc.setFileFilter(new FileFilter:
+            override def accept(f: File): Boolean = f.toString.toUpperCase().endsWith(".GZ")
+            override def getDescription: String = "gzipped file"
+          )
+          fc.showOpenDialog(frame) match
+            case JFileChooser.APPROVE_OPTION =>
+              val file = fc.getSelectedFile
+              lastStateDirectory = file.getParentFile
+              file.toString
+            case _ =>
+              return
+      val state = loadStateAsYAML(fileName)
+      megaDrive.getStateInfo(state) match
+        case Some(info) =>
+          JOptionPane.showOptionDialog(frame,new StateInfoPanel(info),"State info",JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,null,Array("Load state","Cancel"),"Cancel") match
+            case JOptionPane.YES_OPTION =>
+              megaDrive.restoreComponentState(state)
+              glassPane.addMessage(MessageBoard.builder.message("State restored").adminLevel().bold().xleft().ybottom().delay(1000).fadingMilliseconds(500).build())
+            case _ =>
+        case None =>
+          JOptionPane.showMessageDialog(frame,"Cannot read state info","State error",JOptionPane.ERROR_MESSAGE)
+    catch
+      case se:StateBuilder.StateBuilderException =>
+        se.printStackTrace()
+        JOptionPane.showMessageDialog(frame,s"State decoding error: ${se.getMessage} on path ${se.getComponentPath}","State error",JOptionPane.ERROR_MESSAGE)
+      case t:Throwable =>
+        JOptionPane.showMessageDialog(frame,s"Unexpected error while decoding state: $t","State error",JOptionPane.ERROR_MESSAGE)
+    finally
+      play()
+  end loadState
+
   private def saveState(file:Option[String]): Unit =
     pause()
     try
@@ -608,10 +687,11 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         case None =>
           val fc = new JFileChooser()
           fc.setDialogTitle("Choose where to store the state")
-          fc.setCurrentDirectory(lastDirectory)
+          fc.setCurrentDirectory(lastStateDirectory)
           fc.showSaveDialog(frame) match
             case JFileChooser.APPROVE_OPTION =>
               var file = fc.getSelectedFile
+              lastStateDirectory = file.getParentFile
               if !file.getName.toUpperCase().endsWith(".YAML.GZ") then
                 file = new File(file.toString + ".yaml.gz")
               if file.exists() then

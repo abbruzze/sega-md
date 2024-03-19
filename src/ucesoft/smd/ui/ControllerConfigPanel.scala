@@ -4,7 +4,7 @@ import ucesoft.smd.MessageBus
 import ucesoft.smd.controller.Controller.{CONTROLLER_DEVICE_PROP, formatProp}
 import ucesoft.smd.controller.ControllerDevice.{Empty, KeyboardPad, Mouse, RealPad}
 import ucesoft.smd.controller.RealPadController.CONTROLLER_NAME_PROP
-import ucesoft.smd.controller.{Controller, ControllerDevice, ControllerType, EmptyController, MouseController, PadController, RealPadController}
+import ucesoft.smd.controller.*
 
 import java.awt.{BorderLayout, GridLayout}
 import java.util.Properties

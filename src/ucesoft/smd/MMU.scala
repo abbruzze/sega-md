@@ -802,6 +802,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   // ===================== State =======================================
   override protected def createState(sb: StateBuilder): Unit =
     sb.
+      serialize("m68kram",m68kram,true).
+      w("z80ram",z80ram).
       w("bankRegisterShifter",bankRegisterShifter).
       w("bankRegisterBitCounter",bankRegisterBitCounter).
       w("bankRegister",bankRegister).
@@ -809,6 +811,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   override protected def restoreState(sb: StateBuilder): Unit =
     import sb.*
+    val ram = deserialize[Array[Int]]("m68kram",true)
+    System.arraycopy(ram,0,m68kram,0,ram.length)
+    r("z80ram",z80ram)
     bankRegisterShifter = r[Int]("bankRegisterShifter")
     bankRegisterBitCounter = r[Int]("bankRegisterBitCounter")
     bankRegister = r[Int]("bankRegister")

@@ -8,6 +8,7 @@ import javax.imageio.ImageIO
 import javax.swing.{JComponent, JFrame, JOptionPane}
 
 object FullScreenMode:
+  case class FullscreenWindow(window:JFrame,glassPane:MessageGlassPane,component:JComponent,frame:JFrame,originalSize:Dimension)
   def getScreenDeviceIDs: Array[String] =
     val env = GraphicsEnvironment.getLocalGraphicsEnvironment
     env.getScreenDevices.filter(_.isFullScreenSupported).map(_.getIDstring)
@@ -16,8 +17,7 @@ object FullScreenMode:
                    frame:JFrame,
                    component:JComponent,
                    width:Int,
-                   height:Int,
-                   menuKeyListener: KeyListener = null) : Unit =
+                   height:Int) : Option[FullscreenWindow] =
     val env = GraphicsEnvironment.getLocalGraphicsEnvironment
     val device = env.getScreenDevices()(screenDeviceIndex)
     val conf = device.getDefaultConfiguration
@@ -45,25 +45,15 @@ object FullScreenMode:
       window.setVisible(true)
       window.toFront()
       
-      for kl <- frame.getKeyListeners do
-        window.addKeyListener(kl)
-      for ml <- frame.getMouseListeners do
-        window.addMouseListener(ml)
-      for mml <- frame.getMouseMotionListeners do
-        window.addMouseMotionListener(mml)
-      if menuKeyListener != null then
-        window.addKeyListener(menuKeyListener)
+      Some(FullscreenWindow(window,glassPane,component,frame,originalSize))
+    else 
+      JOptionPane.showMessageDialog(frame,"Your display device does not support full screen mode","Full Screen Mode",JOptionPane.ERROR_MESSAGE)
+      None
       
-      window.addKeyListener(new KeyAdapter:
-        override def keyPressed(e:KeyEvent) : Unit =
-          e.getKeyCode match
-            case java.awt.event.KeyEvent.VK_ENTER if e.isAltDown =>
-              window.dispose()
-              glassPane.changeFrame(frame)
-              frame.setVisible(true)
-              component.setSize(originalSize)
-              frame.getContentPane.add("Center",component)
-              frame.pack()
-            case _ =>
-      )
-    else JOptionPane.showMessageDialog(frame,"Your display device does not support full screen mode","Full Screen Mode",JOptionPane.ERROR_MESSAGE)
+  def restore(w:FullscreenWindow): Unit =
+    w.window.dispose()
+    w.glassPane.changeFrame(w.frame)
+    w.frame.setVisible(true)
+    w.component.setSize(w.originalSize)
+    w.frame.getContentPane.add("Center", w.component)
+    w.frame.pack()

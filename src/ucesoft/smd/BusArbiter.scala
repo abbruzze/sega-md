@@ -108,7 +108,7 @@ class BusArbiter extends SMDComponent:
         z80ResetProcess = STARTED
         log.info("Z80 RESET process started")
       case _ =>
-        log.warning("Z80 RESET process ignored, z80BusState=%s",z80BusState)
+        log.info("Z80 RESET process ignored, z80BusState=%s",z80BusState)
   final def z80StopResetProcess(): Unit =
     z80ResetProcess match
       case STARTED =>
@@ -122,4 +122,4 @@ class BusArbiter extends SMDComponent:
             m68kReleaseZ80BUS()
           case _ =>
       case STOPPED =>
-        log.warning("Z80 stop reset sequence ignored, never started PC=%06X",m68k.getLastInstructionPC)
+        log.info("Z80 stop reset sequence ignored, never started PC=%06X",m68k.getLastInstructionPC)

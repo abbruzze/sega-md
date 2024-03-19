@@ -62,7 +62,7 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
           case LOGO.HIDE =>
             showLogo = false
           case LOGO.IGNORE =>
-        renderMessage(startTimer = true)
+        if !Thread.currentThread().isInterrupted then renderMessage(startTimer = true)
       catch
         case _:InterruptedException =>
       

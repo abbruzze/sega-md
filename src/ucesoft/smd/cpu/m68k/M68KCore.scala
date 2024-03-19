@@ -589,7 +589,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
     pendingInterruptDelayCount = r[Int]("pendingInterruptDelayCount")
     busAvailable = r[Boolean]("busAvailable")
     dtackEnabled = r[Boolean]("dtackEnabled")
-    totalElapsedCycles = r[Int]("totalElapsedCycles")
+    totalElapsedCycles = r[String]("totalElapsedCycles").toLong
 
   override protected def createState(sb: StateBuilder): Unit =
     sb.w("state",state.toString)
