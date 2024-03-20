@@ -139,6 +139,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       case None =>
 
   def boot(): Unit =
+    megaDrive.masterClock.setErrorHandler(errorHandler)
     // main frame
     frame = new JFrame(s"Mega Drive emulator v${Version.VERSION}")
     frame.setResizable(false)
@@ -235,14 +236,19 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       frame,
       s"Unexpected error: $t",
       "Unexpected error",
-      JOptionPane.YES_NO_OPTION,
+      JOptionPane.YES_NO_CANCEL_OPTION,
       JOptionPane.ERROR_MESSAGE,
       null,
-      Array("Ignore","Open debugger"),
+      Array("Ignore","Open debugger","Remove cart"),
       "Ignore"
     ) match
       case JOptionPane.NO_OPTION =>
         openDebugger()
+      case JOptionPane.CANCEL_OPTION =>
+        megaDrive.masterClock.pause()
+        MessageBus.send(MessageBus.CartRemoved(this,cart))
+        detachCart()
+        megaDrive.display.blankVideo()
       case _ => // do nothing
   end errorHandler
   private def openDebugger(): Unit =

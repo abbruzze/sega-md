@@ -77,7 +77,6 @@ trait SMDComponent extends MessageBus.MessageListener:
     try
       sb.subStateBuilder("component") match
         case Some(comp) =>
-          restoreState(comp)
           sb.subStateBuilder("children") match
             case Some(children) =>
               for c <- components do
@@ -86,6 +85,7 @@ trait SMDComponent extends MessageBus.MessageListener:
                     c.restoreComponentState(child)
                   case None =>
                     throw new StateBuilder.StateBuilderException(s"Error while restoring ${c.smdComponentName} child of $smdComponentName: component not found")
+              restoreState(comp)
             case None =>
               throw new StateBuilder.StateBuilderException(s"Error while restoring $smdComponentName: cannot find 'children' attribute")
         case None =>

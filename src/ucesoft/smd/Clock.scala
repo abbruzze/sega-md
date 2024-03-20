@@ -214,6 +214,8 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
         suspended = true
         suspendedNotifier.await()
         suspendedNotifier = new CountDownLatch(1)
+    else
+      suspended = true
 
   final def play(): Unit =
     if suspended then

@@ -3,10 +3,12 @@ package ucesoft.smd.misc
 import ucesoft.smd.{Cart, MegaDrive}
 import ucesoft.smd.cheat.Cheat
 import ucesoft.smd.cheat.similarity.Cosine
+import ucesoft.smd.ui.JCustomTooltip
 
-import java.awt.BorderLayout
+import java.awt.event.MouseEvent
+import java.awt.{BorderLayout, GridLayout}
 import javax.swing.table.AbstractTableModel
-import javax.swing.{JPanel, JScrollPane, JTable}
+import javax.swing.{BorderFactory, ImageIcon, JLabel, JPanel, JScrollPane, JTable}
 
 /**
  * @author Alessandro Abbruzzetti
@@ -45,10 +47,24 @@ class StateInfoPanel(info:MegaDrive.StateInfo) extends JPanel:
   init()
 
   private def init(): Unit =
-    setLayout(new BorderLayout())
-    val table = new JTable(new CartModel)
+    setLayout(new GridLayout(1,2))
+    val table = new JTable(new CartModel):
+      override def getToolTipText(e:MouseEvent): String =
+        val p = e.getPoint
+        val rowIndex = rowAtPoint(p)
+        val colIndex = columnAtPoint(p)
+        getValueAt(rowIndex, colIndex).toString
+    table.setPreferredScrollableViewportSize(table.getPreferredSize)
     val colModel = table.getColumnModel
     colModel.getColumn(0).setMinWidth(100)
     colModel.getColumn(0).setMaxWidth(120)
+    colModel.getColumn(1).setMinWidth(400)
+    colModel.getColumn(1).setMaxWidth(400)
     val sp = new JScrollPane(table)
-    add("Center",sp)
+    add(sp)
+
+    val snap = new JLabel(new ImageIcon(info.snap))
+    val snapPanel = new JPanel()
+    snapPanel.add(snap)
+    snapPanel.setBorder(BorderFactory.createTitledBorder("Preview"))
+    add(snapPanel)

@@ -7,12 +7,14 @@ import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.misc.Preferences
 
-import java.io.{File, FileReader, IOException}
+import java.awt.image.BufferedImage
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, FileReader, IOException}
 import java.time.LocalDateTime
 import java.util.Properties
+import javax.imageio.ImageIO
 
 object MegaDrive:
-  case class StateInfo(timestamp:LocalDateTime,version:String,buildDate:LocalDateTime,cartInfo:Cart.CartInfo)
+  case class StateInfo(timestamp:LocalDateTime,version:String,buildDate:LocalDateTime,cartInfo:Cart.CartInfo,snap:BufferedImage)
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 15/02/2024 15:24  
@@ -227,9 +229,11 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
       val ts = LocalDateTime.from(dateFormatter.parse(sb.r[String]("timestamp")))
       val version = sb.r[String]("version")
       val buildDate = LocalDateTime.from(dateFormatter.parse(sb.r[String]("buildDate")))
+      val snapBuffer = sb.deserialize[Array[Byte]]("snapshot",zip = true)
+      val snap = ImageIO.read(new ByteArrayInputStream(snapBuffer))
       Cart.getInfo(sb.getSubStateBuilder("cart")) match
         case Some(cartInfo) =>
-          Some(MegaDrive.StateInfo(ts,version,buildDate,cartInfo))
+          Some(MegaDrive.StateInfo(ts,version,buildDate,cartInfo,snap))
         case None =>
           None
     catch
@@ -237,9 +241,13 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
         None
   override def createState(sb: StateBuilder): Unit =
     // Internal state
+    val snap = display.getSnapshot(320,-1)
+    val buffer = new ByteArrayOutputStream()
+    ImageIO.write(snap,"png",buffer)
     sb.w("timestamp",LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"))).
       w("version",Version.VERSION).
-      w("buildDate",Version.BUILD_DATE)
+      w("buildDate",Version.BUILD_DATE).
+      serialize("snapshot",buffer.toByteArray,zip = true)
 
     val modelSB = new StateBuilder()
     modelSB.w("videoType",model.videoType.toString).

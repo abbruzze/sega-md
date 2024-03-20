@@ -294,6 +294,28 @@ class Display(width: Int, height: Int, title: String, frame: JFrame, clk:Clock) 
     ImageIO.write(snap, "png", file)
   }
 
+  def getSnapshot(_targetWidth:Int,_targetHeight:Int): BufferedImage =
+    val size = getSize
+    val ratio = size.width.toDouble / size.height
+    var targetWidth = size.width
+    var targetHeight = size.height
+    if _targetWidth == -1 && _targetHeight != -1 then
+      targetWidth = (ratio * _targetHeight).toInt
+      targetHeight = _targetHeight
+    else if _targetWidth != -1 && _targetHeight == -1 then
+      targetHeight = (_targetWidth / ratio).toInt
+      targetWidth = _targetWidth
+    val resizedImage = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB)
+    val graphics2D = resizedImage.createGraphics()
+    graphics2D.drawImage(screen, 0, 0, targetWidth, targetHeight, null)
+    graphics2D.dispose()
+    resizedImage
+
+  def blankVideo(): Unit =
+    java.util.Arrays.fill(ptrDisplayMem,0xFF000000)
+    showFrame()
+    repaint()
+
   def waitFrameSaveSnapshot(file:File, callback:() => Unit) : Unit = {
     waitFrameAndSaveSnapshotFile = file
     waitFrameAndSaveSnapshotCallback = callback
