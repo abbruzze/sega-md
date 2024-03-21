@@ -2279,10 +2279,17 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       sprites = sprites.next.orNull
   end drawSpritesBoundaries
 
+  override def onMessage(msg: MessageBus.Message): Unit =
+    msg match
+      case MessageBus.ModelChanged(_,_) =>
+        videoPixels = display.displayMem
+      case _ =>
+
   // ===================== State =================================================
   override def restoreState(sb: StateBuilder): Unit =
     import sb.r
-    r("vram",VRAM)
+    val vram = sb.deserialize[Array[Int]]("vram",true)
+    System.arraycopy(vram,0,VRAM,0,vram.length)
     r("cram",CRAM)
     r("vsram",VSRAM)
     r("cram_palette",CRAM_COLORS)
@@ -2341,7 +2348,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     hInterruptPending = r[Boolean]("hInterruptPending")
     vInterruptAsserted = r[Boolean]("vInterruptAsserted")
     hInterruptAsserted = r[Boolean]("hInterruptAsserted")
-    r("videoPixels",videoPixels)
+    val pixels = sb.deserialize[Array[Int]]("videoPixels",true)
+    System.arraycopy(pixels,0,videoPixels,0,pixels.length)
     interlaceModeEnabled = r[Boolean]("interlaceModeEnabled")
     interlaceMode = INTERLACE_MODE.valueOf(r[String]("interlaceMode"))
     debugRegister = r[Int]("debugRegister")
@@ -2368,7 +2376,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   override def createState(sb: StateBuilder): Unit =
     // model is stored in MegaDrive component
-    sb.w("vram",VRAM).
+    sb.serialize("vram",VRAM,true).
       w("cram",CRAM).
       w("vsram",VSRAM).
       w("cram_palette",CRAM_COLORS).
@@ -2437,7 +2445,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       w("hInterruptPending",hInterruptPending).
       w("vInterruptAsserted",vInterruptAsserted).
       w("hInterruptAsserted",hInterruptAsserted).
-      w("videoPixels",videoPixels).
+      serialize("videoPixels",videoPixels,true).
       w("interlaceModeEnabled",interlaceModeEnabled).
       w("interlaceMode",interlaceMode.toString).
       w("debugRegister",debugRegister)

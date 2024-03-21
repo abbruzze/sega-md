@@ -95,7 +95,7 @@ trait SMDComponent extends MessageBus.MessageListener:
         se.addPath(smdComponentName)
         throw se
       case t: Throwable =>
-        val se = new StateBuilder.StateBuilderException(s"Unexpected error: $t")
+        val se = new StateBuilder.StateBuilderException(s"Unexpected error: $t",t)
         se.addPath(smdComponentName)
         throw se
 

@@ -8,6 +8,8 @@ import ucesoft.smd.debugger.Debugger
 import ucesoft.smd.misc.{CartInfoPanel, FullScreenMode, GIFPanel, Preferences, StateInfoPanel}
 import ucesoft.smd.ui.MessageBoard.MessageLevel.ADMIN
 import ucesoft.smd.*
+import ucesoft.smd.ModelType.{Domestic, Oversea}
+import ucesoft.smd.VideoType.{NTSC, PAL}
 import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.cheat.CheatManager
 
@@ -51,6 +53,9 @@ end MegaDriveUI
 class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   import scala.compiletime.uninitialized
 
+  private enum Region:
+    case Japan, USA, Europe, AUTO
+
   private inline val MESSAGE_STD_WAIT = 2000
   // motherboard
   private val megaDrive = new MegaDrive
@@ -66,9 +71,12 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private var lastDirectory = new File(scala.util.Properties.userHome)
   private var lastStateDirectory = new File(scala.util.Properties.userHome)
   private var lastSaveStateFile : String = uninitialized
-  private var pendingModelToApply : Model = uninitialized
 
   private var extraRAMDirectory : File = uninitialized
+
+  private var tmssEnabled = false
+  private var pendingRegion = Region.AUTO
+  private var region = Region.AUTO
 
   // MenuItems
   private val saveStateItem = new JMenuItem("Save state ...")
@@ -299,6 +307,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     if !megaDrive.masterClock.isPaused then
       pause()
     try
+      if pendingRegion != region || region == Region.AUTO then
+        changeRegion()
       if !fromRestoredState then
         if hard then
           megaDrive.hardResetComponent()
@@ -310,6 +320,35 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         megaDrive.fmAudio.start()
         megaDrive.psgAudio.start()
       play()
+
+  private def changeRegion(): Unit =
+    region = pendingRegion
+    val newModel = region match
+      case Region.AUTO =>
+        cart.getRegionList.headOption.getOrElse(Cart.Region.Americas) match
+          case Cart.Region.Americas =>
+            Model(Oversea,NTSC,if tmssEnabled then 1 else 0)
+          case Cart.Region.Japan =>
+            Model(Domestic, NTSC, if tmssEnabled then 1 else 0)
+          case Cart.Region.Europe =>
+            Model(Oversea, PAL, if tmssEnabled then 1 else 0)
+      case Region.USA =>
+        Model(Oversea, NTSC, if tmssEnabled then 1 else 0)
+      case Region.Europe =>
+        Model(Oversea, PAL, if tmssEnabled then 1 else 0)
+      case Region.Japan =>
+        Model(Domestic, NTSC, if tmssEnabled then 1 else 0)
+
+    applyNewModel(newModel)
+  end changeRegion
+
+  private def applyNewModel(newModel:Model): Unit =
+    megaDrive.display.setNewResolution(newModel.videoType.totalLines, SCREEN_WIDTH)
+    megaDrive.display.setPreferredSize(newModel.videoType.getClipArea(h40 = true).getPreferredSize(if zoom4CB.isSelected then 4 else 2))
+    megaDrive.display.invalidate()
+    frame.pack()
+    MessageBus.send(MessageBus.ModelChanged(this, newModel))
+    glassPane.addMessage(MessageBoard.builder.message(s"Video changed to ${newModel.videoType}").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
 
   private def buildMenuBar(): Unit =
     val menubar = new JMenuBar
@@ -363,6 +402,30 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     debuggerCB.addActionListener(_ => debugger.showDebugger(debuggerCB.isSelected))
     debuggerCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_D, java.awt.event.InputEvent.ALT_DOWN_MASK))
   private def buildToolsMenu(toolsMenu:JMenu): Unit =
+    val regionMenu = new JMenu("Region")
+    toolsMenu.add(regionMenu)
+    val group = new ButtonGroup
+    val autoRegionItem = new JRadioButtonMenuItem("Auto detected")
+    autoRegionItem.addActionListener(_ => pendingRegion = Region.AUTO)
+    autoRegionItem.setSelected(region == Region.AUTO)
+    regionMenu.add(autoRegionItem)
+    group.add(autoRegionItem)
+    val usaRegionItem = new JRadioButtonMenuItem("USA")
+    usaRegionItem.addActionListener(_ => pendingRegion = Region.USA)
+    usaRegionItem.setSelected(region == Region.USA)
+    regionMenu.add(usaRegionItem)
+    group.add(usaRegionItem)
+    val europeRegionItem = new JRadioButtonMenuItem("EUROPE")
+    europeRegionItem.addActionListener(_ => pendingRegion = Region.Europe)
+    europeRegionItem.setSelected(region == Region.Europe)
+    regionMenu.add(europeRegionItem)
+    group.add(europeRegionItem)
+    val japanRegionItem = new JRadioButtonMenuItem("JAPAN")
+    japanRegionItem.addActionListener(_ => pendingRegion = Region.Japan)
+    japanRegionItem.setSelected(region == Region.Japan)
+    regionMenu.add(japanRegionItem)
+    group.add(japanRegionItem)
+
     toolsMenu.add(pauseCB)
     pauseCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_P, java.awt.event.InputEvent.ALT_DOWN_MASK))
     pauseCB.addActionListener(_ => if pauseCB.isSelected then pause() else play())
@@ -670,6 +733,9 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         case Some(info) =>
           JOptionPane.showOptionDialog(frame,new StateInfoPanel(info),"State info",JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,null,Array("Load state","Cancel"),"Cancel") match
             case JOptionPane.YES_OPTION =>
+              detachCart()
+              if megaDrive.model != info.model then
+                applyNewModel(info.model)
               megaDrive.restoreComponentState(state)
               glassPane.addMessage(MessageBoard.builder.message("State restored").adminLevel().bold().xleft().ybottom().delay(1000).fadingMilliseconds(500).build())
             case _ =>

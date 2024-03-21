@@ -142,6 +142,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   private var fm : FM = uninitialized
 
   private var ssf2Rom : Array[Int] = uninitialized
+  private var ssf2RomPendingState = false
+  private val ssf2Banks = Array(0,0,0,0,0,0,0)
 
   private def loadOSRom(): Array[Int] =
     val os = getClass.getResource("/resources/rom/Genesis_OS_ROM.bin")
@@ -166,6 +168,8 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
     java.util.Arrays.fill(m68kram,0)
     java.util.Arrays.fill(z80ram,0)
+    java.util.Arrays.fill(ssf2Banks,0)
+    ssf2RomPendingState = false
     z80ram(0) = 0x76 // HALT
 
   override def hardReset(): Unit = {
@@ -195,9 +199,16 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     cart.getSystemType match
       case Cart.SYSTEM_TYPE.MEGA_DRIVE_SSF_EXT =>
         ssf2Rom = cart.getROM
-        val len2copy = math.min(ssf2Rom.length,0x40_0000)
-        rom = Array.ofDim[Int](len2copy)
-        System.arraycopy(ssf2Rom,0,rom,0,len2copy)
+        val romLen = math.min(ssf2Rom.length,0x40_0000)
+        rom = Array.ofDim[Int](romLen)
+        System.arraycopy(ssf2Rom,0,rom,0,romLen)
+
+        if !ssf2RomPendingState then
+          java.util.Arrays.fill(ssf2Banks,0)
+        else
+          ssf2RomPendingState = false
+          for b <- ssf2Banks.indices do
+            writeSSF2(0xA1_30F3 + (b << 1),ssf2Banks(b))
       case _ =>
         rom = cart.getROM
     extraRam = null
@@ -312,28 +323,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         log.info("Writing TMSS bankswitch register: tmssActive=%s",tmssActive)
     else if address < 0xC0_0000 then
       if cart.getSystemType == Cart.SYSTEM_TYPE.MEGA_DRIVE_SSF_EXT && address >= 0xA1_30F3 && address <= 0xA1_30FF then
-        val ssf2Address = (value & 0x3F) << 19
-        val romAddress = address & 0xF match
-          case 0x3 => /* 080000-0FFFFF */
-            0x080000
-          case 0x5 => /* 100000-17FFFF */
-            0x100000
-          case 0x7 => /* 180000-1FFFFF */
-            0x180000
-          case 0x9 => /* 200000-27FFFF */
-            0x200000
-          case 0xB => /* 280000-2FFFFF */
-            0x280000
-          case 0xD => /* 300000-37FFFF */
-            0x300000
-          case 0xF => /* 380000-3FFFFF */
-            0x380000
-          case _ =>
-            0
-        if romAddress > 0 then
-          val len = if ssf2Address + 0x80000 < ssf2Rom.length then 0x80000 else ssf2Rom.length - ssf2Address
-          System.arraycopy(ssf2Rom, ssf2Address, rom, romAddress, len)
-        log.info("SSF2 write address %X value = %X",address,value)
+        writeSSF2(address,value)
       /* ignored */
     else if address < 0xE0_0000 then // VDP
       if (address & 0xE7_00E0) == 0xC0_0000 then
@@ -341,6 +331,32 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       else
         log.warning("Writing to unconnected VDP address: %X", address)
     else write_68k_RAM(address, value, size)
+
+  private def writeSSF2(address:Int,value:Int): Unit =
+    val ssf2Address = (value & 0x3F) << 19
+    val bank = address & 0xF
+    val romAddress = bank match
+      case 0x3 => /* 080000-0FFFFF */
+        0x080000
+      case 0x5 => /* 100000-17FFFF */
+        0x100000
+      case 0x7 => /* 180000-1FFFFF */
+        0x180000
+      case 0x9 => /* 200000-27FFFF */
+        0x200000
+      case 0xB => /* 280000-2FFFFF */
+        0x280000
+      case 0xD => /* 300000-37FFFF */
+        0x300000
+      case 0xF => /* 380000-3FFFFF */
+        0x380000
+      case _ =>
+        0
+    if romAddress > 0 then
+      ssf2Banks((bank - 3) >> 1) = value
+      val len = if ssf2Address + 0x80000 < ssf2Rom.length then 0x80000 else ssf2Rom.length - ssf2Address
+      System.arraycopy(ssf2Rom, ssf2Address, rom, romAddress, len)
+    log.info("SSF2 write address %X value = %X", address, value)
 
   // ========================= Z80 access =========================================
   override final def in(addressHI:Int,addressLO:Int) : Int = 0xFF
@@ -370,7 +386,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else if address >= 0x8000 then
       write_z80_bank(address, value)
     else {
-      println(s"Z80 is writing at ${address.toHexString} PC=${z80.getLastPC.toHexString}")
+      //println(s"Z80 is writing at ${address.toHexString} PC=${z80.getLastPC.toHexString}")
       // TODO
     }
 
@@ -803,18 +819,30 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   override protected def createState(sb: StateBuilder): Unit =
     sb.
       serialize("m68kram",m68kram,true).
-      w("z80ram",z80ram).
+      serialize("z80ram",z80ram,true).
       w("bankRegisterShifter",bankRegisterShifter).
       w("bankRegisterBitCounter",bankRegisterBitCounter).
       w("bankRegister",bankRegister).
       w("lastWordOnBus",lastWordOnBus)
 
+    if cart.getSystemType == Cart.SYSTEM_TYPE.MEGA_DRIVE_SSF_EXT then
+      val ssfSB = new StateBuilder()
+      ssfSB.w("banks",ssf2Banks)
+      sb.w("ssf2",ssfSB.build())
+
   override protected def restoreState(sb: StateBuilder): Unit =
     import sb.*
     val ram = deserialize[Array[Int]]("m68kram",true)
     System.arraycopy(ram,0,m68kram,0,ram.length)
-    r("z80ram",z80ram)
+    val zram = deserialize[Array[Int]]("z80ram",true)
+    System.arraycopy(zram,0,z80ram,0,zram.length)
     bankRegisterShifter = r[Int]("bankRegisterShifter")
     bankRegisterBitCounter = r[Int]("bankRegisterBitCounter")
     bankRegister = r[Int]("bankRegister")
     lastWordOnBus = r[Int]("lastWordOnBus")
+
+    sb.subStateBuilder("ssf2") match
+      case Some(ssfSB) =>
+        ssfSB.r("banks",ssf2Banks)
+        ssf2RomPendingState = true
+      case None =>

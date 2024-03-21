@@ -5,7 +5,7 @@ import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 import scala.reflect.ClassTag
 
 object StateBuilder:
-  class StateBuilderException(msg:String) extends IllegalArgumentException(msg):
+  class StateBuilderException(msg:String,cause:Throwable = null) extends IllegalArgumentException(msg,cause):
     private var componentPath : List[String] = Nil
     def addPath(p:String): Unit = componentPath ::= p
     def getComponentPath: String = componentPath.mkString(".")
@@ -113,6 +113,8 @@ class StateBuilder(map:java.util.Map[String,AnyRef] = new java.util.LinkedHashMa
     map.put(n, buffer.toByteArray)
     this
   // ==================================================
+  def hasAttr(name:String): Boolean =
+    map.containsKey(name)
   def subStateBuilder(n:String): Option[StateBuilder] =
     Option(map.get(n)) match
       case Some(m:java.util.Map[_,_]) =>

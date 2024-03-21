@@ -19,7 +19,7 @@ class StateInfoPanel(info:MegaDrive.StateInfo) extends JPanel:
   private class CartModel extends AbstractTableModel:
     override def getColumnName(column: Int): String = ""
     override def getColumnCount: Int = 2
-    override def getRowCount: Int = 5
+    override def getRowCount: Int = 6
     override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
       rowIndex match
@@ -43,6 +43,10 @@ class StateInfoPanel(info:MegaDrive.StateInfo) extends JPanel:
           columnIndex match
             case 0 => "Cart CRC"
             case 1 => info.cartInfo.crc32.toUpperCase()
+        case 5 =>
+          columnIndex match
+            case 0 => "Model"
+            case 1 => s"${info.model.modelType}, ${info.model.videoType} version ${info.model.versionNumber}"
     
   init()
 

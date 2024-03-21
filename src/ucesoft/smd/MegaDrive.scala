@@ -14,7 +14,7 @@ import java.util.Properties
 import javax.imageio.ImageIO
 
 object MegaDrive:
-  case class StateInfo(timestamp:LocalDateTime,version:String,buildDate:LocalDateTime,cartInfo:Cart.CartInfo,snap:BufferedImage)
+  case class StateInfo(model:Model,timestamp:LocalDateTime,version:String,buildDate:LocalDateTime,cartInfo:Cart.CartInfo,snap:BufferedImage)
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 15/02/2024 15:24  
@@ -231,15 +231,22 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
       val buildDate = LocalDateTime.from(dateFormatter.parse(sb.r[String]("buildDate")))
       val snapBuffer = sb.deserialize[Array[Byte]]("snapshot",zip = true)
       val snap = ImageIO.read(new ByteArrayInputStream(snapBuffer))
+
+      val modelSB = sb.getSubStateBuilder("model")
+      val videoType = VideoType.valueOf(modelSB.r[String]("videoType"))
+      val modelType = ModelType.valueOf(modelSB.r[String]("modelType"))
+      val modelVersion = modelSB.r[Int]("version")
+      val stateModel = Model(modelType, videoType, modelVersion)
+
       Cart.getInfo(sb.getSubStateBuilder("cart")) match
         case Some(cartInfo) =>
-          Some(MegaDrive.StateInfo(ts,version,buildDate,cartInfo,snap))
+          Some(MegaDrive.StateInfo(stateModel,ts,version,buildDate,cartInfo,snap))
         case None =>
           None
     catch
       case _:StateBuilder.StateBuilderException =>
         None
-  override def createState(sb: StateBuilder): Unit =
+  override protected def createState(sb: StateBuilder): Unit =
     // Internal state
     val snap = display.getSnapshot(320,-1)
     val buffer = new ByteArrayOutputStream()
@@ -268,7 +275,7 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     
     // Cart
     Cart.createState(_cart,sb)
-  override def restoreState(sb: StateBuilder): Unit =
+  override protected def restoreState(sb: StateBuilder): Unit =
     val modelSB = sb.getSubStateBuilder("model")
     val videoType = VideoType.valueOf(modelSB.r[String]("videoType"))
     val modelType = ModelType.valueOf(modelSB.r[String]("modelType"))
