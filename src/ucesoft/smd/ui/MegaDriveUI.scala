@@ -444,6 +444,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     volDownItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_MINUS,0))
     toolsMenu.addSeparator()
     val perfMonitorItem = new JCheckBoxMenuItem("Performance monitor")
+    perfMonitorItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_H, java.awt.event.InputEvent.ALT_DOWN_MASK))
     toolsMenu.add(perfMonitorItem)
     perfMonitorItem.addActionListener(_ => {
       if perfMonitorItem.isSelected then
@@ -501,6 +502,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   // =======================================================================
   private def zoom(factor:Int): Unit =
     megaDrive.display.setPreferredSize(megaDrive.model.videoType.getClipArea(h40 = true).getPreferredSize(factor))
+    megaDrive.display.invalidate()
     frame.pack()
   private def enableMouseCapture(enabled:Boolean): Unit =
     for c <- 0 to 1 do

@@ -18,6 +18,7 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
   private var bufferSize = 0
 
   private var buffer: Array[Byte] = Array()
+  private var bufferPendingSize = -1
 
   private var bufferId = 0
   private var bufferPos = 0
@@ -32,9 +33,13 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
   private var pendingNewSampleRate = 0
   private var lastPerformance = 0
 
+  private val lastLevel = Array(0,0) // L,R
+  private val levelInProgressRMS = Array(0.0,0.0) // L,R
+  private var levelInProgressSamples = 0
+
   private val isStereoInternal = isStereo
 
-  setBufferInMillis(bufferInMillis)
+  setBufferMillisNow(bufferInMillis)
   thread.setPriority(Thread.MAX_PRIORITY)
   
   def setCPUFrequency(f:Int): Unit =
@@ -49,11 +54,16 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
 
   def isStereo: Boolean = false
 
+  private def setBufferMillisNow(bim:Int): Unit =
+    setBufferInMillis(bim)
+    bufferSize = bufferPendingSize
+    buffer = Array.ofDim[Byte](bufferSize)
+    bufferPendingSize = -1
+
   def setBufferInMillis(bim:Int) : Unit =
     bufferInMillis = bim
     val scale = if isStereo then 4 else 1 // stereo has 2 channels 16 bits each
-    bufferSize = scale * (sampleRate * bim / 1000.0).toInt
-    buffer = Array.ofDim[Byte](bufferSize)
+    bufferPendingSize = scale * (sampleRate * bim / 1000.0).toInt
 
   def clock(): Unit =
     if isStereoInternal then
@@ -63,19 +73,34 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
         stereoLR(1) = 0
       val leftLevel = stereoLR(0)
       val rightLevel = stereoLR(1)
+      levelInProgressRMS(0) += leftLevel.toShort * leftLevel.toShort
+      levelInProgressRMS(1) += rightLevel.toShort * rightLevel.toShort
+      levelInProgressSamples += 1
       buffer(bufferId) = (leftLevel >> 8).asInstanceOf[Byte] ; bufferId += 1
       buffer(bufferId) = (leftLevel & 0xFF).asInstanceOf[Byte] ; bufferId += 1
       buffer(bufferId) = (rightLevel >> 8).asInstanceOf[Byte] ; bufferId += 1
       buffer(bufferId) = (rightLevel & 0xFF).asInstanceOf[Byte] ; bufferId += 1
     else
       var level = getLevelMono8Bit()
+      levelInProgressRMS(0) += level.toByte * level.toByte
+      levelInProgressSamples += 1
       if muted then
         level = 0
       buffer(bufferId) = level.asInstanceOf[Byte]
       bufferId += 1
+    end if
     if bufferId == bufferSize then
       queue.put(buffer)
+      if bufferPendingSize != -1 then
+        bufferSize = bufferPendingSize
+        bufferPendingSize = -1
       buffer = Array.ofDim[Byte](bufferSize)
+      val maxValue = if isStereoInternal then Short.MaxValue.toInt else Byte.MaxValue.toInt
+      lastLevel(0) = math.sqrt(levelInProgressRMS(0) / levelInProgressSamples).toInt
+      lastLevel(1) = math.sqrt(levelInProgressRMS(1) / levelInProgressSamples).toInt
+      levelInProgressRMS(0) = 0
+      levelInProgressRMS(1) = 0
+      levelInProgressSamples = 0
       bufferId = 0
 
   protected def getLevelMono8Bit(): Int = 0
@@ -136,6 +161,8 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
   def available(): Int = if sourceLine == null then 0 else sourceLine.available()
   
   def getLastPerformance: Int = lastPerformance
+  def getLevelLeft : Int = lastLevel(0)
+  def getLevelRight : Int = lastLevel(1)
 
   override def run(): Unit =
     getSourceLine match

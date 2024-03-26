@@ -1132,7 +1132,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       log.info("Preparing VRAM access: codeRegister=%X code=%d dmaCode=%d address=%X", codeRegister, codeRegister & 0xF, codeRegister >> 6, addressRegister)
 
       if !isVRAMWrite then // VRAM/CRAM/VSRAM read request
-        if isDMAInProgress then println("DMA in progress + READ")
+        //if isDMAInProgress then println("DMA in progress + READ")
         performVRAMRead()
   end writeControlPort
 

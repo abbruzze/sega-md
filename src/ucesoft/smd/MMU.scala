@@ -143,7 +143,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   private var ssf2Rom : Array[Int] = uninitialized
   private var ssf2RomPendingState = false
-  private val ssf2Banks = Array(0,0,0,0,0,0,0)
+  private val ssf2Banks = Array.fill[Int](7)(-1)
 
   private def loadOSRom(): Array[Int] =
     val os = getClass.getResource("/resources/rom/Genesis_OS_ROM.bin")
@@ -168,7 +168,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
     java.util.Arrays.fill(m68kram,0)
     java.util.Arrays.fill(z80ram,0)
-    java.util.Arrays.fill(ssf2Banks,0)
+    java.util.Arrays.fill(ssf2Banks,-1)
     ssf2RomPendingState = false
     z80ram(0) = 0x76 // HALT
 
@@ -204,11 +204,12 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
         System.arraycopy(ssf2Rom,0,rom,0,romLen)
 
         if !ssf2RomPendingState then
-          java.util.Arrays.fill(ssf2Banks,0)
+          java.util.Arrays.fill(ssf2Banks,-1)
         else
           ssf2RomPendingState = false
           for b <- ssf2Banks.indices do
-            writeSSF2(0xA1_30F3 + (b << 1),ssf2Banks(b))
+            if ssf2Banks(b) != -1 then
+              writeSSF2(0xA1_30F3 + (b << 1),ssf2Banks(b))
       case _ =>
         rom = cart.getROM
     extraRam = null

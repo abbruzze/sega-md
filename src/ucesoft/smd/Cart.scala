@@ -3,6 +3,7 @@ package ucesoft.smd
 import ucesoft.smd.Cart.UNZIP_ERROR.{DIRECTORY_FOUND, NO_SUITABLE_CART}
 
 import java.io.{File, FileInputStream}
+import java.nio.charset.Charset
 import java.nio.file.StandardCopyOption
 import java.util.zip.{CRC32, ZipInputStream}
 import scala.compiletime.uninitialized
@@ -185,7 +186,7 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
     if checkExtraMemory() then
       log.info("Found extra memory: %s [%X,%X]",extraMemory.memType,extraMemory.startAddress,extraMemory.endAddress)
 
-    cartNameDomestic = getCartName(NAME_DOMESTIC_ADDR)
+    cartNameDomestic = getCartName(NAME_DOMESTIC_ADDR,domestic = true)
     cartNameOversea = getCartName(NAME_OVERSEA_ADDR)
     systemType = _getSystemType
     regions = getRegions
@@ -271,11 +272,20 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
     }
 
 
-  private def getCartName(offset:Int): String =
-    val sb = new StringBuilder()
-    for c <- 0 until 48 do
-      sb.append(rom(offset + c).toChar)
-    sb.toString.trim.split("""\s+""").mkString(" ")
+  private def getCartName(offset:Int,domestic:Boolean = false): String =
+    val jcharset = if Charset.isSupported("SHIFT-JIS") then Charset.forName("SHIFT-JIS") else null
+    val buffer = Array.ofDim[Byte](48)
+    for i <- buffer.indices do
+      buffer(i) = rom(offset + i).toByte
+    val name = if !domestic || jcharset == null then
+      new String(buffer,0,buffer.length)
+    else
+      new String(buffer, 0, buffer.length,jcharset)
+    name.trim.split("""\s+""").mkString(" ")
+//    val sb = new StringBuilder()
+//    for c <- 0 until 48 do
+//      sb.append(rom(offset + c).toChar)
+//    sb.toString.trim.split("""\s+""").mkString(" ")
 
   private def _getSystemType: SYSTEM_TYPE =
     import SYSTEM_TYPE.*

@@ -87,7 +87,15 @@ class AudioVolumePanel(frame:JFrame,audioDevices:Array[AudioDevice],pref:Prefere
           case _ =>
       })
 
-      muteCB.addActionListener(_ => device.mute(muteCB.isSelected))
+      muteCB.addActionListener(_ => {
+        if setAllCB.isSelected then
+          sliders.foreach(s => {
+            s._2.mute(muteCB.isSelected)
+            s._3.setSelected(muteCB.isSelected)
+          })
+        else
+          device.mute(muteCB.isSelected)
+      })
       volumeSlider.addChangeListener(e => {
         if !volumeSlider.getValueIsAdjusting then
           device.setMasterVolume(volumeSlider.getValue)

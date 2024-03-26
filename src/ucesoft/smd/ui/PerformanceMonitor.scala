@@ -36,6 +36,7 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
   private var lastZ80Cycles = 0L
   final val dialog = new JDialog(frame,"Performance monitor")
   private val timer = new Timer(1000,this)
+  private val audioTimer = new Timer(100,this)
   private val darkTheme = StandardChartTheme.createDarknessTheme()
   private var emuPlot : XYPlot = uninitialized
   private var emuPlotPaint : Paint = uninitialized
@@ -45,11 +46,14 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
   private var resCounter = 0
   private var firstSample = true
   private val audioLabels = Array.ofDim[JLabel](audioDeviceList.length)
+  private val audioLevels = Array.ofDim[JProgressBar](audioDeviceList.length,2)
+  private val audioMaxLevels = Array.fill(audioDeviceList.length)(0)
 
   init()
   
   def shutdown(): Unit =
     timer.stop()
+    audioTimer.stop()
 
   def setLowResThreshold(t:Int): Unit =
     lowResThreshold = t
@@ -75,17 +79,26 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
     addChart("M68000", "cycles/sec", m68kPerfDataset)
     addChart("Z80", "cycles/sec", z80PerfDataset)
     addChart("Host system load", "load", sysPerfDataset)
-    val audioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
     for i <- audioDeviceList.indices do
+      val audioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      audioPanel.setBorder(BorderFactory.createTitledBorder(audioDeviceList(i).name))
+      audioPanel.add(new JLabel("L:", SwingConstants.RIGHT))
+      audioLevels(i)(0) = new JProgressBar()
+      audioPanel.add(audioLevels(i)(0))
+      audioPanel.add(new JLabel("R:", SwingConstants.RIGHT))
+      audioLevels(i)(1) = new JProgressBar()
+      audioPanel.add(audioLevels(i)(1))
+      add(audioPanel)
       audioLabels(i) = new JLabel("100%",SwingConstants.LEFT)
       audioLabels(i).setForeground(CHART_COLOR)
-      audioPanel.add(new JLabel(s"${audioDeviceList(i).name}:"))
+      audioPanel.add(new JLabel(s"Perf:"))
       audioPanel.add(audioLabels(i))
-    add(audioPanel)
     dialog.getContentPane.add("Center",this)
     dialog.setSize(500,700)
     timer.setRepeats(true)
     timer.start()
+    audioTimer.setRepeats(true)
+    audioTimer.start()
 
   private def addChart(title:String,yLabel:String,series:DynamicTimeSeriesCollection): XYPlot =
     val chart = ChartFactory.createTimeSeriesChart(title, "Time", yLabel, series, true, true, false)
@@ -103,47 +116,58 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
     plot
 
   override def actionPerformed(e:ActionEvent): Unit =
-    overallPerfDataset.advanceTime()
-    val perf = clock.getLastPerformance
-    overallPerfDataset.appendData(Array(perf.toFloat))
-    m68kPerfDataset.advanceTime()
-    val m68kCycles = m68k.getTotalElapsedCycles
-    var elapsed = if firstSample then 0 else ((m68kCycles - lastM68kCycles) / 1_000_000.0).toFloat
-    m68kPerfDataset.appendData(Array(elapsed))
-    lastM68kCycles = m68kCycles
-    z80PerfDataset.advanceTime()
-    val z80Cycles = z80.getTotalElapsedCycles
-    elapsed = if firstSample then 0 else ((z80Cycles - lastZ80Cycles) / 1_000_000.0).toFloat
-    z80PerfDataset.appendData(Array(elapsed))
-    lastZ80Cycles = z80Cycles
-    sysPerfDataset.advanceTime()
-    val load = ManagementFactory.getPlatformMXBean(classOf[com.sun.management.OperatingSystemMXBean]).getProcessCpuLoad * 100
-    sysPerfDataset.appendData(Array(load.toFloat))
+    if e.getSource == timer then
+      overallPerfDataset.advanceTime()
+      val perf = clock.getLastPerformance
+      overallPerfDataset.appendData(Array(perf.toFloat))
+      m68kPerfDataset.advanceTime()
+      val m68kCycles = m68k.getTotalElapsedCycles
+      var elapsed = if firstSample then 0 else ((m68kCycles - lastM68kCycles) / 1_000_000.0).toFloat
+      m68kPerfDataset.appendData(Array(elapsed))
+      lastM68kCycles = m68kCycles
+      z80PerfDataset.advanceTime()
+      val z80Cycles = z80.getTotalElapsedCycles
+      elapsed = if firstSample then 0 else ((z80Cycles - lastZ80Cycles) / 1_000_000.0).toFloat
+      z80PerfDataset.appendData(Array(elapsed))
+      lastZ80Cycles = z80Cycles
+      sysPerfDataset.advanceTime()
+      val load = ManagementFactory.getPlatformMXBean(classOf[com.sun.management.OperatingSystemMXBean]).getProcessCpuLoad * 100
+      sysPerfDataset.appendData(Array(load.toFloat))
 
-    for i <- audioDeviceList.indices do
-      val perf = audioDeviceList(i).getLastPerformance
-      audioLabels(i).setText("%03d%%".format(perf))
+      for i <- audioDeviceList.indices do
+        val perf = audioDeviceList(i).getLastPerformance
+        audioLabels(i).setText("%03d%%".format(perf))
 
-    state match
-      case NORMAL_RES =>
-        if perf < lowResThreshold then
-          resCounter += 1
-          if resCounter == lowResObservationPeriodInSec then
-            state = LOW_RES
+      state match
+        case NORMAL_RES =>
+          if perf < lowResThreshold then
+            resCounter += 1
+            if resCounter == lowResObservationPeriodInSec then
+              state = LOW_RES
+              resCounter = 0
+              emuPlot.getRenderer.setSeriesPaint(0,LOW_RES_CHART_COLOR)
+          else
             resCounter = 0
-            emuPlot.getRenderer.setSeriesPaint(0,LOW_RES_CHART_COLOR)
-        else
-          resCounter = 0
-      case LOW_RES =>
-        if perf > lowResThreshold then
-          resCounter += 1
-          if resCounter == lowResObservationPeriodInSec then
-            state = NORMAL_RES
+        case LOW_RES =>
+          if perf > lowResThreshold then
+            resCounter += 1
+            if resCounter == lowResObservationPeriodInSec then
+              state = NORMAL_RES
+              resCounter = 0
+              emuPlot.getRenderer.setSeriesPaint(0,CHART_COLOR)
+          else
             resCounter = 0
-            emuPlot.getRenderer.setSeriesPaint(0,CHART_COLOR)
-        else
-          resCounter = 0
 
-    firstSample = false
+      firstSample = false
+    else
+      for i <- audioDeviceList.indices do
+        val levelL = audioDeviceList(i).getLevelLeft
+        val levelR = audioDeviceList(i).getLevelRight
+        if levelL > audioLevels(i)(0).getMaximum then
+          audioLevels(i)(0).setMaximum(levelL)
+        audioLevels(i)(0).setValue(levelL)
+        if levelR > audioLevels(i)(1).getMaximum then
+          audioLevels(i)(1).setMaximum(levelR)
+        audioLevels(i)(1).setValue(levelR)
 
 
