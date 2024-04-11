@@ -4,6 +4,7 @@ import ucesoft.smd.Clock
 import ucesoft.smd.Clock.EventID
 
 import java.util.Properties
+import scala.compiletime.uninitialized
 
 object PadController:
   import Controller.*
@@ -58,7 +59,7 @@ abstract class PadController(override val index: Int, val clock: Clock) extends 
   private inline val RESET_COUNTER_TIMEOUT_MILLIS = 1.7f // verified with Joystick Test Program
   
   protected var counter6Button = 0
-  protected var timeoutID: EventID = _
+  protected var timeoutID: EventID = uninitialized
   protected var lastWrite = 0x40
 
   protected final val buttons = Array.fill[Int](12)(1) // U,D,L,R,A,B,C,S,X,Y,Z,M

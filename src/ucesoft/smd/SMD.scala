@@ -10,6 +10,7 @@ import ucesoft.smd.controller.{ControllerType, EmptyController, KeyboardPADContr
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger
+import ucesoft.smd.misc.Preferences
 import ucesoft.smd.ui.MessageBoard.MessageLevel.NORMAL
 import ucesoft.smd.ui.{AudioVolumePanel, MessageBoard, MessageGlassPane, MouseHider, PerformanceMonitor}
 
@@ -152,7 +153,7 @@ object SMD:
     val empty2Controller = new EmptyController(2)
     val usbProp = new Properties
     usbProp.setProperty("controller.0.name","Wireless Controller")
-    val usbController = new RealPadController(usbProp,0,masterClock)//new KeyboardPADController(f,new Properties(),1,ControllerType.PAD6Buttons,masterClock)
+    val usbController = new RealPadController(usbProp,new Preferences,0,masterClock)//new KeyboardPADController(f,new Properties(),1,ControllerType.PAD6Buttons,masterClock)
     mmu.setController(0,keyController)
     mmu.setController(1,empty1Controller)
     mmu.setController(2,empty2Controller)
@@ -173,7 +174,7 @@ object SMD:
     deb.setMessageBoard(glassPane)
     deb.enableTracing(true)
     val logger = Logger.setLogger(deb.log)
-    logger.setLevel(java.util.logging.Level.INFO)
+    logger.setLevel(java.util.logging.Level.WARNING)
     vdp.setLogger(Logger.getLogger)
     mmu.setLogger(Logger.getLogger)
     m68k.setLogger(Logger.getLogger)
@@ -183,22 +184,22 @@ object SMD:
     psgAudio.setLogger(Logger.getLogger)
 
 
-    val cart = new Cart(Cart.CartFile("""G:\My Drive\Emulatori\Sega Mega Drive\Sonic 3D Blast ~ Sonic 3D Flickies' Island (USA, Europe, Korea).md"""))
+    val cart = new Cart(Cart.CartFile("""G:\My Drive\Emulatori\Sega Mega Drive\Ultimate Mortal Kombat 3 (UE).bin"""))
     println(cart)
 
-    glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())
-    glassPane.addMessage(MessageBoard.builder.
-      message(cart.getOverseaName).
-      adminLevel().
-      bold().
-      xcenter().
-      ybottom().
-      delay(2000).
-      fadingMilliseconds(2000).
-      hideLogo().
-      build()
-    )
-    glassPane.addMessage(MessageBoard.builder.hideLogo().build())
+//    glassPane.addMessage(MessageBoard.builder.message("Scala Mega Drive Emulator").adminLevel().italic().bold().xcenter().ycenter().delay(2000).fadingMilliseconds(500).showLogo().color(Color.YELLOW).build())
+//    glassPane.addMessage(MessageBoard.builder.
+//      message(cart.getOverseaName).
+//      adminLevel().
+//      bold().
+//      xcenter().
+//      ybottom().
+//      delay(2000).
+//      fadingMilliseconds(2000).
+//      hideLogo().
+//      build()
+//    )
+//    glassPane.addMessage(MessageBoard.builder.hideLogo().build())
     mmu.setCart(cart)
     deb.setCart(cart)
     mmu.setModel(model)
@@ -220,6 +221,7 @@ object SMD:
 
     MouseHider.hideMouseOn(display)
 
+    /*
     val options = new DumperOptions
     options.setIndent(2)
     options.setPrettyFlow(true)
@@ -235,6 +237,7 @@ object SMD:
     out.println(sw.toString)
     out.close()
     //println(sw)
+     */
 
     //val state = yaml.load[java.util.Map[String,AnyRef]](new StringReader(sw.toString))
     //psgAudio.restoreComponentState(new StateBuilder(state))

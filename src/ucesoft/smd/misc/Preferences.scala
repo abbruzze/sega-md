@@ -91,7 +91,7 @@ object Preferences {
 class Preferences {
   import Preferences.*
 
-  private[this] val prefs = new collection.mutable.ListBuffer[Preference[?]]
+  private val prefs = new collection.mutable.ListBuffer[Preference[?]]
 
   def add[T](cmdLine:String,description:String,value:T,enumerated:Set[T] = Set.empty[T],canBeSaved:Boolean = true)(listener : T => Unit)(implicit prefConv:PreferenceConv[T]) : Preference[T] = {
     val p = Preference(cmdLine,description,value,enumerated,canBeSaved)(listener)

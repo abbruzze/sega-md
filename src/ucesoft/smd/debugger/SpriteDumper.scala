@@ -26,7 +26,7 @@ class SpriteDumper(vdp: VDP,
 
     override def getRowCount: Int = sprites.length
 
-    override def getColumnClass(columnIndex: Int): Class[_] =
+    override def getColumnClass(columnIndex: Int): Class[?] =
       columnIndex match
         case 6 | 7 | 9 => classOf[java.lang.Boolean]
         case _ => classOf[String]

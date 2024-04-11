@@ -7,11 +7,13 @@ enum RegisterType:
   case Data,Address,PC,SR,SP,USP,SSP
 
 class Register(val rtype : RegisterType,val model:Model,val index:Int = -1):
-  protected var value = 0
+  private var value = 0
           
   def reset(): Unit = {}
   
   def get(): Int = value
+
+  protected def set(value:Int): Unit = this.value = value
 
   def get(size: Size,signExtended:Boolean = false): Int =
     var v = value & size.mask
@@ -114,30 +116,30 @@ class StatusRegister(override val model:Model) extends Register(RegisterType.SR,
   private inline final val TRACE_MASK = 0x8000
   private inline final val SUPER_MASK = 0x2000
 
-  def isFlag(flag:StatusFlag): Boolean = (value & flag.flag) > 0
-  def getFlag(flag:StatusFlag): Int = (value & flag.flag) >> flag.ordinal
-  def clearFlag(flag:StatusFlag): Unit = value &= ~flag.flag
-  def setFlag(flag:StatusFlag): Unit = value |= flag.flag
+  def isFlag(flag:StatusFlag): Boolean = (get() & flag.flag) > 0
+  def getFlag(flag:StatusFlag): Int = (get() & flag.flag) >> flag.ordinal
+  def clearFlag(flag:StatusFlag): Unit = set(get() & ~flag.flag)
+  def setFlag(flag:StatusFlag): Unit = set(get() | flag.flag)
 
-  def getCCR: Int = value & CCR_MASK
-  def setCCR(ccr:Int): Unit = value = (value & ~CCR_MASK) | (ccr & CCR_MASK)
+  def getCCR: Int = get() & CCR_MASK
+  def setCCR(ccr:Int): Unit = set((get() & ~CCR_MASK) | (ccr & CCR_MASK))
 
-  def getInterruptMask: Int = (value & INT_MASK) >> 8
-  def setInterruptMask(imask:Int): Unit = value = (value & ~INT_MASK) | (imask & 7) << 8
+  def getInterruptMask: Int = (get() & INT_MASK) >> 8
+  def setInterruptMask(imask:Int): Unit = set((get() & ~INT_MASK) | (imask & 7) << 8)
 
-  def isTrace: Boolean = (value & TRACE_MASK) > 0
-  def setTrace(set:Boolean): Unit =
-    if set then
-      value |= TRACE_MASK
+  def isTrace: Boolean = (get() & TRACE_MASK) > 0
+  def setTrace(setTrace:Boolean): Unit =
+    if setTrace then
+      set(get() | TRACE_MASK)
     else
-      value &= ~TRACE_MASK
+      set(get() & ~TRACE_MASK)
 
-  def isSupervisorMode: Boolean = (value & SUPER_MASK) > 0
-  def setSupervisorMode(set:Boolean): Unit =
-    if set then
-      value |= SUPER_MASK
+  def isSupervisorMode: Boolean = (get() & SUPER_MASK) > 0
+  def setSupervisorMode(setSM:Boolean): Unit =
+    if setSM then
+      set(get() | SUPER_MASK)
     else
-      value &= ~SUPER_MASK
+      set(get() & ~SUPER_MASK)
 
   override def toString: String =
     val sb = new StringBuilder("sr=T/")

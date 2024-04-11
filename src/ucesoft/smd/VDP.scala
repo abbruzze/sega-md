@@ -1581,7 +1581,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       m68KBUSRequested = true
       busArbiter.vdpRequest68KBUS()
     val data = m68KMemory.read(REG_DMA_SOURCE_ADDRESS << 1,Size.Word,MMU.VDP_MEM_OPTION)
-    log.info("doDMAMemory: pushing codeRegister=%X address=%X data=%X",codeRegister,addressRegister,data)
+    //log.info("doDMAMemory: pushing codeRegister=%X address=%X data=%X",codeRegister,addressRegister,data)
     if !fifo.enqueue(FifoEntry(codeRegister,adjustAddressRegister(addressRegister),data)) then
       log.error("doDMAMemory: FIFO full")
     updateTargetAddress()
@@ -1595,20 +1595,20 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case VRAM_WRITE => // 2 phases
         if fifoEntry.vramFirstByteWritten then
           fifo.dequeue()
-          log.info("doVRAMWriteWord: remaining fifo entries: %d",fifo.length)
+          //log.info("doVRAMWriteWord: remaining fifo entries: %d",fifo.length)
           if REG_128K then
             updateVRAMByte(fifoEntry.address,fifoEntry.data & 0xFF)
           else if (fifoEntry.address & 1) == 1 then // swap low / high
             updateVRAMByte(address,fifoEntry.data & 0xFF)
             updateVRAMByte((address + 1) & 0xFFFF,(fifoEntry.data >> 8) & 0xFF)
-            log.info("doVRAMWriteWord: 2nd byte; bytes swapped %X = %X",address,fifoEntry.data)
+            //log.info("doVRAMWriteWord: 2nd byte; bytes swapped %X = %X",address,fifoEntry.data)
           else
             updateVRAMByte(address,(fifoEntry.data >> 8) & 0xFF)
             updateVRAMByte((address + 1) & 0xFFFF,fifoEntry.data & 0xFF)
-            log.info("doVRAMWriteWord: 2nd byte; bytes %X = %X",address,fifoEntry.data)
+            //log.info("doVRAMWriteWord: 2nd byte; bytes %X = %X",address,fifoEntry.data)
         else
           fifoEntry.vramFirstByteWritten = true
-          log.info("doVRAMWriteWord: 1st byte")
+          //log.info("doVRAMWriteWord: 1st byte")
       case CRAM_WRITE =>
         fifo.dequeue()
         if REG_128K then

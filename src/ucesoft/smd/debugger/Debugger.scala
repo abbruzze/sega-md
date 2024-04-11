@@ -15,6 +15,7 @@ import java.awt.{BorderLayout, Dimension, FlowLayout, GridLayout}
 import java.util.concurrent.Semaphore
 import javax.swing.*
 import javax.swing.text.DefaultCaret
+import scala.compiletime.uninitialized
 
 object Debugger:
   sealed trait BreakType
@@ -112,7 +113,7 @@ class Debugger(m68k:M68000,
   private val patternDialog = new PatternDumper(vdpMemDump.ram, vdpMemDump.cram, "Pattern Dump", frame, () => patternADumpItem.setSelected(false)).dialog
   private val spriteDumpItem = new JCheckBoxMenuItem("Sprite Cache")
   private val spriteDumpDialog = new SpriteDumper(vdp,"Sprite Cache",frame,() => spriteDumpItem.setSelected(false)).dialog
-  private var romDialog: JDialog = _
+  private var romDialog: JDialog = uninitialized
   private val m68KDisassemblerItem = new JCheckBoxMenuItem("M68K Disassembler")
   private val z80DisassemblerItem = new JCheckBoxMenuItem("Z80 Disassembler")
   private val dmaItem = new JCheckBoxMenuItem("DMA trace")

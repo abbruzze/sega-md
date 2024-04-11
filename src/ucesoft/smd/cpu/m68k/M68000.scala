@@ -51,7 +51,7 @@ class M68000(override val mem:Memory) extends M68KCore(mem):
       new ImmediateMode(ctx)
     )
 
-  override def checkMemoryAddress(address: Int, busAccessMode: BusAccessMode, size:Size, isCodeAccess: Boolean, instructionInProgress:Boolean = true): Unit =
+  override final def checkMemoryAddress(address: Int, busAccessMode: BusAccessMode, size:Size, isCodeAccess: Boolean, instructionInProgress:Boolean = true): Unit =
     if (size == Size.Word || size == Size.Long) && (address & 1) == 1 then
       throw new AddressBusException(address,busAccessMode,instructionInProgress = instructionInProgress,isCodeAccess)
 

@@ -63,8 +63,8 @@ object Z80 {
     var SP = 0
     var memptr = 0xFFFF
     var Q,lastQ = false
-    private[this] var delayInt = false
-    private[this] var additionalClockCycles = 0
+    private var delayInt = false
+    private var additionalClockCycles = 0
     var isIndexX = true
     var lastWrite = 0
 

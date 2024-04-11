@@ -66,7 +66,7 @@ class MemoryDumper(mem:Array[Int],
       val address = (rowIndex << 4) + (columnIndex - 1)
       columnIndex > 0 && (!showASCII || showASCII && columnIndex < columns.length - 1) && address < mem.length
 
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
 
     override def setValueAt(aValue: Any, rowIndex: Int, columnIndex: Int): Unit =
       try

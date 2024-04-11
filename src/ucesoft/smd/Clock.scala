@@ -5,6 +5,7 @@ import ucesoft.smd.cpu.z80.Z80
 
 import java.util.concurrent.CountDownLatch
 import scala.collection.mutable
+import scala.compiletime.uninitialized
 
 object Clock:
   trait EventID:
@@ -47,16 +48,16 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
   private inline val PERFORMANCE_MEASUREMENT_INTERVAL_SECONDS = 1 * 1000
   private var freqDiv1000, freqInvBy1000 = 0.0
 
-  private var events : EventList = _
+  private var events : EventList = uninitialized
 
-  private var errorHandler : Throwable => Unit = _
+  private var errorHandler : Throwable => Unit = uninitialized
 
-  private var clockables : Array[Clockable] = _
+  private var clockables : Array[Clockable] = uninitialized
 
-  private var counts : Array[Int] = _
-  private var steps : Array[Int] = _
-  private var clocks : Array[Int] = _
-  private var waits : Array[Int] = _
+  private var counts : Array[Int] = uninitialized
+  private var steps : Array[Int] = uninitialized
+  private var clocks : Array[Int] = uninitialized
+  private var waits : Array[Int] = uninitialized
 
   setFrequency(clocksPerSecond)
 

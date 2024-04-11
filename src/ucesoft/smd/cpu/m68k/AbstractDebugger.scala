@@ -2,6 +2,8 @@ package ucesoft.smd.cpu.m68k
 
 import ucesoft.smd.cpu.m68k.M6800X0.Snapshot
 
+import scala.compiletime.uninitialized
+
 abstract class AbstractDebugger extends M6800X0.EventListener:
   case class BreakType(read:Boolean = false,write:Boolean = false,execute:Boolean = false):
     override def toString: String =
@@ -24,7 +26,7 @@ abstract class AbstractDebugger extends M6800X0.EventListener:
   private var stepByStep = false
   private var stepAlways = false
 
-  private var lastSnap : Snapshot = _
+  private var lastSnap : Snapshot = uninitialized
 
   def addAddressBreak(address:Int,breakType:BreakType): Unit =
     m68kAddressBreaks += address -> AddressBreak(breakType, address)

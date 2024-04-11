@@ -104,6 +104,7 @@ trait M6800X0:
   def getExceptionNumber: Option[Int]
   def setBusAccessListener(listener:BusAccessListener): Unit
   def setInterruptAckListener(listener:InterruptAckListener): Unit
+  def setResetDeviceListener(resetDeviceListener: ResetDeviceListener): Unit
   def halt(asserted:Boolean): Unit
   def interrupt(ipl012:Int): Unit
   def addEventListener(el: EventListener): Unit

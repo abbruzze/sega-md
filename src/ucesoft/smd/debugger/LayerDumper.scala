@@ -7,6 +7,7 @@ import java.awt.event.{MouseEvent, MouseMotionAdapter}
 import java.awt.image.BufferedImage
 import javax.swing.*
 import scala.collection.mutable.ListBuffer
+import scala.compiletime.uninitialized
 
 /**
  * @author Alessandro Abbruzzetti
@@ -29,7 +30,7 @@ class LayerDumper(vram:Array[Int],
   private case class Sprite(id:String,rec:Rectangle,gfx:String)
 
   private class LayerCanvas(layer:Int) extends JLabel:
-    private var image : BufferedImage = _
+    private var image : BufferedImage = uninitialized
     private val mousePoint = new Point()
 
     addMouseMotionListener(new MouseMotionAdapter {

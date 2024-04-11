@@ -3,13 +3,14 @@ package ucesoft.smd.debugger
 import java.awt.FlowLayout
 import java.awt.event.{WindowAdapter, WindowEvent}
 import javax.swing.{ImageIcon, JButton, JCheckBox, JComponent, JDialog, JFrame, JLabel, JPanel, JTextField, SwingConstants, Timer}
+import scala.compiletime.uninitialized
 
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 06/11/2023 11:53  
  */
 class RefreshableDialog(val frame:JFrame, val title:String, val windowCloseOperation: () => Unit):
-  protected var timer: Timer = _
+  protected var timer: Timer = uninitialized
   protected val periodTF = new JTextField("1000", 5)
 
   final val dialog = new JDialog(frame, title, false):

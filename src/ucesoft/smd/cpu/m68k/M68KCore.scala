@@ -1,7 +1,7 @@
 package ucesoft.smd.cpu.m68k
 
 import ucesoft.smd.{SMDComponent, StateBuilder}
-import ucesoft.smd.cpu.m68k.M6800X0.BusTrace
+import scala.compiletime.uninitialized
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -23,7 +23,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
   protected class BUSNotAvailable extends CPUException
 
   // CPU state
-  protected var state = CPUState.EXECUTING
+  protected var state : CPUState = CPUState.EXECUTING
   // Data registers
   protected final val dataRegs : Array[Register] = (0 to 7).toArray.map(i => new Register(RegisterType.Data,model,i))
   // Address registers
@@ -37,54 +37,54 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
   // Program counter
   protected final val pcReg = new Register(RegisterType.PC, model)
   // Last instruction PC
-  protected final var pc0 = 0
+  protected var pc0 = 0
   // Prefetch queue
   protected case class PrefetchQueue(var memptr:Int,var irc:Int,var ird:Int)
   protected final val prefetchQueue = PrefetchQueue(0,0,0)
-  protected var cyclesAdjustment = 0
+  private var cyclesAdjustment = 0
   // Bus Access Listener
-  protected var busAccessListener : BusAccessListener = _
+  private var busAccessListener : BusAccessListener = uninitialized
   // Pending reset request
   protected var pendingResetRequest = false
   // Reset devices listener
-  protected var resetDeviceListener : ResetDeviceListener = _
+  private var resetDeviceListener : ResetDeviceListener = uninitialized
   // Last instruction
-  protected var lastInstruction : Instruction = _
+  protected var lastInstruction : Instruction = uninitialized
   // Interrupt mask pending
   protected var pendingInterruptMask = 0
   protected var nmiInterruptPending = false
   protected var pendingInterruptDelayCount = 0
   // event listeners
-  protected val eventListeners = new ListBuffer[EventListener]
+  protected final val eventListeners = new ListBuffer[EventListener]
   protected var notifyEventListeners = false
   // bus
   protected var busAvailable = true
   // dtack
   protected var dtackEnabled = true
   // Interrupt ack listener
-  protected var intAckListener : InterruptAckListener = _
+  protected var intAckListener : InterruptAckListener = uninitialized
   // additional wait cycles
   protected var waitCycles = 0
 
   // Context
   protected final val ctx = new M6800X0.Context {
-    override def model : Model =  M68KCore.this.model
-    override def adjustCycles(adjustment:Int): Unit = cyclesAdjustment = adjustment
+    override final def model : Model =  M68KCore.this.model
+    override final def adjustCycles(adjustment:Int): Unit = cyclesAdjustment = adjustment
 
-    override def busIdle(cycles: Int): Unit =
+    override final def busIdle(cycles: Int): Unit =
       busAccess(BusAccessMode.Idle,Size.Word,codeAccess = false,0,0,cycles)
 
-    override def fetchWord(incPC:Boolean,clearPrefetchQueue:Boolean): Int =
+    override final def fetchWord(incPC:Boolean,clearPrefetchQueue:Boolean): Int =
       pendingPrefetchQueueClear |= clearPrefetchQueue
       val p = prefetch()
       if incPC then
         pcReg.increment(Size.Word)
       p
 
-    override def fetchWordForDisassembling(address: Int): Int =
+    override final def fetchWordForDisassembling(address: Int): Int =
       mem.read(address & model.addressBUSMask,Size.Word,DEBUG_READ_OPTION) // doesn't fire read event
 
-    override def getEA(mode: Int, reg: Int, size: Size, disassemblingAddress: Option[Int],includeIdleBusCycles:Boolean): Operand =
+    override final def getEA(mode: Int, reg: Int, size: Size, disassemblingAddress: Option[Int],includeIdleBusCycles:Boolean): Operand =
       val index = if mode < 7 then mode else mode + reg
       val op = if disassemblingAddress.isEmpty then addressingModes(index) else disassemblingAddressingModes(index)
       /*if !busAvailable && disassemblingAddress.isEmpty && op.requiresBUS then
@@ -92,14 +92,14 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
       op.init(reg, size, disassemblingAddress,includeIdleBusCycles)
       op
 
-    override def getEA(addressingMode: AddressingMode, reg: Int, size: Size, disassemblingAddress: Option[Int]): Operand =
+    override final def getEA(addressingMode: AddressingMode, reg: Int, size: Size, disassemblingAddress: Option[Int]): Operand =
       val op = if disassemblingAddress.isEmpty then addressingModes(addressingMode.ordinal) else disassemblingAddressingModes(addressingMode.ordinal)
       /*if !busAvailable && disassemblingAddress.isEmpty && op.requiresBUS then
         throw new BUSNotAvailable*/
       op.init(reg, size, disassemblingAddress)
       op
 
-    override def readMemory(address: Int, size: Size,busAccess:BusAccessMode = BusAccessMode.Read): Int =
+    override final def readMemory(address: Int, size: Size,busAccess:BusAccessMode = BusAccessMode.Read): Int =
       checkMemoryAddress(address,BusAccessMode.Read,size,isCodeAccess = false)
       if notifyEventListeners then fireRWEvent(address,size,isRead = true)
       val read = mem.read(address & model.addressBUSMask, size)
@@ -107,20 +107,20 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
 
       read
 
-    override def writeMemory(address: Int, value: Int, size: Size,busAccess:BusAccessMode = BusAccessMode.Write): Unit =
+    override final def writeMemory(address: Int, value: Int, size: Size,busAccess:BusAccessMode = BusAccessMode.Write): Unit =
       checkMemoryAccess(address, busAccess, value, size, codeAccess = false)
       if notifyEventListeners then fireRWEvent(address,size,isRead = false,value)
       mem.write(address & model.addressBUSMask, value, size)
 
-    override def raiseException(number:Int): Unit =
+    override final def raiseException(number:Int): Unit =
       M68KCore.this.raiseException(number)
 
-    override def branch(pc:Int): Unit =
+    override final def branch(pc:Int): Unit =
       pcReg.set(pc,Size.Long)
       checkMemoryAddress(pc,BusAccessMode.Read,Size.Long,isCodeAccess = true,instructionInProgress = false)
       pendingPrefetchQueueClear = true
 
-    override def getRegister(rtype: RegisterType, index: Int): Register =
+    override final def getRegister(rtype: RegisterType, index: Int): Register =
       import RegisterType.*
       rtype match
         case Data => dataRegs(index)
@@ -136,13 +136,13 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
         case USP =>
           userSPReg
 
-    override def getPC: Int = pcReg.get(Size.Long)
+    override final def getPC: Int = pcReg.get(Size.Long)
 
-    override def resetDevices(): Unit =
+    override final def resetDevices(): Unit =
       if resetDeviceListener != null then
         resetDeviceListener.resetDevice()
 
-    override def stopCPU(): Unit =
+    override final def stopCPU(): Unit =
       changeState(CPUState.STOPPED)
       if notifyEventListeners then fireStopEvent(stopped = true)
   }
@@ -479,6 +479,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
   override def setBusAccessListener(listener:BusAccessListener): Unit = busAccessListener = listener
   
   override def setInterruptAckListener(listener:InterruptAckListener): Unit = intAckListener = listener
+  override def setResetDeviceListener(resetDeviceListener: ResetDeviceListener): Unit = this.resetDeviceListener = resetDeviceListener
   
   override def getTotalElapsedCycles : Long = totalElapsedCycles
 

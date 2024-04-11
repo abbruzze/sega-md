@@ -3,11 +3,13 @@ package ucesoft.smd.cpu.m68k.addressingModes
 import ucesoft.smd.cpu.m68k.AddressingMode.IXPC
 import ucesoft.smd.cpu.m68k.{AddressingMode, M6800X0, Operand, Register, RegisterType, Size}
 
+import scala.compiletime.uninitialized
+
 class ProgramCounterWithIndexMode(override protected val ctx: M6800X0.Context) extends Operand(ctx):
   override val mode : AddressingMode = IXPC
 
   private var ext,displacement = 0
-  private var ri : Register = _
+  private var ri : Register = uninitialized
 
   override def init(reg: Int, size: Size,disassemblingAddress:Option[Int],includeIdleBusCycles:Boolean): Unit =
     if disassemblingAddress.isEmpty && includeIdleBusCycles then

@@ -7,7 +7,7 @@ import java.util.concurrent.LinkedBlockingDeque
 import javax.sound.sampled.*
 
 object AudioDevice:
-  inline val INITIAL_VOLUME = 50
+  inline val INITIAL_VOLUME = 70
 
 abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent with Runnable:
 

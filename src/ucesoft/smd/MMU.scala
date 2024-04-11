@@ -482,7 +482,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       z80ram(address & 0x1FFF) = (value >> 8) & 0xFF
 
   inline private def writeYM2612(address:Int,value:Int,size:Size): Unit =
-    log.info("Writing to YM2612: %X size=$size value=%X",address,value)
+    //log.info("Writing to YM2612: %X size=$size value=%X",address,value)
     fm.write(address,value & 0xFF)
 
   /*

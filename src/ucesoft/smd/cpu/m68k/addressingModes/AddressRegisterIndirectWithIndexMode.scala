@@ -3,11 +3,13 @@ package ucesoft.smd.cpu.m68k.addressingModes
 import ucesoft.smd.cpu.m68k.AddressingMode.IX
 import ucesoft.smd.cpu.m68k.{AddressingMode, M6800X0, Operand, Register, Size}
 
+import scala.compiletime.uninitialized
+
 class AddressRegisterIndirectWithIndexMode(override protected val ctx: M6800X0.Context) extends AddressRegisterIndirectMode(ctx):
   override val mode : AddressingMode = IX
 
   private var ext,displacement = 0
-  private var ri : Register = _
+  private var ri : Register = uninitialized
 
   override def init(reg: Int, size: Size,disassemblingAddress:Option[Int],includeIdleBusCycles:Boolean): Unit =
     if disassemblingAddress.isEmpty && includeIdleBusCycles then

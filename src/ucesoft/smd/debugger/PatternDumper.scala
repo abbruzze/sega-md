@@ -8,6 +8,7 @@ import java.awt.event.{MouseEvent, MouseMotionAdapter, WindowAdapter, WindowEven
 import java.awt.image.BufferedImage
 import javax.swing.*
 import javax.swing.table.{AbstractTableModel, DefaultTableCellRenderer}
+import scala.compiletime.uninitialized
 
 /**
  * @author Alessandro Abbruzzetti
@@ -47,7 +48,7 @@ class PatternDumper(vram:Array[Int],
     override def getColumnName(column: Int): String = columns(column)
     override def getColumnCount: Int = columns.length
     override def getRowCount: Int = 8
-    override def getColumnClass(columnIndex: Int): Class[_] = classOf[String]
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
 
     override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
       val address = mem + (rowIndex << 2) + (columnIndex >> 1)
@@ -60,9 +61,9 @@ class PatternDumper(vram:Array[Int],
       fireTableDataChanged()
 
   private class PatternCanvas extends JLabel:
-    private var image : BufferedImage = _
+    private var image : BufferedImage = uninitialized
     private val mousePoint = new Point()
-    private var screenPoint : Point = _
+    private var screenPoint : Point = uninitialized
     private val patternModel = new PatternTableModel
     private val table = new JTable(patternModel)
     private val panelTip = new JPanel(new BorderLayout())
