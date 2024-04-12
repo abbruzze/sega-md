@@ -66,6 +66,15 @@ class MouseController(override val index: Int,display:Display) extends Controlle
       case _ =>
         mouseStartWithCTRLandLeftEnabled = false
 
+  override def reset(): Unit = 
+    super.reset()
+    buttonsState = 0
+    state = 0x60
+    counter = 0
+    mx = 0
+    my = 0
+    waitHandshake = 0
+
   def mouseEnabled(enabled:Boolean): Unit =
     val window = SwingUtilities.getWindowAncestor(display)
     if enabled then

@@ -77,13 +77,14 @@ class KeyboardPADController(component:java.awt.Component,config:Properties,overr
   override def keyPressed(e: KeyEvent): Unit =
     keyMap.get(e.getExtendedKeyCode) match
       case Some(k) =>
-        if !e.isAltDown then buttons(k) = 0
+        if !e.isAltDown then
+          setButton(k,0)
       case None =>
 
   override def keyReleased(e: KeyEvent): Unit =
     keyMap.get(e.getExtendedKeyCode) match
       case Some(k) =>
-        buttons(k) = 1
+        setButton(k,1)
       case None =>
 
   override def keyTyped(e: KeyEvent): Unit = {}

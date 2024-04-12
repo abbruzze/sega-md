@@ -2,6 +2,8 @@ package ucesoft.smd.controller
 
 import ucesoft.smd.*
 
+import scala.compiletime.uninitialized
+
 enum ControllerType(val counterMask:Int):
   case PAD3Buttons extends ControllerType(1)
   case PAD6Buttons extends ControllerType(7)
@@ -17,14 +19,30 @@ object Controller:
   inline val CONTROLLER_TYPE_PROP = CONTROLLER_PROP + "type"
   inline val CONTROLLER_DEVICE_PROP = CONTROLLER_PROP + "device"
 
+  trait ControllerChangeListener:
+    def controllerChanged(index:Byte, controllerType: ControllerType, eventID:Short, value:Byte): Unit
+
   def formatProp(s: String, index: Int): String = s.format(index)
+
 abstract class Controller extends SMDComponent:
   val index : Int
   val device : ControllerDevice
   override protected val smdComponentName = s"Controller $index"
   protected var control = 0
   protected var controllerType: ControllerType = ControllerType.Unknown
+  protected var changeListener : Controller.ControllerChangeListener = uninitialized
+  protected var delayInMillis = 0f
 
+  override def reset(): Unit =
+    delayInMillis = 0
+
+  def setDelayMillis(millis:Float): Unit =
+    delayInMillis = millis
+
+  def setChangeListener(cl:Controller.ControllerChangeListener): Unit =
+    changeListener = cl
+
+  def forceChange(eventID:Short, value:Byte): Unit = {}
 
   def copyStateFrom(p:Controller): Unit =
     control = p.control

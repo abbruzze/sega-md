@@ -67,6 +67,7 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
         case _:InterruptedException =>
       
   override def interrupt(): Unit =
+    queue.clear()
     thread.interrupt()
 
   override def setLevel(level: MessageLevel): Unit =

@@ -5,7 +5,7 @@ import org.yaml.snakeyaml.{DumperOptions, Yaml}
 import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.controller.*
 import ucesoft.smd.debugger.Debugger
-import ucesoft.smd.misc.{CartInfoPanel, FullScreenMode, GIFPanel, Preferences, StateInfoPanel}
+import ucesoft.smd.misc.{CartInfoPanel, EventPlayback, EventRecorder, FullScreenMode, GIFPanel, IconFlasher, Preferences, StateInfoPanel}
 import ucesoft.smd.ui.MessageBoard.MessageLevel.ADMIN
 import ucesoft.smd.*
 import ucesoft.smd.ModelType.{Domestic, Oversea}
@@ -78,6 +78,20 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private var pendingRegion = Region.AUTO
   private var region = Region.AUTO
 
+  // icons
+  private val ICON = new ImageIcon(getClass.getResource("/resources/sonic_ring.png")).getImage
+  private val ICON_RECORDING = new ImageIcon(getClass.getResource("/resources/sonic_ring_recording.png")).getImage
+  private val ICON_PLAY = new ImageIcon(getClass.getResource("/resources/sonic_ring_play.png")).getImage
+
+  // record events
+  private var recordEventsEnabled = false
+  private var recordEventsFile = ""
+  private var eventRecorder : EventRecorder = uninitialized
+  // events playback
+  private var playbackEventsEnabled = false
+  private var playbackEventsFile = ""
+  private var eventPlayback : EventPlayback = uninitialized
+
   // MenuItems
   private val saveStateItem = new JMenuItem("Save state ...")
   private val cartMenu = new JMenu("Cart")
@@ -90,6 +104,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private val fullScreenMode = new JMenuItem("Full screen mode")
   private val mouseEnabledCB = new JCheckBoxMenuItem("Mouse capture enabled")
   private val zoom4CB = new JCheckBoxMenuItem("Zoom 4x")
+  private val recordEventsCB = new JCheckBoxMenuItem("Record events")
+  private val playbackEventsCB = new JCheckBoxMenuItem("Playback events")
 
   // cheats
   private val cheatList = new ListBuffer[CheatCode]
@@ -149,12 +165,12 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   def boot(): Unit =
     megaDrive.masterClock.setErrorHandler(errorHandler)
     // main frame
-    frame = new JFrame(s"Mega Drive emulator v${Version.VERSION}")
+    frame = new JFrame(s"ScalaGen emulator v${Version.VERSION}")
     frame.setResizable(false)
     frame.addWindowListener(new WindowAdapter {
       override def windowClosing(e: WindowEvent): Unit = shutdown()
     })
-    frame.setIconImage(new ImageIcon(getClass.getResource("/resources/sonic_ring.png")).getImage)
+    frame.setIconImage(ICON)
     // display
     val display = new Display(SCREEN_WIDTH, megaDrive.model.videoType.totalLines, frame.getTitle, frame, megaDrive.masterClock)
     display.setFocusable(true)
@@ -303,6 +319,58 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     // TODO
     glassPane.addMessage(MessageBoard.builder.message("Welcome").adminLevel().bold().xcenter().ycenter().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
 
+  private def checkEventRecordingOrPlayback(): Unit =
+    // event recorder
+    val wasRecording = eventRecorder != null
+    if wasRecording then
+      eventRecorder.shutdown()
+      eventRecorder = null
+    if recordEventsEnabled & cart != null then
+      val flasher = new IconFlasher(frame,500,ICON,ICON_RECORDING,ICON)
+      flasher.start()
+      eventRecorder = new EventRecorder(cart.getCRC32,cart.getOverseaName,recordEventsFile, megaDrive.masterClock, () => {
+        flasher.shutdownAndWait()
+        playbackEventsCB.setEnabled(true)
+      })
+      for c <- 0 to 2 do
+        megaDrive.mmu.getController(c).setChangeListener(eventRecorder)
+      glassPane.addMessage(MessageBoard.builder.message("Event recording started").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
+    else
+      playbackEventsCB.setEnabled(true)
+      for c <- 0 to 2 do
+        megaDrive.mmu.getController(c).setChangeListener(null)
+      frame.setIconImage(ICON)
+      if wasRecording then
+        glassPane.addMessage(MessageBoard.builder.message("Event recording stopped").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
+
+    // event playback
+    val wasPlayback = eventPlayback != null
+    if wasPlayback then
+      eventPlayback.shutdown()
+      eventPlayback = null
+    if playbackEventsEnabled & cart != null then
+      EventPlayback.checkRecording(playbackEventsFile) match
+        case Some(EventPlayback.EventRecordingInfo(crc32,gameName)) =>
+          if cart.getCRC32 != crc32 then
+            JOptionPane.showMessageDialog(frame,s"The cartridge does not correspond to what has been used to record events: $gameName")
+          else
+            val flasher = new IconFlasher(frame, 500, ICON, ICON_PLAY, ICON)
+            flasher.start()
+            val controllers = (0 to 2).map(megaDrive.mmu.getController).toArray
+            eventPlayback = new EventPlayback(playbackEventsFile,controllers,megaDrive.masterClock,() => {
+              flasher.shutdownAndWait()
+              recordEventsCB.setEnabled(true)
+              glassPane.addMessage(MessageBoard.builder.message("Event playback finished").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
+            })
+            eventPlayback.start()
+        case None =>
+          JOptionPane.showMessageDialog(frame, s"Cannot read events file")
+    else
+      recordEventsCB.setEnabled(true)
+      if !recordEventsEnabled then
+        frame.setIconImage(ICON)
+  end checkEventRecordingOrPlayback
+
   private def reset(hard:Boolean,fromRestoredState:Boolean): Unit =
     if !megaDrive.masterClock.isPaused then
       pause()
@@ -314,6 +382,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
           megaDrive.hardResetComponent()
         else
           megaDrive.resetComponent()
+      checkEventRecordingOrPlayback()
     finally
       if !megaDrive.masterClock.isRunning then
         megaDrive.masterClock.start()
@@ -396,6 +465,22 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     val loadStateItem = new JMenuItem("Load state ...")
     stateMenu.add(loadStateItem)
     loadStateItem.addActionListener(_ => par(loadState(None)))
+    stateMenu.add(recordEventsCB)
+    recordEventsCB.addActionListener(_ => {
+      recordEventsEnabled = recordEventsCB.isSelected
+      if recordEventsEnabled then
+        selectRecordEventFile()
+      else if eventRecorder != null then
+        eventRecorder.shutdown()
+    })
+    stateMenu.add(playbackEventsCB)
+    playbackEventsCB.addActionListener(_ => {
+      playbackEventsEnabled = playbackEventsCB.isSelected
+      if playbackEventsEnabled then
+        selectPlaybackEventFile()
+      else if eventPlayback != null then
+        eventPlayback.shutdown()
+    })
 
   private def buildDebugMenu(debugMenu:JMenu): Unit =
     debugMenu.add(debuggerCB)
@@ -820,6 +905,34 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       new StateBuilder(state)
     finally
       loadingDialog.dispose()
+
+  protected def selectRecordEventFile(): Unit =
+    val fc = new JFileChooser()
+    fc.setDialogTitle("Select a file to record events")
+    fc.setCurrentDirectory(lastDirectory)
+    fc.showSaveDialog(frame) match
+      case JFileChooser.APPROVE_OPTION =>
+        lastDirectory = fc.getSelectedFile.getParentFile
+        recordEventsFile = fc.getSelectedFile.toString
+        JOptionPane.showMessageDialog(frame,"Events recording will start after reset","Info",JOptionPane.INFORMATION_MESSAGE)
+        playbackEventsCB.setEnabled(false)
+      case _ =>
+        recordEventsEnabled = false
+        recordEventsCB.setSelected(false)
+
+  protected def selectPlaybackEventFile(): Unit =
+    val fc = new JFileChooser()
+    fc.setDialogTitle("Select a events playback file")
+    fc.setCurrentDirectory(lastDirectory)
+    fc.showOpenDialog(frame) match
+      case JFileChooser.APPROVE_OPTION =>
+        lastDirectory = fc.getSelectedFile.getParentFile
+        playbackEventsFile = fc.getSelectedFile.toString
+        JOptionPane.showMessageDialog(frame, "Events playback will start after reset", "Info", JOptionPane.INFORMATION_MESSAGE)
+        recordEventsCB.setEnabled(false)
+      case _ =>
+        recordEventsEnabled = false
+        recordEventsCB.setSelected(false)
 
   // cheat manager
   override def addCheat(_cheat: CheatCode): Unit =

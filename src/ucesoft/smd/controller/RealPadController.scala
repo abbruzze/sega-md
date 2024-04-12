@@ -119,17 +119,17 @@ class RealPadController(config:Properties,pref:Preferences,override val index: I
     while running do
       Thread.sleep(polling)
       c.poll()
-      java.util.Arrays.fill(buttons,1)
+      resetButtons()
       // axis
       val x = if xAxisComponent != null then xAxisComponent.getPollData else 0
       val y = if xAxisComponent != null then yAxisComponent.getPollData else 0
-      if x < -DIR_THRESHOLD then buttons(L) = 0
-      else if x > DIR_THRESHOLD then buttons(R) = 0
-      if y < -DIR_THRESHOLD then buttons(U) = 0
-      else if y > DIR_THRESHOLD then buttons(D) = 0
+      if x < -DIR_THRESHOLD then setButton(L,0)
+      else if x > DIR_THRESHOLD then setButton(R,0)
+      if y < -DIR_THRESHOLD then setButton(U,0)
+      else if y > DIR_THRESHOLD then setButton(D,0)
       // buttons
       for (b,c) <- buttonsComponent do
         if c.getPollData != 0.0 then
-          buttons(b) = 0
+          setButton(b,0)
 
     log.info("USB controller %d thread stopped",index)

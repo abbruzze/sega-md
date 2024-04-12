@@ -1,10 +1,6 @@
 package ucesoft.smd
 
-import ucesoft.smd.cpu.m68k.M68000
-import ucesoft.smd.cpu.z80.Z80
-
 import java.util.concurrent.CountDownLatch
-import scala.collection.mutable
 import scala.compiletime.uninitialized
 
 object Clock:
@@ -62,12 +58,11 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
   setFrequency(clocksPerSecond)
 
   override def reset(): Unit =
+    clockCycles = 0
     java.util.Arrays.fill(counts,0)
     java.util.Arrays.fill(waits, 0)
-
-  override def hardReset(): Unit =
-    reset()
-    java.util.Arrays.fill(clocks, 0)
+    java.util.Arrays.fill(clocks,0)
+    events = null
 
   final def setWait(clockIndex:Int,wait:Int): Unit =
     waits(clockIndex) = wait
@@ -109,6 +104,12 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
     schedule(cyclesForMillis(millis),action,isPeriodic)
   final def schedule(cyclesFromNow:Int,action:Clockable,isPeriodic: Boolean = false): EventID =
     val event = new ClockEvent(clockCycles + cyclesFromNow,action,if isPeriodic then cyclesFromNow else 0)
+    schedule(event)
+  final def scheduleAbsolute(cycles:Long,action:Clockable): EventID =
+    val event = new ClockEvent(cycles, action, 0)
+    schedule(event) 
+  
+  private def schedule(event:ClockEvent): EventID =
     val id = new EventID:
       override def cancel(): Unit = event.canceled = true
       override def isCanceled: Boolean = event.canceled
@@ -128,6 +129,7 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
       ptr.next = new EventList(event, ptrNext)
 
     id
+  end schedule
 
   override final def run(): Unit =
     running = true

@@ -62,7 +62,18 @@ abstract class PadController(override val index: Int, val clock: Clock) extends 
   protected var timeoutID: EventID = uninitialized
   protected var lastWrite = 0x40
 
-  protected final val buttons = Array.fill[Int](12)(1) // U,D,L,R,A,B,C,S,X,Y,Z,M
+  private final val buttons = Array.fill[Int](12)(1) // U,D,L,R,A,B,C,S,X,Y,Z,M
+  
+  protected def resetButtons(): Unit =
+    java.util.Arrays.fill(buttons, 1)
+  
+  protected def setButton(index:Int,value:Byte): Unit =
+    if delayInMillis == 0 then
+      buttons(index) = value
+    else
+      clock.scheduleMillis(delayInMillis, _ => buttons(index) = value)
+    if changeListener != null then
+      changeListener.controllerChanged(this.index.toByte, controllerType, index.toShort, value)
 
   override def copyStateFrom(c:Controller): Unit =
     c match
@@ -78,6 +89,7 @@ abstract class PadController(override val index: Int, val clock: Clock) extends 
       timeoutID.cancel()
 
   override def reset(): Unit =
+    super.reset()
     java.util.Arrays.fill(buttons, 1)
     counter6Button = 0
     control = 0
@@ -87,19 +99,14 @@ abstract class PadController(override val index: Int, val clock: Clock) extends 
     val read =
       counter6Button match
         case 0 | 2 | 4 => // CBRLDU
-          //log.info(s"CBRDLU($counter6Button): ${(buttons(C) << 5 | buttons(B) << 4 | buttons(R) << 3 | buttons(L) << 2 | buttons(D) << 1 | buttons(U)).toHexString}")
           buttons(C) << 5 | buttons(B) << 4 | buttons(R) << 3 | buttons(L) << 2 | buttons(D) << 1 | buttons(U)
         case 1 | 3 => // SA00DU
-          //log.info(s"SA00DU($counter6Button): ${(buttons(S) << 5 | buttons(A) << 4 | /* 00 */ buttons(D) << 1 | buttons(U)).toHexString}")
           buttons(S) << 5 | buttons(A) << 4 | /* 00 */ buttons(D) << 1 | buttons(U)
         case 5 => // SA0000
-          //log.info(s"SA0000($counter6Button): ${buttons(S) << 5 | buttons(A) << 4}")
           buttons(S) << 5 | buttons(A) << 4
         case 6 => // CBMXYZ
-          //log.info(s"CBMXYZ($counter6Button): ${(buttons(C) << 5 | buttons(B) << 4 | buttons(M) << 3 | buttons(X) << 2 | buttons(Y) << 1 | buttons(Z)).toHexString}")
           buttons(C) << 5 | buttons(B) << 4 | buttons(M) << 3 | buttons(X) << 2 | buttons(Y) << 1 | buttons(Z)
         case 7 => // SA1111
-          //log.info(s"SA1111($counter6Button): ${(buttons(S) << 5 | buttons(A) << 4 | 0xF).toHexString}")
           buttons(S) << 5 | buttons(A) << 4 | 0xF
         case _ => // can never happens
           0
@@ -133,3 +140,6 @@ abstract class PadController(override val index: Int, val clock: Clock) extends 
           case _: Exception =>
             ControllerType.PAD3Buttons
     setControllerType(ctype)
+    
+  override def forceChange(eventID:Short, value:Byte): Unit =
+    buttons(eventID) = value
