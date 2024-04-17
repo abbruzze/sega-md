@@ -11,7 +11,8 @@ object Preferences {
   val FM_AUDIO_BUFF_MILLIS = "fm-buffer-millis"
   val REAL_PAD_POLLING_MILLIS = "real-pad-polling-millis"
   val CHEAT_CODES = "cheat-code-list"
-  val REGION = "region"
+  val REGION_PREF = "region"
+  val TRACE_PREF = "trace-on-start"
   
   class PreferenceIllegalArgumentException(msg:String) extends Exception(msg)
 

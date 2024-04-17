@@ -68,22 +68,26 @@ class AudioVolumePanel(frame:JFrame,audioDevices:Array[AudioDevice],pref:Prefere
       audioBufferPanel.add(new JLabel("Buffer in millis:",SwingConstants.RIGHT))
       audioBufferPanel.add(audioBufferCombo)
       devicePanel.add("South",audioBufferPanel)
-      val buffer = device.name match
+      device.name match
         case "PSG" =>
-          pref.get[String](Preferences.PSG_AUDIO_BUFF_MILLIS).map(_.value).getOrElse("10")
-        case "FM" =>
-          pref.get[String](Preferences.FM_AUDIO_BUFF_MILLIS).map(_.value).getOrElse("10")
+          pref.add(Preferences.PSG_AUDIO_BUFF_MILLIS,"set PSG audio buffer size in millisecond",10,Set(5,10,20,50,100)) { millis =>
+            audioBufferCombo.setSelectedItem(millis.toString)
+            device.setBufferInMillis(millis)
+          }
+        case "Ym3438" =>
+          pref.add(Preferences.FM_AUDIO_BUFF_MILLIS,"set FM audio buffer size in millisecond",10,Set(5,10,20,50,100)) { millis =>
+            audioBufferCombo.setSelectedItem(millis.toString)
+            device.setBufferInMillis(millis)
+          }
         case _ =>
-          "10"
-      audioBufferCombo.setSelectedItem(buffer)
       audioBufferCombo.addActionListener(_ => {
         val millis = audioBufferCombo.getSelectedItem.toString.toInt
         device.setBufferInMillis(millis)
         device.name match
           case "PSG" =>
-            pref.update(Preferences.PSG_AUDIO_BUFF_MILLIS, millis)
-          case "FM" =>
-            pref.update(Preferences.FM_AUDIO_BUFF_MILLIS, millis)
+            pref.updateWithoutNotify(Preferences.PSG_AUDIO_BUFF_MILLIS, millis)
+          case "Ym3438" =>
+            pref.updateWithoutNotify(Preferences.FM_AUDIO_BUFF_MILLIS, millis)
           case _ =>
       })
 

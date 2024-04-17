@@ -1,7 +1,7 @@
 package ucesoft.smd.ui
 
 import ucesoft.smd.MessageBus
-import ucesoft.smd.controller.Controller.{CONTROLLER_DEVICE_PROP, formatProp}
+import ucesoft.smd.controller.Controller.{CONTROLLER_DEVICE_PROP, CONTROLLER_TYPE_PROP, formatProp}
 import ucesoft.smd.controller.ControllerDevice.{Empty, KeyboardPad, Mouse, RealPad}
 import ucesoft.smd.controller.RealPadController.CONTROLLER_NAME_PROP
 import ucesoft.smd.controller.*
@@ -26,6 +26,10 @@ class ControllerConfigPanel(frame:JFrame,
   init()
 
   private def init(): Unit =
+    import scala.jdk.CollectionConverters.*
+    for prop <- config.keys().asScala do
+      workingProps.setProperty(prop.toString, config.getProperty(prop.toString))
+
     setLayout(new BorderLayout())
     val controllersPane = new JPanel(new GridLayout(2,0))
     for tab <- 0 to 1 do
@@ -122,7 +126,8 @@ class ControllerConfigPanel(frame:JFrame,
       case None =>
 
   private def configure(index:Int,controllerDevice: ControllerDevice,controllerType: ControllerType): Unit =
-    val controllerConfig = if controllerDevice == getController(index).device then config else new Properties()
+    workingProps.setProperty(formatProp(CONTROLLER_TYPE_PROP, index),controllerType.toString)
+    val controllerConfig = if controllerDevice == getController(index).device then workingProps else new Properties()
     controllerDevice match
       case KeyboardPad =>
         val selectionPanel = new PadControllerButtonsSelectionPanel(dialog,index,controllerConfig,None,controllerType == ControllerType.PAD3Buttons,applyProp)

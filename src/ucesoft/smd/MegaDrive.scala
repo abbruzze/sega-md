@@ -8,7 +8,7 @@ import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.misc.Preferences
 
 import java.awt.image.BufferedImage
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, FileReader, IOException}
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, FileReader, FileWriter, IOException}
 import java.time.LocalDateTime
 import java.util.Properties
 import javax.imageio.ImageIO
@@ -49,6 +49,7 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
 
   final val pref = new Preferences
   final val conf = new Properties()
+  final val originalConf = new Properties()
 
   // =============================================================================
 
@@ -70,22 +71,38 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   private def configure(): Unit =
     // LOAD configuration
     // MD HOME ==========================================================================
-    var mdHome = System.getProperty("md.home")
+    var mdHome = System.getProperty("scalagen.home")
     if mdHome == null then
       mdHome = scala.util.Properties.userHome
-      println(s"Warning: md.home env variable not set. Default emulator's home is $mdHome")
+      println(s"Warning: scalagen.home env variable not set. Default emulator's home is $mdHome")
     else
-      mdHome = new File(new File(mdHome), "conf").toString
+      val mdHomeDir = new File(new File(mdHome), "conf")
+      mdHome = mdHomeDir.toString
+      if !mdHomeDir.exists() then
+        if !mdHomeDir.mkdir() then
+          mdHome = scala.util.Properties.userHome
+          println(s"Cannot create directory $mdHomeDir, using $mdHome as home directory")
     // PROPERTIES =======================================================================
     configurationFile = new File(new File(mdHome), "config.properties")
     if configurationFile.exists then
+      var fr : FileReader = null
       try
-        conf.load(new FileReader(configurationFile))
+        fr = new FileReader(configurationFile)
+        conf.load(fr)
+        originalConf.putAll(conf)
       catch
         case io : IOException =>
           println(s"Cannot load configuration file $configurationFile. Using default configuration.")
           io.printStackTrace()
+      finally
+        if fr != null then
+          fr.close()
   end configure
+
+  def saveConfiguration(conf:Properties): Unit =
+    val out = new FileWriter(configurationFile)
+    conf.store(out, "ScalaGen configuration file")
+    out.close()
 
   override def reset(): Unit =
     m68Div = 0

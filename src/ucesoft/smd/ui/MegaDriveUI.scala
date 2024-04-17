@@ -11,7 +11,7 @@ import ucesoft.smd.*
 import ucesoft.smd.ModelType.{Domestic, Oversea}
 import ucesoft.smd.VideoType.{NTSC, PAL}
 import ucesoft.smd.cheat.Cheat.CheatCode
-import ucesoft.smd.cheat.CheatManager
+import ucesoft.smd.cheat.{Cheat, CheatManager}
 
 import java.awt.event.{KeyAdapter, KeyEvent, WindowAdapter, WindowEvent}
 import java.io.*
@@ -65,6 +65,9 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private var debugger : Debugger = uninitialized
   private var cart : Cart = uninitialized
 
+  private var bootingCartFile = ""
+  private var startInTraceMode = false
+
   private var audioPanel : AudioVolumePanel = uninitialized
   private var performanceMonitor : PerformanceMonitor = uninitialized
 
@@ -106,6 +109,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private val zoom4CB = new JCheckBoxMenuItem("Zoom 4x")
   private val recordEventsCB = new JCheckBoxMenuItem("Record events")
   private val playbackEventsCB = new JCheckBoxMenuItem("Playback events")
+  private val autosaveCB = new JCheckBoxMenuItem("Auto save preferences on exit")
 
   // cheats
   private val cheatList = new ListBuffer[CheatCode]
@@ -199,7 +203,13 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   end boot
 
   protected def makeController(conf:Properties,pos: Int): Controller =
-    conf.getProperty(Controller.formatProp(Controller.CONTROLLER_DEVICE_PROP, pos)) match
+    val ctype = try
+      ControllerType.valueOf(conf.getProperty(Controller.formatProp(Controller.CONTROLLER_TYPE_PROP, pos)))
+    catch
+      case _:Throwable =>
+        ControllerType.Unknown
+
+    val controller = conf.getProperty(Controller.formatProp(Controller.CONTROLLER_DEVICE_PROP, pos)) match
       case KeyboardPADController.DEVICE_PROP_VALUE | null =>
         Logger.getLogger.info("Controller %d set as keyboard pad",pos + 1)
         new KeyboardPADController(megaDrive.display,conf,pos,megaDrive.masterClock)
@@ -215,6 +225,11 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       case unknown =>
         Logger.getLogger.warning("Cannot make controller %d from configuration file: unknown device %s", pos, unknown)
         EmptyController(pos)
+
+    if ctype != ControllerType.Unknown then
+      controller.setControllerType(ctype)
+    controller
+  end makeController
 
   private def checkControllers(): Unit =
     val mouseConfigured = megaDrive.mmu.getController(0).device == ControllerDevice.Mouse || megaDrive.mmu.getController(1).device == ControllerDevice.Mouse
@@ -238,21 +253,26 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       megaDrive.masterClock.play()
 
   private def shutdown(): Unit =
-    par {
-      val loadingDialog = new LoadingDialog(frame, s"Shutting down emulator ...")
-      loadingDialog.setVisible(true)
-      try
-        frame.dispose()
-        megaDrive.cart.foreach(cart => {
-          MessageBus.send(MessageBus.CartRemoved(this, cart))
-        })
-        savePreferences()
-        sys.exit(0)
-      finally
-        loadingDialog.dispose()
-    }
+    megaDrive.cart.foreach(cart => {
+      MessageBus.send(MessageBus.CartRemoved(this, cart))
+    })
+    savePreferences()
 
-  private def savePreferences(): Unit = {} // TODO
+    frame.dispose()
+    sys.exit(0)
+
+  private def savePreferences(): Unit =
+    val pos = frame.getLocationOnScreen
+    var conf = megaDrive.originalConf
+    val savePref = megaDrive.pref.get[Boolean](Preferences.AUTOSAVE_PREF).exists(_.value)
+    if savePref then
+      conf = megaDrive.conf
+    conf.setProperty(Preferences.XY_PREF, s"${pos.x},${pos.y}")
+
+    if savePref then
+      megaDrive.pref.save(conf)
+
+    megaDrive.saveConfiguration(conf)
 
   private def errorHandler(t:Throwable): Unit =
     t.printStackTrace()
@@ -286,6 +306,33 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     megaDrive.mmu.setController(0,makeController(megaDrive.conf,0))
     megaDrive.mmu.setController(1,new EmptyController(1))
 
+    // ==================================================================================
+    val pref = megaDrive.pref
+    import Preferences.*
+
+    pref.add(AUTOSAVE_PREF,"auto save preferences on exit",false) { autosave =>
+      autosaveCB.setSelected(autosave)
+    }
+    pref.add(TRACE_PREF, "start the emulator in tracing mode if a cart has been inserted", false, canBeSaved = false) { trace =>
+      startInTraceMode = trace
+    }
+    pref.add(CHEAT_CODES, "a list of cheats code separated by comma", "") { cheats =>
+      if cheats.nonEmpty then
+        for c <- cheats.split(",") do
+          Cheat.decode(c).foreach(cheatList += _)
+    }
+    // ==================================================================================
+    // Check Help
+    if megaDrive.pref.checkForHelp(args) then
+      println(s"ScalaGen emulator ver. ${Version.VERSION} (${Version.BUILD_DATE})")
+      megaDrive.pref.printUsage("file to attach")
+      sys.exit(0)
+
+    pref.parseAndLoad(args, megaDrive.conf) match
+      case Some(cart) =>
+        bootingCartFile = cart
+      case None =>
+
   private def run(): Unit =
     val log = Logger.getLogger
     log.info("Building the system ...")
@@ -311,7 +358,16 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       glassPane = new MessageGlassPane(frame)
       glassPane.setLevel(ADMIN)
       debugger.setMessageBoard(glassPane)
-      showWelcome()
+      if bootingCartFile.nonEmpty then
+        par {
+          val file = new File(bootingCartFile)
+          if file.exists() then
+            attachCart(Some(file))
+          else
+            println(s"Booting cart $file does not exist")
+        }
+      else
+        showWelcome()
     }
   end run
 
@@ -442,6 +498,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     buildToolsMenu(toolsMenu)
     buildDebugMenu(debugMenu)
     buildCartMenu(cartMenu)
+    buildHelpMenu(helpMenu)
   end buildMenuBar
 
   private def buildFileMenu(fileMenu:JMenu): Unit =
@@ -453,6 +510,18 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     fileMenu.add(resetItem)
     resetItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_R,java.awt.event.InputEvent.ALT_DOWN_MASK))
     resetItem.addActionListener(_ => reset(hard = true,fromRestoredState = false))
+
+    autosaveCB.setSelected(megaDrive.pref.get[Boolean](Preferences.AUTOSAVE_PREF).exists(_.value))
+    autosaveCB.addActionListener(_ => megaDrive.pref.update[Boolean](Preferences.AUTOSAVE_PREF, autosaveCB.isSelected))
+    fileMenu.add(autosaveCB)
+    val savePrefItem = new JMenuItem("Save preferences")
+    fileMenu.add(savePrefItem)
+    savePrefItem.addActionListener(_ => savePreferences() )
+    val exitItem = new JMenuItem("Exit")
+    exitItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_X,java.awt.event.InputEvent.ALT_DOWN_MASK))
+    exitItem.addActionListener(_ => shutdown() )
+    fileMenu.add(exitItem)
+
   private def buildStateMenu(stateMenu:JMenu): Unit =
     saveStateItem.setEnabled(false)
     stateMenu.add(saveStateItem)
@@ -491,25 +560,53 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     toolsMenu.add(regionMenu)
     val group = new ButtonGroup
     val autoRegionItem = new JRadioButtonMenuItem("Auto detected")
-    autoRegionItem.addActionListener(_ => pendingRegion = Region.AUTO)
+    autoRegionItem.addActionListener(_ => {
+      pendingRegion = Region.AUTO
+      megaDrive.pref.update(Preferences.REGION_PREF,"AUTO")
+    })
     autoRegionItem.setSelected(region == Region.AUTO)
     regionMenu.add(autoRegionItem)
     group.add(autoRegionItem)
     val usaRegionItem = new JRadioButtonMenuItem("USA")
-    usaRegionItem.addActionListener(_ => pendingRegion = Region.USA)
+    usaRegionItem.addActionListener(_ => {
+      pendingRegion = Region.USA
+      megaDrive.pref.update(Preferences.REGION_PREF,"USA")
+    })
     usaRegionItem.setSelected(region == Region.USA)
     regionMenu.add(usaRegionItem)
     group.add(usaRegionItem)
     val europeRegionItem = new JRadioButtonMenuItem("EUROPE")
-    europeRegionItem.addActionListener(_ => pendingRegion = Region.Europe)
+    europeRegionItem.addActionListener(_ => {
+      pendingRegion = Region.Europe
+      megaDrive.pref.update(Preferences.REGION_PREF,"EUROPE")
+    })
     europeRegionItem.setSelected(region == Region.Europe)
     regionMenu.add(europeRegionItem)
     group.add(europeRegionItem)
     val japanRegionItem = new JRadioButtonMenuItem("JAPAN")
-    japanRegionItem.addActionListener(_ => pendingRegion = Region.Japan)
+    japanRegionItem.addActionListener(_ => {
+      pendingRegion = Region.Japan
+      megaDrive.pref.update(Preferences.REGION_PREF,"JAPAN")
+    })
     japanRegionItem.setSelected(region == Region.Japan)
     regionMenu.add(japanRegionItem)
     group.add(japanRegionItem)
+
+    megaDrive.pref.add(Preferences.REGION_PREF, "set region", "AUTO", Set("USA", "EUROPE", "JAPAN", "AUTO")) { reg =>
+      pendingRegion = reg match
+        case "USA" =>
+          usaRegionItem.setSelected(true)
+          Region.USA
+        case "EUROPE" =>
+          europeRegionItem.setSelected(true)
+          Region.Europe
+        case "JAPAN" =>
+          japanRegionItem.setSelected(true)
+          Region.Japan
+        case _ =>
+          autoRegionItem.setSelected(true)
+          Region.AUTO
+    }
 
     toolsMenu.add(pauseCB)
     pauseCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_P, java.awt.event.InputEvent.ALT_DOWN_MASK))
@@ -575,6 +672,11 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     toolsMenu.add(zoom4CB)
     zoom4CB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_4, java.awt.event.InputEvent.ALT_DOWN_MASK))
     zoom4CB.addActionListener(_ => zoom(if zoom4CB.isSelected then 4 else 2))
+
+    val snapshotItem = new JMenuItem("Take a picture...")
+    snapshotItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_I,java.awt.event.InputEvent.ALT_DOWN_MASK))
+    snapshotItem.addActionListener(_ => takeSnapshot() )
+    toolsMenu.add(snapshotItem)
   end buildToolsMenu
 
   private def buildCartMenu(cartMenu:JMenu): Unit =
@@ -582,9 +684,29 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     cartMenu.add(cartInfoItem)
     cartInfoItem.addActionListener(_ => showCartInfo())
 
+  private def buildHelpMenu(helpMenu:JMenu): Unit =
+    val aboutItem = new JMenuItem("About ...")
+    helpMenu.add(aboutItem)
+    aboutItem.addActionListener(_ => AboutPanel.showAboutDialog(frame))
+    val prefItem = new JMenuItem("Command options")
+    helpMenu.add(prefItem)
+    prefItem.addActionListener(_ => {
+      val settingsPanel = new SettingsPanel(megaDrive.pref)
+      JOptionPane.showMessageDialog(frame, settingsPanel, "Command options", JOptionPane.INFORMATION_MESSAGE, new ImageIcon(getClass.getResource("/resources/controller.png")))
+    })
+
   private def handleDND(file:File) : Unit = attachCart(Some(file))
 
   // =======================================================================
+  private def takeSnapshot(): Unit =
+    val fc = new JFileChooser("Choose where to save the snapshot")
+    fc.showSaveDialog(frame) match {
+      case JFileChooser.APPROVE_OPTION =>
+        val file = if (fc.getSelectedFile.getName.toUpperCase.endsWith(".PNG")) fc.getSelectedFile else new File(fc.getSelectedFile.toString + ".png")
+        megaDrive.display.saveSnapshot(file)
+      case _ =>
+    }
+
   private def zoom(factor:Int): Unit =
     megaDrive.display.setPreferredSize(megaDrive.model.videoType.getClipArea(h40 = true).getPreferredSize(factor))
     megaDrive.display.invalidate()
@@ -709,6 +831,12 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
             c.reset()
             megaDrive.mmu.patch(c)
         case _ =>
+
+    if startInTraceMode then
+      startInTraceMode = false
+      debugger.showDebugger(true)
+      debugger.enableTracing(true)
+      swing { debuggerCB.setSelected(true) }
 
     reset(hard = true,fromRestoredState)
 
