@@ -1,6 +1,7 @@
 *.class
 *.log
 target
+dist
 .bsp
 .idea
 /src/ucesoft/smd/Version.scala
