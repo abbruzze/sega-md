@@ -37,6 +37,7 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
           g.drawImage(logoImage,xoff + 10,yoff + 10,size.width - xoff - 20,size.height - yoff - 20,null)
         else
           g.drawImage(logoImage,xoff + ((size.width - xoff) - width) / 2,yoff + ((size.height - yoff) - height) / 2,width,height,null)
+
       super.paintComponent(g)
 
   changeFrame(frame)
@@ -76,6 +77,9 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
   override def addMessage(msg:Message): Unit =
     if level.accept(msg.messageLevel) then
       queue.offer(msg)
+      
+  def getReady(): Unit =
+    panelReadyWait.await()
 
   private def initPane(): Unit =
     val insets = frame.getContentPane.getBounds
@@ -110,9 +114,9 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
 
       var y = msg.ypos match
         case YPOS.TOP =>
-          0
+          yoff
         case YPOS.BOTTOM =>
-          fsize.height - fm.getHeight - yoff - fm.getDescent
+          fsize.height - fm.getHeight - fm.getDescent
         case YPOS.CENTER =>
           (fsize.height - fm.getHeight) / 2
       y += msg.yoffset * fm.getHeight
@@ -125,7 +129,7 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
           (fsize.width - fm.stringWidth(msg.text)) / 2
 
       val msgSize = label.getPreferredSize
-      label.setBounds(xoff + x,yoff + y,msgSize.width,msgSize.height)
+      label.setBounds(xoff + x,y - yoff,msgSize.width,msgSize.height)
       glassPane.repaint()
 
       if startTimer then

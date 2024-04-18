@@ -135,7 +135,8 @@ abstract class AudioDevice(_sampleRate:Int,val name:String) extends SMDComponent
           f.setAccessible(true)
           f.set(sourceLine,1)
       catch
-        case _:Exception =>
+        case e:Exception =>
+          println(s"Cannot initialize audio: $e")
 
       sourceLine.open(format)
 

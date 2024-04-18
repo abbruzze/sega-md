@@ -13,6 +13,8 @@ object Preferences {
   val CHEAT_CODES = "cheat-code-list"
   val REGION_PREF = "region"
   val TRACE_PREF = "trace-on-start"
+  val ZOOM_PREF = "zoom"
+  val RENDERING_PREF = "rendering"
   
   class PreferenceIllegalArgumentException(msg:String) extends Exception(msg)
 

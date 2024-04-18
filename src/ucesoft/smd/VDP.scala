@@ -14,6 +14,12 @@ import scala.collection.mutable.ListBuffer
 object VDP:
   final val SCREEN_WIDTH : Int = HMode.H40.totalWidth
 
+  enum RenderingType(val hints:AnyRef):
+    case AUTO extends RenderingType(null)
+    case NEAREST_NEIGHBOR extends RenderingType(RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
+    case BICUBIC extends RenderingType(RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+    case BILINEAR extends RenderingType(RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+
   case class VDPFifoSlot(code:Int,address:Int,data:Int,halfWritten:Boolean)
   case class VDPFifoDump(head:Int,tail:Int,slots:Array[VDPFifoSlot])
 
@@ -839,6 +845,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var m68KBUSRequested = false
 
   private var drawSpriteBoundariesEnabled = false
+
+  private var renderingType : RenderingType = RenderingType.AUTO
+  // =================================================================================
+
+  def setRenderingType(rtype:RenderingType): Unit =
+    renderingType = rtype
+    updateRenderingType()
   
   def getVDPFifoDump: VDPFifoDump =
     fifo.dump()
@@ -882,6 +895,17 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     if videoPixels != null then
       java.util.Arrays.fill(videoPixels,0xFF000000)
+
+  private def updateRenderingType(): Unit =
+    if REG_H32 then
+      if renderingType == RenderingType.AUTO then
+        display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+      else
+        display.setRenderingHints(renderingType.hints)
+    else if renderingType == RenderingType.AUTO then
+      display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
+    else
+      display.setRenderingHints(renderingType.hints)
 
   private def initVRAM(): Unit =
     val VRAM_PATTERN = Array(0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00)
@@ -1209,8 +1233,6 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         if ((regs(1) ^ oldValue) & 0x20) != 0 then // IE0 changed
           if REG_IE0 && vInterruptPending then
             generateVInterrupt()
-        if !REG_M5 then
-          println("SMS mode not supported.") // TODO
         if ((regs(1) ^ oldValue) & 0x8) != 0 then
           println(s"V30=$REG_M2")
       case 12 => // REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|
@@ -1232,11 +1254,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
               videoPixels = display.displayMem
               interlaceModeEnabled = false
               sendMessage("Interlace mode off")
+        updateRenderingType()
         val mode = if h32 then HMode.H32 else HMode.H40
-        if h32 then
-          display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_BICUBIC)
-        else
-          display.setRenderingHints(RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
         if hmode != mode then
           hmode = mode
           changeVDPClockDivider(hmode.initialClockDiv)

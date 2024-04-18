@@ -321,6 +321,9 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         for c <- cheats.split(",") do
           Cheat.decode(c).foreach(cheatList += _)
     }
+    pref.add(ZOOM_PREF, "set video display factor", 2, Set(2,4)) { zoomFactor =>
+      zoom(zoomFactor)
+    }
     // ==================================================================================
     // Check Help
     if megaDrive.pref.checkForHelp(args) then
@@ -341,38 +344,36 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
 
     log.setLevel(java.util.logging.Level.WARNING)
 
-    swing {
-      // setting old coordinates
-      val xy = megaDrive.conf.getProperty(Preferences.XY_PREF)
-      if xy == null then
-        frame.setLocationByPlatform(true)
-      else
-        try
-          val Array(x, y) = xy.split(",").map(_.toInt)
-          frame.setLocation(x, y)
-        catch
-          case _: Throwable =>
-            frame.setLocationByPlatform(true)
+    // setting old coordinates
+    val xy = megaDrive.conf.getProperty(Preferences.XY_PREF)
+    if xy == null then
+      frame.setLocationByPlatform(true)
+    else
+      try
+        val Array(x, y) = xy.split(",").map(_.toInt)
+        frame.setLocation(x, y)
+      catch
+        case _: Throwable =>
+          frame.setLocationByPlatform(true)
 
-      frame.setVisible(true)
-      glassPane = new MessageGlassPane(frame)
-      glassPane.setLevel(ADMIN)
-      debugger.setMessageBoard(glassPane)
-      if bootingCartFile.nonEmpty then
-        par {
-          val file = new File(bootingCartFile)
-          if file.exists() then
-            attachCart(Some(file))
-          else
-            println(s"Booting cart $file does not exist")
-        }
-      else
-        showWelcome()
-    }
+    glassPane = new MessageGlassPane(frame)
+    frame.setVisible(true)
+    glassPane.setLevel(ADMIN)
+    debugger.setMessageBoard(glassPane)
+    if bootingCartFile.nonEmpty then
+      par {
+        val file = new File(bootingCartFile)
+        if file.exists() then
+          attachCart(Some(file))
+        else
+          println(s"Booting cart $file does not exist")
+      }
+    else
+      showWelcome()
   end run
 
   private def showWelcome(): Unit =
-    // TODO
+    glassPane.getReady()
     glassPane.addMessage(MessageBoard.builder.message("Welcome").adminLevel().bold().xcenter().ycenter().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
 
   private def checkEventRecordingOrPlayback(): Unit =
@@ -608,6 +609,43 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
           Region.AUTO
     }
 
+    val renderingItem = new JMenu("Rendering")
+    val group2 = new ButtonGroup
+    val autoRenderingItem = new JRadioButtonMenuItem("Auto")
+    autoRenderingItem.setSelected(true)
+    renderingItem.add(autoRenderingItem)
+    group2.add(autoRenderingItem)
+    autoRenderingItem.addActionListener(_ => megaDrive.pref.update(Preferences.RENDERING_PREF,"AUTO"))
+    val nearestRenderingItem = new JRadioButtonMenuItem("Nearest Neighbor")
+    renderingItem.add(nearestRenderingItem)
+    group2.add(nearestRenderingItem)
+    nearestRenderingItem.addActionListener(_ => megaDrive.pref.update(Preferences.RENDERING_PREF,"NEAREST"))
+    val bicubicRenderingItem = new JRadioButtonMenuItem("Bicubic")
+    renderingItem.add(bicubicRenderingItem)
+    group2.add(bicubicRenderingItem)
+    bicubicRenderingItem.addActionListener(_ => megaDrive.pref.update(Preferences.RENDERING_PREF,"BICUBIC"))
+    val bilinearRenderingItem = new JRadioButtonMenuItem("Bilinear")
+    renderingItem.add(bilinearRenderingItem)
+    group2.add(bilinearRenderingItem)
+    bilinearRenderingItem.addActionListener(_ => megaDrive.pref.update(Preferences.RENDERING_PREF,"BILINEAR"))
+    toolsMenu.add(renderingItem)
+
+    megaDrive.pref.add(Preferences.RENDERING_PREF, "set video rendering type", "AUTO", Set("AUTO","NEAREST","BICUBIC","BILINEAR")) {
+      case "AUTO" =>
+        autoRenderingItem.setSelected(true)
+        megaDrive.vdp.setRenderingType(VDP.RenderingType.AUTO)
+      case "NEAREST" =>
+        nearestRenderingItem.setSelected(true)
+        megaDrive.vdp.setRenderingType(VDP.RenderingType.NEAREST_NEIGHBOR)
+      case "BICUBIC" =>
+        bicubicRenderingItem.setSelected(true)
+        megaDrive.vdp.setRenderingType(VDP.RenderingType.BICUBIC)
+      case "BILINEAR" =>
+        bilinearRenderingItem.setSelected(true)
+        megaDrive.vdp.setRenderingType(VDP.RenderingType.BILINEAR)
+      case _ =>
+    }
+
     toolsMenu.add(pauseCB)
     pauseCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_P, java.awt.event.InputEvent.ALT_DOWN_MASK))
     pauseCB.addActionListener(_ => if pauseCB.isSelected then pause() else play())
@@ -708,6 +746,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     }
 
   private def zoom(factor:Int): Unit =
+    if factor == 4 then
+      zoom4CB.setSelected(true)
     megaDrive.display.setPreferredSize(megaDrive.model.videoType.getClipArea(h40 = true).getPreferredSize(factor))
     megaDrive.display.invalidate()
     frame.pack()
