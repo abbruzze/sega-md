@@ -495,7 +495,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       next = sb.r[Int]("next")
       address = sb.r[Int]("address")
 
-    final def y: Int = if interlaceModeEnabled then _y >> 1 else _y
+    final def y: Int = _y //if interlaceModeEnabled then _y >> 1 else _y
 
     final def w: Int = width
 
@@ -505,7 +505,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
     final def setCache(address: Int): Unit =
       this.address = address
-      _y = (VRAM(address) << 8 | VRAM(address + 1)) & 0x3FF
+      _y = if interlaceModeEnabled then
+        (VRAM(address) & 3) << 7 | VRAM(address + 1) >> 1
+      else
+        (VRAM(address) << 8 | VRAM(address + 1)) & 0x1FF
       val hsvs = VRAM(address + 2)
       width = (hsvs >> 2) & 3
       height = hsvs & 3
