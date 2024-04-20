@@ -5,6 +5,7 @@ import scala.collection.mutable
 
 object Preferences {
   // GENERAL ======================================================
+  val FILE_HISTORY_PREF = "file-history"
   val XY_PREF = "frame.xy"
   val AUTOSAVE_PREF = "autosave-pref"
   val PSG_AUDIO_BUFF_MILLIS = "psg-buffer-millis"
@@ -15,6 +16,9 @@ object Preferences {
   val TRACE_PREF = "trace-on-start"
   val ZOOM_PREF = "zoom"
   val RENDERING_PREF = "rendering"
+  val VERBOSE_MESSAGE_PREF = "verbose-message"
+  val TMSS_ENABLED_PREF = "tmss-enabled"
+  val FIXCHECKSUM_PREF = "fix-checksum"
   
   class PreferenceIllegalArgumentException(msg:String) extends Exception(msg)
 

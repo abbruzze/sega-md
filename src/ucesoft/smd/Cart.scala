@@ -182,6 +182,7 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
       if fixChecksum then
         rom(CHECKSUM_ADDR) = calculatedChecksum >> 8
         rom(CHECKSUM_ADDR + 1) = calculatedChecksum & 0xFF
+        checksumOK = true
         log.info(s"Checksum fixed to ${calculatedChecksum.toHexString}")
     if checkExtraMemory() then
       log.info("Found extra memory: %s [%X,%X]",extraMemory.memType,extraMemory.startAddress,extraMemory.endAddress)

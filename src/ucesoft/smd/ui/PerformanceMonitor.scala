@@ -32,6 +32,7 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
   private val m68kPerfDataset = new DynamicTimeSeriesCollection(1, 2000, new Second())
   private val z80PerfDataset = new DynamicTimeSeriesCollection(1, 2000, new Second())
   private val sysPerfDataset = new DynamicTimeSeriesCollection(1, 2000, new Second())
+  private val memDataset = new DynamicTimeSeriesCollection(1, 2000, new Second())
   private var lastM68kCycles = 0L
   private var lastZ80Cycles = 0L
   final val dialog = new JDialog(frame,"Performance monitor")
@@ -70,15 +71,18 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
     overallPerfDataset.setTimeBase(new Second(new java.util.Date()))
     overallPerfDataset.addSeries(Array(0f),0,"Overall performance")
     m68kPerfDataset.setTimeBase(new Second(new java.util.Date()))
-    m68kPerfDataset.addSeries(Array(0f), 0, "m68k million cycles/sec")
+    m68kPerfDataset.addSeries(Array(0f), 0, "M68k million cycles/sec")
     z80PerfDataset.setTimeBase(new Second(new java.util.Date()))
-    z80PerfDataset.addSeries(Array(0f), 0, "z80 million cycles/sec")
+    z80PerfDataset.addSeries(Array(0f), 0, "Z80 million cycles/sec")
     sysPerfDataset.setTimeBase(new Second(new java.util.Date()))
-    sysPerfDataset.addSeries(Array(0f), 0, "system load")
+    sysPerfDataset.addSeries(Array(0f), 0, "System load")
+    memDataset.setTimeBase(new Second(new java.util.Date()))
+    memDataset.addSeries(Array(0f), 0, "Memory Mb")
     emuPlot = addChart("Emulator","Performance",overallPerfDataset)
     addChart("M68000", "cycles/sec", m68kPerfDataset)
     addChart("Z80", "cycles/sec", z80PerfDataset)
     addChart("Host system load", "load", sysPerfDataset)
+    addChart("Used memory", "memory", memDataset)
     for i <- audioDeviceList.indices do
       val audioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
       audioPanel.setBorder(BorderFactory.createTitledBorder(audioDeviceList(i).name))
@@ -94,7 +98,7 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
       audioPanel.add(new JLabel(s"Perf:"))
       audioPanel.add(audioLabels(i))
     dialog.getContentPane.add("Center",this)
-    dialog.setSize(500,700)
+    dialog.setSize(500,800)
     timer.setRepeats(true)
     timer.start()
     audioTimer.setRepeats(true)
@@ -133,6 +137,8 @@ class PerformanceMonitor(frame:JFrame, m68k:M6800X0, z80:Z80, clock:Clock, audio
       sysPerfDataset.advanceTime()
       val load = ManagementFactory.getPlatformMXBean(classOf[com.sun.management.OperatingSystemMXBean]).getProcessCpuLoad * 100
       sysPerfDataset.appendData(Array(load.toFloat))
+      memDataset.appendData(Array((Runtime.getRuntime.totalMemory() - Runtime.getRuntime.freeMemory()) / (1024f * 1024f)))
+      memDataset.advanceTime()
 
       for i <- audioDeviceList.indices do
         val perf = audioDeviceList(i).getLastPerformance

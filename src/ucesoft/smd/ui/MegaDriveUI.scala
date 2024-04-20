@@ -6,12 +6,13 @@ import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.controller.*
 import ucesoft.smd.debugger.Debugger
 import ucesoft.smd.misc.{CartInfoPanel, EventPlayback, EventRecorder, FullScreenMode, GIFPanel, IconFlasher, Preferences, StateInfoPanel}
-import ucesoft.smd.ui.MessageBoard.MessageLevel.ADMIN
+import ucesoft.smd.ui.MessageBoard.MessageLevel.{ADMIN, NORMAL}
 import ucesoft.smd.*
 import ucesoft.smd.ModelType.{Domestic, Oversea}
 import ucesoft.smd.VideoType.{NTSC, PAL}
 import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.cheat.{Cheat, CheatManager}
+import ucesoft.smd.misc.Preferences.{FIXCHECKSUM_PREF, TMSS_ENABLED_PREF, VERBOSE_MESSAGE_PREF}
 
 import java.awt.event.{KeyAdapter, KeyEvent, WindowAdapter, WindowEvent}
 import java.io.*
@@ -77,6 +78,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
 
   private var extraRAMDirectory : File = uninitialized
 
+  private val fileHistory = new ListBuffer[String]
+
   private var tmssEnabled = false
   private var pendingRegion = Region.AUTO
   private var region = Region.AUTO
@@ -96,6 +99,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private var eventPlayback : EventPlayback = uninitialized
 
   // MenuItems
+  private val fileHistoryItem = new JMenu("File history")
   private val saveStateItem = new JMenuItem("Save state ...")
   private val cartMenu = new JMenu("Cart")
   private val debugMenu = new JMenu("Debug")
@@ -188,6 +192,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     val logger = Logger.setLogger(debugger.log)
     megaDrive.setLogger(logger)
 
+    glassPane = new MessageGlassPane(frame)
+
     audioPanel = new AudioVolumePanel(frame,Array(megaDrive.fmAudio,megaDrive.psgAudio),megaDrive.pref,() => audioPanelCB.setSelected(false))
     MessageBus.add(audioPanel)
 
@@ -268,6 +274,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     if savePref then
       conf = megaDrive.conf
     conf.setProperty(Preferences.XY_PREF, s"${pos.x},${pos.y}")
+    conf.setProperty(Preferences.FILE_HISTORY_PREF,fileHistory.mkString("#"))
 
     if savePref then
       megaDrive.pref.save(conf)
@@ -324,6 +331,10 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     pref.add(ZOOM_PREF, "set video display factor", 2, Set(2,4)) { zoomFactor =>
       zoom(zoomFactor)
     }
+    val fh = megaDrive.conf.getProperty(FILE_HISTORY_PREF)
+    if fh != null then
+      fh.split("#").foreach(fileHistory += _)
+      updateFileHistory()
     // ==================================================================================
     // Check Help
     if megaDrive.pref.checkForHelp(args) then
@@ -356,10 +367,12 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         case _: Throwable =>
           frame.setLocationByPlatform(true)
 
-    glassPane = new MessageGlassPane(frame)
+    glassPane.start()
     frame.setVisible(true)
-    glassPane.setLevel(ADMIN)
+    val msgLevel = if megaDrive.pref.get[Boolean](Preferences.VERBOSE_MESSAGE_PREF).get.value then NORMAL else ADMIN
+    glassPane.setLevel(msgLevel)
     debugger.setMessageBoard(glassPane)
+    megaDrive.vdp.setMessageListener(glassPane)
     if bootingCartFile.nonEmpty then
       par {
         val file = new File(bootingCartFile)
@@ -503,6 +516,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   end buildMenuBar
 
   private def buildFileMenu(fileMenu:JMenu): Unit =
+    fileMenu.add(fileHistoryItem)
     val loadCartItem = new JMenuItem("Load cart ...")
     fileMenu.add(loadCartItem)
     loadCartItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_L,java.awt.event.InputEvent.ALT_DOWN_MASK))
@@ -715,6 +729,30 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     snapshotItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_I,java.awt.event.InputEvent.ALT_DOWN_MASK))
     snapshotItem.addActionListener(_ => takeSnapshot() )
     toolsMenu.add(snapshotItem)
+
+    val messageItem = new JCheckBoxMenuItem("Verbose message system")
+    megaDrive.pref.add(VERBOSE_MESSAGE_PREF, "set the message system to verbose", false) { verbose =>
+      glassPane.setLevel(if verbose then NORMAL else ADMIN)
+      messageItem.setSelected(verbose)
+    }
+    messageItem.addActionListener(_ => megaDrive.pref.update(VERBOSE_MESSAGE_PREF,messageItem.isSelected))
+    toolsMenu.add(messageItem)
+
+    val tmssItem = new JCheckBoxMenuItem("TMSS enabled")
+    megaDrive.pref.add(TMSS_ENABLED_PREF, "enable TMSS BIOS", false) { tmss =>
+      enableTMSS(tmss)
+      tmssItem.setSelected(tmss)
+    }
+    tmssItem.addActionListener(_ => megaDrive.pref.update(TMSS_ENABLED_PREF,tmssItem.isSelected))
+    toolsMenu.add(tmssItem)
+
+    val fixchecksumItem = new JCheckBoxMenuItem("Fix cartridge checksum")
+    megaDrive.pref.add(FIXCHECKSUM_PREF, "fix cartridge checksum", false) { fix =>
+      megaDrive.setChecksumFixed(fix)
+      fixchecksumItem.setSelected(fix)
+    }
+    fixchecksumItem.addActionListener(_ => megaDrive.pref.update(FIXCHECKSUM_PREF,fixchecksumItem.isSelected))
+    toolsMenu.add(fixchecksumItem)
   end buildToolsMenu
 
   private def buildCartMenu(cartMenu:JMenu): Unit =
@@ -734,8 +772,29 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     })
 
   private def handleDND(file:File) : Unit = attachCart(Some(file))
-
   // =======================================================================
+  private def updateFileHistory(): Unit =
+    val lastSize = 10
+    if fileHistory.length > lastSize then
+      fileHistory.remove(0,fileHistory.length - lastSize)
+
+    fileHistoryItem.removeAll()
+    for f <- fileHistory.zipWithIndex do
+      val item = new JMenuItem(s"${f._2} ${f._1}")
+      item.addActionListener(_ => attachCart(Some(new File(f._1))))
+      fileHistoryItem.add(item)
+
+    val clearHistoryItem = new JMenuItem("Clear history")
+    clearHistoryItem.addActionListener(_ => {
+      fileHistory.clear()
+      updateFileHistory()
+    })
+    fileHistoryItem.add(clearHistoryItem)
+
+  private def enableTMSS(enabled:Boolean): Unit =
+    tmssEnabled = enabled
+    megaDrive.mmu.enableOSROM(enabled)
+
   private def takeSnapshot(): Unit =
     val fc = new JFileChooser("Choose where to save the snapshot")
     fc.showSaveDialog(frame) match {
@@ -833,6 +892,9 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         par {
           loadCart(f) match
             case Some(newCart) =>
+              if !fileHistory.contains(f.toString) then
+                fileHistory += f.toString
+                updateFileHistory()
               playCart(newCart,fromRestoredState = false)
             case None =>
               if cart != null then

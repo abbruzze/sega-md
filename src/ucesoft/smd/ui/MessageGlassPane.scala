@@ -39,9 +39,10 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
           g.drawImage(logoImage,xoff + ((size.width - xoff) - width) / 2,yoff + ((size.height - yoff) - height) / 2,width,height,null)
 
       super.paintComponent(g)
-
-  changeFrame(frame)
-  thread.start()
+      
+  def start(): Unit =
+    changeFrame(frame)
+    thread.start()
 
   def changeFrame(f:JFrame): Unit =
     frame = f
