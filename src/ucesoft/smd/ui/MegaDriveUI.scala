@@ -118,9 +118,14 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   // cheats
   private val cheatList = new ListBuffer[CheatCode]
 
+  // crc32 for recommended region
+  private val recommendedCRC32Region = Map(
+    "3826f26" -> (Oversea,VideoType.NTSC)          // Titan 1
+  )
+
   override def onMessage(msg: MessageBus.Message): Unit =
     msg match
-      case MessageBus.CartRemoved(_,cart) =>
+      case MessageBus.CartRemoved(_,cart) if cart != null =>
         cart.getExtraMemoryInfo match
           case Some(mf) =>
             saveCartExtraMemory(cart)
@@ -168,6 +173,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
           val mem = in.readAllBytes().map(_.toInt & 0xFF)
           in.close()
           System.arraycopy(mem,0,mf.extraRAM,0,mf.extraRAM.length)
+          glassPane.addMessage(MessageBoard.builder.message("Extra ram loaded").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
       case None =>
 
   def boot(): Unit =
@@ -246,15 +252,15 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private def swing(action : => Unit) : Unit = SwingUtilities.invokeLater(() => action)
   private def par(action : => Unit) : Unit = new Thread(() => action,"Par").start()
 
-  private def pause(): Unit =
+  private def pause(showMessagePause:Boolean = true): Unit =
     if !megaDrive.masterClock.isPaused then
       megaDrive.masterClock.pause()
       pauseCB.setSelected(true)
-      glassPane.addMessage(MessageBoard.builder.message("Paused").adminLevel().bold().xleft().ytop().delay().fadingMilliseconds(500).build())
+      if showMessagePause then
+        glassPane.addMessage(MessageBoard.builder.message("Paused").adminLevel().bold().xleft().ytop().delay().fadingMilliseconds(500).build())
 
   private def play(): Unit =
     if cart != null then
-      glassPane.interrupt()
       pauseCB.setSelected(false)
       megaDrive.masterClock.play()
 
@@ -330,6 +336,9 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     }
     pref.add(ZOOM_PREF, "set video display factor", 2, Set(2,4)) { zoomFactor =>
       zoom(zoomFactor)
+    }
+    pref.add(INIT_VRAM, "initialize VRAM with a pattern of bytes", false,canBeSaved = false) { initVRAM =>
+      megaDrive.vdp.setInitVRAM(initVRAM)
     }
     val fh = megaDrive.conf.getProperty(FILE_HISTORY_PREF)
     if fh != null then
@@ -442,8 +451,9 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   end checkEventRecordingOrPlayback
 
   private def reset(hard:Boolean,fromRestoredState:Boolean): Unit =
+    glassPane.interrupt()
     if !megaDrive.masterClock.isPaused then
-      pause()
+      pause(showMessagePause = false)
     try
       if pendingRegion != region || region == Region.AUTO then
         changeRegion()
@@ -464,13 +474,17 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     region = pendingRegion
     val newModel = region match
       case Region.AUTO =>
-        cart.getRegionList.headOption.getOrElse(Cart.Region.Americas) match
-          case Cart.Region.Americas =>
-            Model(Oversea,NTSC,if tmssEnabled then 1 else 0)
-          case Cart.Region.Japan =>
-            Model(Domestic, NTSC, if tmssEnabled then 1 else 0)
-          case Cart.Region.Europe =>
-            Model(Oversea, PAL, if tmssEnabled then 1 else 0)
+        recommendedCRC32Region.get(cart.getCRC32) match
+          case Some((modelType,region)) =>
+            Model(modelType,region,if tmssEnabled then 1 else 0)
+          case None =>
+            cart.getRegionList.headOption.getOrElse(Cart.Region.Americas) match
+              case Cart.Region.Americas =>
+                Model(Oversea,NTSC,if tmssEnabled then 1 else 0)
+              case Cart.Region.Japan =>
+                Model(Domestic, NTSC, if tmssEnabled then 1 else 0)
+              case Cart.Region.Europe =>
+                Model(Oversea, PAL, if tmssEnabled then 1 else 0)
       case Region.USA =>
         Model(Oversea, NTSC, if tmssEnabled then 1 else 0)
       case Region.Europe =>
@@ -487,7 +501,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     megaDrive.display.invalidate()
     frame.pack()
     MessageBus.send(MessageBus.ModelChanged(this, newModel))
-    glassPane.addMessage(MessageBoard.builder.message(s"Video changed to ${newModel.videoType}").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
+    glassPane.addMessage(MessageBoard.builder.message(s"${newModel.videoType} video mode").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
 
   private def buildMenuBar(): Unit =
     val menubar = new JMenuBar
@@ -879,7 +893,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     if cart != null then
       if !megaDrive.masterClock.isPaused then
         closeDebugger()
-        pause()
+        pause(showMessagePause = false)
 
     val fileToLoad = file match
       case None =>
@@ -943,6 +957,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     reset(hard = true,fromRestoredState)
 
   private def detachCart(): Unit =
+    MessageBus.send(MessageBus.CartRemoved(this,cart))
     cart = null
     saveStateItem.setEnabled(true)
     debugMenu.setEnabled(false)
@@ -1063,6 +1078,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         se.printStackTrace()
         JOptionPane.showMessageDialog(frame,s"State decoding error: ${se.getMessage} on path ${se.getComponentPath}","State error",JOptionPane.ERROR_MESSAGE)
       case t:Throwable =>
+        t.printStackTrace()
         JOptionPane.showMessageDialog(frame,s"Unexpected error while decoding state: $t","State error",JOptionPane.ERROR_MESSAGE)
     finally
       play()

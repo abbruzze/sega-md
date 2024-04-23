@@ -850,8 +850,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var drawSpriteBoundariesEnabled = false
 
   private var renderingType : RenderingType = RenderingType.AUTO
+  
+  private var initVRAMEnabled = false
   // =================================================================================
-
+  def setInitVRAM(enabled:Boolean): Unit =
+    initVRAMEnabled = enabled
   def setRenderingType(rtype:RenderingType): Unit =
     renderingType = rtype
     updateRenderingType()
@@ -887,7 +890,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   override def hardReset(): Unit =
     hmode = H32
-    initVRAM()
+    if initVRAMEnabled then
+      initVRAM()
     log.log(java.util.logging.Level.SEVERE) {
       for (r <- regs.indices) writeRegister(r, 0)
     }
