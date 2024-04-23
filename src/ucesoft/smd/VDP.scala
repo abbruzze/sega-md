@@ -1466,9 +1466,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     which signals that a DMA operation is complete.
     Note that this means that the DMA source registers need to be advanced for a DMA fill, even though it doesn't use them.
    */
-  private def dmaEpilogue(): Unit =
+  private def dmaEpilogue(forceDmaFinish:Boolean = false): Unit =
     updateDMASourceAddress()
-    val dmaFinished = updateDMACounterLen()
+    val dmaFinished = forceDmaFinish || updateDMACounterLen()
     if dmaFinished then
       //codeRegister &= 0x1F // clear CD5
       statusRegister &= ~STATUS_DMA_MASK
@@ -1496,8 +1496,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       REG_DMA_MODE match
         case VRAM_FILL =>
           if dmaFillWriteDone then
-            doDMAFill()
-            dmaEpilogue()
+            val forceDmaFinish = !doDMAFill()
+            dmaEpilogue(forceDmaFinish)
         case VRAM_COPY =>
           if doDMACopy() then
             dmaEpilogue()
@@ -1505,7 +1505,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           doDMAMemory()
           dmaEpilogue()
 
-  private def doDMAFill(): Unit =
+  private def doDMAFill(): Boolean =
+    var dmaFillValid = true
     getVRAMAccessMode match
       case VRAM_WRITE =>
         /*
@@ -1552,7 +1553,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case mode =>
         log.error("Unexpected doDMAFill memory target: %d",mode)
         // do nothing
-        updateTargetAddress()
+        dmaFillValid = false
+    dmaFillValid
+  end doDMAFill
 
   private def writeByteCRAM(_address:Int,value:Int): Unit =
     val address = _address & 0x7F
