@@ -130,7 +130,7 @@ abstract class PadController(override val index: Int, val clock: Clock) extends 
     performDataWrite(value)
     
   protected def checkType(config:Properties): Unit =
-    val ctype = config.getProperty(Controller.CONTROLLER_TYPE_PROP) match
+    val ctype = config.getProperty(Controller.formatProp(Controller.CONTROLLER_TYPE_PROP,index)) match
       case null =>
         ControllerType.PAD3Buttons
       case ctype =>

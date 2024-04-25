@@ -1,6 +1,7 @@
 package ucesoft.smd.controller
 
 import ucesoft.smd.Clock
+import ucesoft.smd.controller.KeyboardPADController.DEVICE_PROP_VALUE
 
 import java.awt.event.{KeyEvent, KeyListener}
 import java.util.Properties
@@ -63,7 +64,7 @@ class KeyboardPADController(component:java.awt.Component,config:Properties,overr
     checkType(config)
     val reverseDefaultMap = DEFAULT_KEYMAPS(index).map(kv => (kv._2,kv._1))
     buttonAndDirectionsPropNames.zipWithIndex.map(b => {
-      val property = Controller.formatProp(b._1, index)
+      val property = Controller.formatProp(b._1, index,DEVICE_PROP_VALUE)
       val key = config.getProperty(property)
       if key == null then 
         val kv = (reverseDefaultMap(b._2),b._2)

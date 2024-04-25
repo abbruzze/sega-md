@@ -26,6 +26,7 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,
   val dialog = new JDialog(frame,s"Controller $index configuration",true)
   private var waitingDialog : JDialog = uninitialized
   private val BUTTONS = if keyboardMode then 11 else 7
+  private val device = if realPadControllerName.isDefined then RealPadController.DEVICE_PROP_VALUE else KeyboardPADController.DEVICE_PROP_VALUE
 
   init()
   
@@ -37,7 +38,7 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,
     val deviceProp = realPadControllerName match
       case Some(_) => RealPadController.DEVICE_PROP_VALUE
       case None => KeyboardPADController.DEVICE_PROP_VALUE
-    workingConfig.setProperty(Controller.formatProp(Controller.CONTROLLER_DEVICE_PROP,index),deviceProp)
+    workingConfig.setProperty(Controller.formatProp(Controller.CONTROLLER_DEVICE_PROP,index,device),deviceProp)
       
     setLayout(new BorderLayout())
     val devicePanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
@@ -54,7 +55,7 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,
         button.setEnabled(false)
       keysPanel.add(button)
       button.addActionListener(_ => configureButton(r))
-      var value = workingConfig.getProperty(Controller.formatProp(buttonAndDirectionsPropNames(r),index))
+      var value = workingConfig.getProperty(Controller.formatProp(buttonAndDirectionsPropNames(r),index,device))
       if value == null then
         value = "EMPTY"
       else if realPadControllerName.isEmpty then
@@ -115,7 +116,7 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,
             waitingDialog.dispose()
             keyLabels(b).setText(button)
             keyLabels(b).setForeground(Color.WHITE)
-            workingConfig.setProperty(Controller.formatProp(buttonAndDirectionsPropNames(b), index), button)
+            workingConfig.setProperty(Controller.formatProp(buttonAndDirectionsPropNames(b), index,device), button)
           })
           buttonTask.start()
         case None =>
@@ -129,7 +130,7 @@ class PadControllerButtonsSelectionPanel(frame:JDialog,
         val keyName = s"${e.getExtendedKeyCode}"
         keyLabels(b).setText(KeyEvent.getKeyText(e.getExtendedKeyCode))
         keyLabels(b).setForeground(Color.WHITE)
-        workingConfig.setProperty(Controller.formatProp(buttonAndDirectionsPropNames(b),index),keyName)
+        workingConfig.setProperty(Controller.formatProp(buttonAndDirectionsPropNames(b),index,device),keyName)
     )
     waitingDialog.setLocationRelativeTo(dialog)
     waitingDialog.setVisible(true)

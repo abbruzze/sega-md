@@ -15,14 +15,16 @@ enum ControllerDevice:
   case KeyboardPad, RealPad, Mouse, Empty
 
 object Controller:
-  inline val CONTROLLER_PROP = "controller.%d."
-  inline val CONTROLLER_TYPE_PROP = CONTROLLER_PROP + "type"
-  inline val CONTROLLER_DEVICE_PROP = CONTROLLER_PROP + "device"
+  inline val CONTROLLER_ROOT_PROP = "controller.%d."
+  inline val CONTROLLER_PROP = CONTROLLER_ROOT_PROP + "%s." // index, device
+  inline val CONTROLLER_TYPE_PROP = CONTROLLER_ROOT_PROP + "type"
+  inline val CONTROLLER_DEVICE_PROP = CONTROLLER_ROOT_PROP + "device"
 
   trait ControllerChangeListener:
     def controllerChanged(index:Byte, controllerType: ControllerType, eventID:Short, value:Byte): Unit
 
   def formatProp(s: String, index: Int): String = s.format(index)
+  def formatProp(s: String, index: Int,device:String): String = s.format(index,device)
 
 abstract class Controller extends SMDComponent:
   val index : Int

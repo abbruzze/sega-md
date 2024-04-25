@@ -88,7 +88,7 @@ class RealPadController(config:Properties,pref:Preferences,override val index: I
     buttonsComponent.map(kv => (kv._1,kv._2.getName)).toMap
 
   private def findController(config:Properties): Unit =
-    val controllerName = config.getProperty(formatProp(CONTROLLER_NAME_PROP,index))
+    val controllerName = config.getProperty(formatProp(CONTROLLER_NAME_PROP,index,DEVICE_PROP_VALUE))
 
     val controllers = getControllers
 //    for c <- controllers do
@@ -100,7 +100,7 @@ class RealPadController(config:Properties,pref:Preferences,override val index: I
         xAxisComponent = c.getComponent(Component.Identifier.Axis.X)
         yAxisComponent = c.getComponent(Component.Identifier.Axis.Y)
         buttonsComponent = buttonsPropNames.zipWithIndex.map((b, i) =>
-          (i,c.getComponents.find(_.getName.trim == config.getProperty(formatProp(b,index), s"Button ${i + 1}").trim))
+          (i,c.getComponents.find(_.getName.trim == config.getProperty(formatProp(b,index,DEVICE_PROP_VALUE), s"Button ${i + 1}").trim))
         ).filter(_._2.isDefined).map((i,c) => (i,c.get)).toList
 
         if getControllerType == ControllerType.PAD3Buttons then
@@ -112,7 +112,7 @@ class RealPadController(config:Properties,pref:Preferences,override val index: I
 
   override def run(): Unit =
     val millis = pref.get[Int](Preferences.REAL_PAD_POLLING_MILLIS).map(_.value).getOrElse(10).toString
-    val polling = config.getProperty(formatProp(millis,index),"10").toInt
+    val polling = config.getProperty(formatProp(millis,index,DEVICE_PROP_VALUE),"10").toInt
     running = true
     log.info("USB controller %d thread started",index)
     val c = controller.get

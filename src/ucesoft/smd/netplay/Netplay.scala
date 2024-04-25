@@ -29,7 +29,7 @@ object Netplay:
   case object PING extends Command(PING_CMD)
   case object PONG extends Command(PONG_CMD)
   case class LATENCY(latency:Int) extends Command(LATENCY_CMD)
-  case class CONTROLLER(index:Int,bits:Short) extends Command(CONTROLLER_CMD)
+  case class CONTROLLER(index:Int,eventID:Short,value:Byte) extends Command(CONTROLLER_CMD)
   case object START_GAME extends Command(START_GAME_CMD)
 
   trait CommandListener:
@@ -39,7 +39,7 @@ object Netplay:
     def joinError(error:String): Unit
     def disconnected(userName:String): Unit
     def latency(lat:Int): Unit
-    def controller(userID:Int,index:Int,bits:Short): Unit
+    def controller(userID:Int,index:Int,eventID:Short,value:Byte): Unit
     def startGame(): Unit
 
   class CommandSender(out:DataOutputStream,commandListener: CommandListener) extends Thread(s"CommandSender(unknown)"):
@@ -84,14 +84,17 @@ object Netplay:
             case PING =>
               pingTS = System.currentTimeMillis()
               out.write(PING_CMD)
+            case PONG =>
+              out.write(PONG_CMD)
             case LATENCY(latency) =>
               out.writeShort(latency)
             case NETSTOP =>
               commandListener.disconnected(userName)
-            case CONTROLLER(index, bits) =>
+            case CONTROLLER(index,eventID, value) =>
               out.write(CONTROLLER_CMD)
               out.write(index)
-              out.writeShort(bits)
+              out.writeShort(eventID)
+              out.write(value)
             case START_GAME =>
               out.write(START_GAME_CMD)
             case c =>
@@ -101,7 +104,7 @@ object Netplay:
             running = false
             println(s"I/O error while sending command to $userName")
             io.printStackTrace()
-            // TODO
+            commandListener.ioError(io.getMessage)
       println(s"CommandSender($userName) stopped")
 
   class CommandReceiver(userID:Int,in:DataInputStream,commandSender: CommandSender, cmdListener: CommandListener) extends Thread(s"CommandReceiver(unknown)"):
@@ -139,7 +142,7 @@ object Netplay:
             case LATENCY_CMD =>
               cmdListener.latency(in.readShort())
             case CONTROLLER_CMD =>
-              cmdListener.controller(userID,in.read(),in.readShort())
+              cmdListener.controller(userID,in.read(),in.readShort(),in.readByte())
             case START_GAME_CMD =>
               cmdListener.startGame()
             case -1 =>
@@ -155,5 +158,5 @@ object Netplay:
             running = false
             println(s"I/O error while receiving command from $userName")
             io.printStackTrace()
-            // TODO
+            cmdListener.ioError(io.getMessage)
       println(s"CommandReceiver($userName) stopped")
