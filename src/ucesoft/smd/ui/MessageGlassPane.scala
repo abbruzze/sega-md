@@ -26,6 +26,8 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
   private val logoImage = new ImageIcon(getClass.getResource("/resources/sonic_ring.png")).getImage
   private var showLogo = false
   private var level = MessageLevel.ADMIN
+  private var interrupted = false
+  private val interruptedLock = new Object
   private val glassPane = new JPanel:
     setOpaque(false)
     override def paintComponent(g: Graphics): Unit =
@@ -70,7 +72,10 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
       
   override def interrupt(): Unit =
     queue.clear()
-    thread.interrupt()
+    interruptedLock.synchronized {
+      interrupted = true
+      interruptedLock.notify()
+    }
 
   override def setLevel(level: MessageLevel): Unit =
     this.level = level
@@ -135,10 +140,14 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
 
       if startTimer then
         try
-          if msg.millis == -1 then
-            Thread.sleep(Long.MaxValue)
+          val sleep = if msg.millis == -1 then
+            Int.MaxValue
           else
-            Thread.sleep(msg.millis)
+            msg.millis
+          interruptedLock.synchronized {
+            if !interrupted then
+              interruptedLock.wait(sleep)
+          }
         catch
           case _:InterruptedException =>
         val fadingMillis = msg.fadingMillis.getOrElse(0)
@@ -149,7 +158,10 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
           while c >= 0 do
             color = new Color(color.getRed, color.getGreen, color.getBlue, c)
             label.setForeground(color)
-            Thread.sleep(sleep)
+            interruptedLock.synchronized {
+              if !interrupted then
+                interruptedLock.wait(sleep)
+            }
             c -= 1
         panelReadyWait.countDown()
         msg = null
@@ -157,6 +169,9 @@ class MessageGlassPane(private var frame:JFrame) extends ComponentListener with 
           glassPane.removeAll()
           glassPane.repaint()
         })
+      interrupted = false
+  end renderMessage
+
   override def enableMessages(enabled:Boolean): Unit =
     this.enabled = enabled
     frame.getGlassPane.asInstanceOf[JPanel].setVisible(enabled)

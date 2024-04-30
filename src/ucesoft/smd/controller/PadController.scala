@@ -1,6 +1,6 @@
 package ucesoft.smd.controller
 
-import ucesoft.smd.Clock
+import ucesoft.smd.{Clock, StateBuilder}
 import ucesoft.smd.Clock.EventID
 
 import java.util.Properties
@@ -143,3 +143,13 @@ abstract class PadController(override val index: Int, val clock: Clock) extends 
     
   override def forceChange(eventID:Short, value:Byte): Unit =
     buttons(eventID) = value
+
+  // state
+  override protected def createState(sb: StateBuilder): Unit =
+    sb.w("control",control).
+      w("lastWrite",lastWrite).
+      w("counter6Button",counter6Button)
+  override protected def restoreState(sb: StateBuilder): Unit =
+    control = sb.r[Int]("control")
+    lastWrite = sb.r[Int]("lastWrite")
+    counter6Button = sb.r[Int]("counter6Button")

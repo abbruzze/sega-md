@@ -2,7 +2,7 @@ package ucesoft.smd
 
 import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.audio.{FM, PSG}
-import ucesoft.smd.controller.EmptyController
+import ucesoft.smd.controller.{ControllerDevice, ControllerType, EmptyController}
 import ucesoft.smd.cpu.m68k.M68000
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.misc.Preferences
@@ -26,7 +26,7 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   inline private val Z80_CLOCK_DIVIDER = 15
   inline private val FM_CLOCK_DIVIDER = M68_CLOCK_DIVIDER * 6
   inline private val DIV_68K = 7.0
-  inline private val DIV_Z80 = 15.0
+  inline private val DIV_Z80 = 14.0
 
   private var _model = Model(ModelType.Oversea,VideoType.NTSC,0)
   private var _display : Display = scala.compiletime.uninitialized
@@ -64,6 +64,8 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   private var m68WaitCycles = 0
   private var z80WaitCycles = 0
 
+  private var makeController: (Int,ControllerType,ControllerDevice) => Unit = scala.compiletime.uninitialized
+
   // CONSTRUCTOR ===============================================================
   configure()
   // ===========================================================================
@@ -98,6 +100,9 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
         if fr != null then
           fr.close()
   end configure
+
+  def setMakeController(mkController:(Int,ControllerType,ControllerDevice) => Unit): Unit =
+    makeController = mkController
 
   def saveConfiguration(conf:Properties): Unit =
     val out = new FileWriter(configurationFile)
@@ -279,6 +284,16 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
       w("version",model.versionNumber)
     sb.w("model",modelSB.build())
 
+    val controllersSB = new StateBuilder()
+    for c <- 0 to 1 do
+      val cSB = new StateBuilder()
+      val controller = mmu.getController(c)
+      val cs = controller.createComponentState()
+      cs.w("device",controller.device.toString)
+      cs.w("type",controller.getControllerType.toString)
+      controllersSB.w(c.toString, cs.build())
+    sb.w("controllers",controllersSB.build())
+
     val loopSB = new StateBuilder()
     loopSB.w("m68Div",m68Div).
       w("z80Div",z80Div).
@@ -297,6 +312,14 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     val videoType = VideoType.valueOf(modelSB.r[String]("videoType"))
     val modelType = ModelType.valueOf(modelSB.r[String]("modelType"))
     val version = modelSB.r[Int]("version")
+
+    val controllersSB = sb.getSubStateBuilder("controllers")
+    for c <- 0 to 1 do
+      val controller = controllersSB.getSubStateBuilder(c.toString)
+      val device = ControllerDevice.valueOf(controller.r[String]("device"))
+      val ctype = ControllerType.valueOf(controller.r[String]("type"))
+      makeController(c,ctype,device)
+      mmu.getController(c).restoreComponentState(controller)
 
     val stateModel = Model(modelType,videoType,version)
     val loopSB = sb.getSubStateBuilder("loop")

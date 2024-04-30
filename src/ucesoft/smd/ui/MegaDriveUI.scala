@@ -214,7 +214,27 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     frame.setTransferHandler(new DNDHandler(handleDND))
   end boot
 
+  protected def setControllerFromState(index:Int,controllerType: ControllerType,device:ControllerDevice): Unit =
+    val oldController = megaDrive.mmu.getController(index)
+    if oldController != null then
+      oldController.disconnect()
+    val controller = device match
+      case ControllerDevice.KeyboardPad =>
+        new KeyboardPADController(megaDrive.display, megaDrive.conf, index, megaDrive.masterClock)
+      case ControllerDevice.RealPad =>
+        new RealPadController(megaDrive.conf, megaDrive.pref, index, megaDrive.masterClock)
+      case ControllerDevice.Mouse =>
+        new MouseController(index, megaDrive.display)
+      case ControllerDevice.Empty =>
+        new EmptyController(index)
+
+    controller.setControllerType(controllerType)
+    megaDrive.mmu.setController(index,controller)
+
   protected def makeController(conf:Properties,pos: Int): Controller =
+    val oldController = megaDrive.mmu.getController(pos)
+    if oldController != null then
+      oldController.disconnect()
     val ctype = try
       ControllerType.valueOf(conf.getProperty(Controller.formatProp(Controller.CONTROLLER_TYPE_PROP, pos)))
     catch
@@ -236,7 +256,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         new EmptyController(pos)
       case unknown =>
         Logger.getLogger.warning("Cannot make controller %d from configuration file: unknown device %s", pos, unknown)
-        EmptyController(pos)
+        new EmptyController(pos)
 
     if ctype != ControllerType.Unknown then
       controller.setControllerType(ctype)
@@ -261,6 +281,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
 
   private def play(): Unit =
     if cart != null then
+      if megaDrive.masterClock.isPaused then
+        glassPane.interrupt()
       pauseCB.setSelected(false)
       megaDrive.masterClock.play()
 
@@ -317,7 +339,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private def configure(args:Array[String]): Unit =
     // check controllers
     megaDrive.mmu.setController(0,makeController(megaDrive.conf,0))
-    megaDrive.mmu.setController(1,new EmptyController(1))
+    megaDrive.mmu.setController(1,makeController(megaDrive.conf,1))
 
     // ==================================================================================
     val pref = megaDrive.pref
@@ -1068,6 +1090,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
               detachCart()
               if megaDrive.model != info.model then
                 applyNewModel(info.model)
+              megaDrive.setMakeController(setControllerFromState)
               megaDrive.restoreComponentState(state)
               glassPane.addMessage(MessageBoard.builder.message("State restored").adminLevel().bold().xleft().ybottom().delay(1000).fadingMilliseconds(500).build())
             case _ =>

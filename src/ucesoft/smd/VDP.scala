@@ -1241,7 +1241,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           if REG_IE0 && vInterruptPending then
             generateVInterrupt()
         if ((regs(1) ^ oldValue) & 0x8) != 0 then
-          println(s"V30=$REG_M2")
+          sendMessage(s"V30 ${if REG_M2 then "on" else "off"}")
       case 12 => // REG #12 |RS0 0 0 0 S/TE LSM1 LSM0 RS1|
         val h32 = REG_H32
         val imode = INTERLACE_MODE.fromOrdinal((value >> 1) & 3)
