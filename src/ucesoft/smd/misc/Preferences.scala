@@ -19,7 +19,9 @@ object Preferences {
   val VERBOSE_MESSAGE_PREF = "verbose-message"
   val TMSS_ENABLED_PREF = "tmss-enabled"
   val FIXCHECKSUM_PREF = "fix-checksum"
-  val INIT_VRAM = "init-vram"
+  val INIT_VRAM_PREF = "init-vram"
+  val EXTRA_RAM_DIR_PREF = "extra-ram-path"
+  val LOAD_SAVE_EXTRA_RAM_PREF = "load-save-extra-ram"
   
   class PreferenceIllegalArgumentException(msg:String) extends Exception(msg)
 

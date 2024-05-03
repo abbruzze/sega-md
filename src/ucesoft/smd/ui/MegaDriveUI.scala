@@ -12,7 +12,7 @@ import ucesoft.smd.ModelType.{Domestic, Oversea}
 import ucesoft.smd.VideoType.{NTSC, PAL}
 import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.cheat.{Cheat, CheatManager}
-import ucesoft.smd.misc.Preferences.{FIXCHECKSUM_PREF, TMSS_ENABLED_PREF, VERBOSE_MESSAGE_PREF}
+import ucesoft.smd.misc.Preferences.{FIXCHECKSUM_PREF, LOAD_SAVE_EXTRA_RAM_PREF, TMSS_ENABLED_PREF, VERBOSE_MESSAGE_PREF}
 
 import java.awt.event.{KeyAdapter, KeyEvent, WindowAdapter, WindowEvent}
 import java.io.*
@@ -142,39 +142,41 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       case _ =>
 
   private def saveCartExtraMemory(cart:Cart): Unit =
-    cart.getExtraMemoryInfo match
-      case Some(mf) =>
-        val mem = mf.extraRAM.map(_.toByte)
-        val dir = Option(extraRAMDirectory).getOrElse(new File(cart.file.originalFile).getParentFile)
-        var cartFile = new File(cart.file.originalFile).getName
-        val extPos = cartFile.lastIndexOf('.')
-        if extPos != -1 then
-          cartFile = cartFile.substring(0,extPos)
-        cartFile += ".ram"
-        val file = new File(dir,cartFile)
-        val out = new FileOutputStream(file)
-        out.write(mem)
-        out.close()
-        glassPane.addMessage(MessageBoard.builder.message("Extra ram saved").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
-      case None =>
+    if megaDrive.pref.get[Boolean](LOAD_SAVE_EXTRA_RAM_PREF).get.value then
+      cart.getExtraMemoryInfo match
+        case Some(mf) =>
+          val mem = mf.extraRAM.map(_.toByte)
+          val dir = Option(extraRAMDirectory).getOrElse(new File(cart.file.originalFile).getParentFile)
+          var cartFile = new File(cart.file.originalFile).getName
+          val extPos = cartFile.lastIndexOf('.')
+          if extPos != -1 then
+            cartFile = cartFile.substring(0,extPos)
+          cartFile += ".ram"
+          val file = new File(dir,cartFile)
+          val out = new FileOutputStream(file)
+          out.write(mem)
+          out.close()
+          glassPane.addMessage(MessageBoard.builder.message("Extra ram saved").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
+        case None =>
   private def loadCartExtraMemory(cart:Cart): Unit =
-    cart.getExtraMemoryInfo match
-      case Some(mf) =>
-        val dir = Option(extraRAMDirectory).getOrElse(new File(cart.file.originalFile).getParentFile)
-        var cartFile = new File(cart.file.originalFile).getName
-        val extPos = cartFile.lastIndexOf('.')
-        if extPos != -1 then
-          cartFile = cartFile.substring(0,extPos)
-        cartFile += ".ram"
-        val file = new File(dir,cartFile)
+    if megaDrive.pref.get[Boolean](LOAD_SAVE_EXTRA_RAM_PREF).get.value then
+      cart.getExtraMemoryInfo match
+        case Some(mf) =>
+          val dir = Option(extraRAMDirectory).getOrElse(new File(cart.file.originalFile).getParentFile)
+          var cartFile = new File(cart.file.originalFile).getName
+          val extPos = cartFile.lastIndexOf('.')
+          if extPos != -1 then
+            cartFile = cartFile.substring(0,extPos)
+          cartFile += ".ram"
+          val file = new File(dir,cartFile)
 
-        if file.exists() then
-          val in = new FileInputStream(file)
-          val mem = in.readAllBytes().map(_.toInt & 0xFF)
-          in.close()
-          System.arraycopy(mem,0,mf.extraRAM,0,mf.extraRAM.length)
-          glassPane.addMessage(MessageBoard.builder.message("Extra ram loaded").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
-      case None =>
+          if file.exists() then
+            val in = new FileInputStream(file)
+            val mem = in.readAllBytes().map(_.toInt & 0xFF)
+            in.close()
+            System.arraycopy(mem,0,mf.extraRAM,0,mf.extraRAM.length)
+            glassPane.addMessage(MessageBoard.builder.message("Extra ram loaded").adminLevel().bold().xleft().ybottom().delay(MESSAGE_STD_WAIT).fadingMilliseconds(500).build())
+        case None =>
 
   def boot(): Unit =
     megaDrive.masterClock.setErrorHandler(errorHandler)
@@ -359,9 +361,16 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     pref.add(ZOOM_PREF, "set video display factor", 2, Set(2,4)) { zoomFactor =>
       zoom(zoomFactor)
     }
-    pref.add(INIT_VRAM, "initialize VRAM with a pattern of bytes", false,canBeSaved = false) { initVRAM =>
+    pref.add(INIT_VRAM_PREF, "initialize VRAM with a pattern of bytes", false,canBeSaved = false) { initVRAM =>
       megaDrive.vdp.setInitVRAM(initVRAM)
     }
+    pref.add(EXTRA_RAM_DIR_PREF, "set where cartridge's extra ram will be saved", "") { extraRAMPath =>
+      if extraRAMPath.nonEmpty then
+        val path = new File(extraRAMPath)
+        if path.exists() && path.isDirectory then
+          extraRAMDirectory = path
+    }
+
     val fh = megaDrive.conf.getProperty(FILE_HISTORY_PREF)
     if fh != null then
       fh.split("#").foreach(fileHistory += _)
@@ -568,6 +577,14 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     val savePrefItem = new JMenuItem("Save preferences")
     fileMenu.add(savePrefItem)
     savePrefItem.addActionListener(_ => savePreferences() )
+
+    val loadSaveExtraRAMItem = new JCheckBoxMenuItem("Load/Save extra ram")
+    fileMenu.add(loadSaveExtraRAMItem)
+    loadSaveExtraRAMItem.addActionListener(_ =>  megaDrive.pref.update(LOAD_SAVE_EXTRA_RAM_PREF,loadSaveExtraRAMItem.isSelected))
+    megaDrive.pref.add(LOAD_SAVE_EXTRA_RAM_PREF, "enable/disable loading/saving of extra ram", false) { loadSaveExtraRAM =>
+      loadSaveExtraRAMItem.setSelected(loadSaveExtraRAM)
+    }
+
     val exitItem = new JMenuItem("Exit")
     exitItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_X,java.awt.event.InputEvent.ALT_DOWN_MASK))
     exitItem.addActionListener(_ => shutdown() )

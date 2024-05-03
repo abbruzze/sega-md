@@ -244,3 +244,4 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
     r("steps",steps)
     r("clocks",clocks)
     r("waits",waits)
+    setupNextMeasurement()
