@@ -134,6 +134,7 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
   private var regions : List[Region] = Nil
   private var devices : List[Device] = Nil
   private var crc32 = ""
+  private var crc32Int = 0L
   private var checksumOK = false
   private var serial = ""
 
@@ -187,17 +188,18 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
     if checkExtraMemory() then
       log.info("Found extra memory: %s [%X,%X]",extraMemory.memType,extraMemory.startAddress,extraMemory.endAddress)
 
+    val crc = new CRC32
+    for i <- rom.indices do
+      crc.update(rom(i))
+    crc32 = crc.getValue.toHexString
+    crc32Int = crc.getValue
+
     cartNameDomestic = getCartName(NAME_DOMESTIC_ADDR,domestic = true)
     cartNameOversea = getCartName(NAME_OVERSEA_ADDR)
     systemType = _getSystemType
     regions = getRegions
     devices = getDeviceSupport
     serial = getSerial
-    
-    val crc = new CRC32
-    for i <- rom.indices do
-      crc.update(rom(i))
-    crc32 = crc.getValue.toHexString
   end loadROM
 
   private def getSerial: String =
@@ -283,10 +285,6 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
     else
       new String(buffer, 0, buffer.length,jcharset)
     name.trim.split("""\s+""").mkString(" ")
-//    val sb = new StringBuilder()
-//    for c <- 0 until 48 do
-//      sb.append(rom(offset + c).toChar)
-//    sb.toString.trim.split("""\s+""").mkString(" ")
 
   private def _getSystemType: SYSTEM_TYPE =
     import SYSTEM_TYPE.*
@@ -294,7 +292,11 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
     for c <- SYSTEM_TYPE_ADDR until SYSTEM_TYPE_ADDR + 16 do
       sb.append(rom(c).toChar)
     sb.toString().trim match
-      case "SEGA MEGA DRIVE" | "SEGA GENESIS" => MEGA_DRIVE
+      case "SEGA MEGA DRIVE" | "SEGA GENESIS" =>
+        if crc32Int == 0x165defbf then // if Super Street Fighter ROM didn't have SSF2 system type set
+          MEGA_DRIVE_SSF_EXT
+        else
+          MEGA_DRIVE
       case "SEGA 32X" => MEGA_DRIVE_32X
       case "SEGA EVERDRIVE" => MEGA_DRIVE_EVERDRIVE_EXT
       case "SEGA SSF" => MEGA_DRIVE_SSF_EXT
