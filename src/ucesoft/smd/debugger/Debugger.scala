@@ -929,9 +929,18 @@ class Debugger(m68k:M68000,
     logSeverityPanel.add(logSeverityOffButton)
     logToolBar.add(logSeverityPanel)
     logSeverityOffButton.setSelected(true)
-    logSeverityInfoButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.INFO))
-    logSeverityWarningButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.WARNING))
-    logSeverityOffButton.addActionListener(_ => Logger.getLogger.setLevel(java.util.logging.Level.OFF))
+    logSeverityInfoButton.addActionListener(_ => {
+      Logger.getLogger.setLevel(java.util.logging.Level.INFO)
+      vdp.enableLogging(true)
+    })
+    logSeverityWarningButton.addActionListener(_ => {
+      Logger.getLogger.setLevel(java.util.logging.Level.WARNING)
+      vdp.enableLogging(true)
+    })
+    logSeverityOffButton.addActionListener(_ => {
+      Logger.getLogger.setLevel(java.util.logging.Level.OFF)
+      vdp.enableLogging(false)
+    })
     clearLog.addActionListener(_ => {
       logLines = 0
       logPanel.setText("")

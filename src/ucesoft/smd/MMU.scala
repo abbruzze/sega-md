@@ -768,7 +768,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     psg.write(value & 0xFF)
 
   inline private def readYM2612(address:Int,size:Size): Int =
-    log.info("Reading from YM2612: %X size=%s",address,size)
+    //log.info("Reading from YM2612: %X size=%s",address,size)
     fm.read(address)
 
   inline private def readZ80Memory(address: Int, size: Size): Int =

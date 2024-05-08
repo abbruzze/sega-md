@@ -216,7 +216,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
         // check overflow entry
         if writeOverflowFIFOEntry != null then
-          log.info("FIFO:dequeue Restoring overflow entry %s and assert DTACK",writeOverflowFIFOEntry)
+          if enableInfoLogging then log.info("FIFO:dequeue Restoring overflow entry %s and assert DTACK",writeOverflowFIFOEntry)
           enqueue(writeOverflowFIFOEntry)
           val dtackCond = writeOverflowFIFOEntry2 == null
           writeOverflowFIFOEntry = writeOverflowFIFOEntry2
@@ -513,7 +513,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       width = (hsvs >> 2) & 3
       height = hsvs & 3
       next = VRAM(address + 3) & 0x7F
-      log.info("SpriteCache %d cache updated: y=%d width=%d height=%d next=%d", index, _y, width, height, next)
+      if enableInfoLogging then log.info("SpriteCache %d cache updated: y=%d width=%d height=%d next=%d", index, _y, width, height, next)
 
     def dump(): VDPSpriteCacheDump =
       val priority = (VRAM(address + 4) & 0x80) != 0
@@ -852,7 +852,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var renderingType : RenderingType = RenderingType.AUTO
   
   private var initVRAMEnabled = false
+
+  private var enableInfoLogging = false
   // =================================================================================
+  def enableLogging(enabled:Boolean): Unit =
+    enableInfoLogging = enabled
   def setInitVRAM(enabled:Boolean): Unit =
     initVRAMEnabled = enabled
   def setRenderingType(rtype:RenderingType): Unit =
@@ -1029,7 +1033,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   final def writeDebugRegister(value:Int): Unit =
     debugRegister = value
-    log.info("Debug register write %X",value)
+    if enableInfoLogging then log.info("Debug register write %X",value)
     // debug register 7,8: 01 = sprites, 10 = A, 11 = B
     val debugDisplayDisabled = DEBUG_REG_DISABLE_DISPLAY
     val debugActivePlanes = DEBUG_REG_PLANES_ACTIVE
@@ -1038,7 +1042,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     writePendingFlag is cleared when the control port is read
    */
   final def readControlPort(): Int =
-    log.info("Reading status register: %X",statusRegister)
+    if enableInfoLogging then log.info("Reading status register: %X",statusRegister)
     writePendingFlag = false
     // check REG_DE according to results of VDPFIFOTesting rom
     if REG_DE then
@@ -1067,7 +1071,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     writePendingFlag = false
     val validWrite = getVRAMAccessMode match
       case acc@(VRAM_WRITE|CRAM_WRITE|VSRAM_WRITE) =>
-        log.info("writeDataPort(%d): address=%X = %X codeRegister=%d",acc,addressRegister,value,codeRegister)
+        if enableInfoLogging then log.info("writeDataPort(%d): address=%X = %X codeRegister=%d",acc,addressRegister,value,codeRegister)
         true
       case mode =>
         //log.warning("writeDataPort: writing data when access mode is not writing: %d",mode)
@@ -1081,7 +1085,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           writeOverflowFIFOEntry2 = entry
         else
           writeOverflowFIFOEntry = entry
-        log.info("writeDataPort: FIFO full, going to stop M68K...")
+        if enableInfoLogging then log.info("writeDataPort: FIFO full, going to stop M68K...")
         m68k.setDTACK(false)
 
       if isDMAInProgress && !dmaFillWriteDone && REG_DMA_MODE == DMA_MODE.VRAM_FILL then
@@ -1122,9 +1126,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     2 write |0 0 0 0 0 0 0 0|CD5 CD4 CD3 CD2 0 0 A15 A14|
    */
   final def writeControlPort(data:Int): Unit =
-    log.info("Control port write: %04X",data)
+    if enableInfoLogging then log.info("Control port write: %04X",data)
     if m68KBUSRequested then // can happen during a long word write, when the first word starts a DMA and the second one must wait
-      log.info("Control port write delayed for DMA in progress")
+      if enableInfoLogging then log.info("Control port write delayed for DMA in progress")
       controlPortWriteDataDelayed = data
     /*
      You cannot write to a VDP register if the pending flag is set to one,
@@ -1134,7 +1138,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       if !writePendingFlag then
         val register = (data >> 8) & 0x1F
         val value = data & 0xFF
-        log.info("Processing register write reg=%d value=%d", register, value)
+        if enableInfoLogging then log.info("Processing register write reg=%d value=%d", register, value)
         writeRegister(register, value)
     else if !writePendingFlag then
       writePendingFlag = true
@@ -1160,7 +1164,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         if dmaEventListener != null && REG_DMA_MODE != DMA_MODE.VRAM_FILL then
           notifyDMAEventListener()
       end if
-      log.info("Preparing VRAM access: codeRegister=%X code=%d dmaCode=%d address=%X", codeRegister, codeRegister & 0xF, codeRegister >> 6, addressRegister)
+      if enableInfoLogging then log.info("Preparing VRAM access: codeRegister=%X code=%d dmaCode=%d address=%X", codeRegister, codeRegister & 0xF, codeRegister >> 6, addressRegister)
 
       if !isVRAMWrite then // VRAM/CRAM/VSRAM read request
         //if isDMAInProgress then println("DMA in progress + READ")
@@ -1191,16 +1195,16 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         // The data is always read in word units. A0 is ignored during the read; no swap of bytes occurs if A0=1.
         // Subsequent reads are from address incremented by REGISTER #15. A0 is used in calculation of the next address.
         val value = VRAM(address & 0xFFFF) << 8 | VRAM((address + 1) & 0xFFFF)
-        log.info("VRAM read request: address=%X value=%X",address,value)
+        if enableInfoLogging then log.info("VRAM read request: address=%X value=%X",address,value)
         pendingReadValue = value
       case VRAM_8READ =>
         val value = VRAM((addressRegister ^ 1) & 0xFFFF)
         val fifoData = if fifo.length == 0 then 0 else fifo.peek.data
-        log.info("VRAM 8bit read request: address=%X value=%X", address, value)
+        if enableInfoLogging then log.info("VRAM 8bit read request: address=%X value=%X", address, value)
         pendingReadValue = fifoData & 0xFF00 | value & 0xFF
       case CRAM_READ =>
         val value = CRAM(address & 0x7F) << 8 | CRAM((address + 1) & 0x7F)
-        log.info("CRAM read request: address=%X value=%X",address,value)
+        if enableInfoLogging then log.info("CRAM read request: address=%X value=%X",address,value)
         val fifoData = if fifo.length == 0 then 0 else fifo.peek.data
         pendingReadValue = fifoData & 0xF111 | value & 0xEEE
       case VSRAM_READ =>
@@ -1208,7 +1212,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         val value = if address < 0x49 then
           VSRAM(address) << 8 | VSRAM(address + 1)
         else VSRAM(0) << 8 | VSRAM(0)
-        log.info("VSRAM read request: address=%X value=%X fifo size=%d",address,value,fifo.length)
+        if enableInfoLogging then log.info("VSRAM read request: address=%X value=%X fifo size=%d",address,value,fifo.length)
         val fifoData = if fifo.length == 0 then 0 else fifo.peek.data
         pendingReadValue = fifoData & 0xF800 | value & 0x7FF
       case _ =>
@@ -1219,7 +1223,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
    */
   private def writeRegister(reg:Int,value:Int): Unit =
     codeRegister = 0
-    log.info("Register %d write %X",reg,value)
+    if enableInfoLogging then log.info("Register %d write %X",reg,value)
     // check if it's a valid register write
     if reg >= regs.length || (!REG_M5 && reg > 10) then
       log.warning("Writing to an invalid register: %d m5=%s",reg,REG_M5)
@@ -1266,8 +1270,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         if hmode != mode then
           hmode = mode
           changeVDPClockDivider(hmode.initialClockDiv)
-          log.info("HMode set to %s", hmode)
-          println(s"HMode set to $hmode")
+          if enableInfoLogging then log.info("HMode set to %s", hmode)
           sendMessage(s"HMode set to $hmode")
 
           val clip = model.videoType.getClipArea(h40 = !h32)
@@ -1278,10 +1281,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           vdpAccessSlot = vdpAccessSlot % hmode.vramAccessMatrix.length
       case 17 => // REG #17 |RIGT 0 0 WHP5 WHP4 WHP3 WHP2 WHP1|
         vdpLayerMappingAddress(A).setWindowX(value)
-        log.info("Window width set to %X",value)
+        if enableInfoLogging then log.info("Window width set to %X",value)
       case 18 => // REG #18 |DOWN 0 0 WVP4 WVP3 WVP2 WVP1 WVP0|
         vdpLayerMappingAddress(A).setWindowY(value)
-        log.info("Window height set to %X",value)
+        if enableInfoLogging then log.info("Window height set to %X",value)
       case _ =>
 
   inline private def getVRAMAccessMode: Int = codeRegister & 0xF
@@ -1481,10 +1484,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         m68KBUSRequested = false
         busArbiter.vdpRelease68KBUS()
         if controlPortWriteDataDelayed != -1 then
-          log.info("Restoring control port write delayed: %04X", controlPortWriteDataDelayed)
+          if enableInfoLogging then log.info("Restoring control port write delayed: %04X", controlPortWriteDataDelayed)
           writeControlPort(controlPortWriteDataDelayed)
           controlPortWriteDataDelayed = -1
-      log.info("DMA %s finished",REG_DMA_MODE)
+      if enableInfoLogging then log.info("DMA %s finished",REG_DMA_MODE)
   end dmaEpilogue
 
   private def doExternalAccessSlot(): Unit =
@@ -1525,10 +1528,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         if !fifoEntry.vramFirstByteWritten then
           fifoEntry.vramFirstByteWritten = true
           updateVRAMByte(addressRegister,fifoEntry.data & 0xFF)
-          log.info("doDMAFill: first byte %X = %X",addressRegister,fifoEntry.data & 0xFF)
+          if enableInfoLogging then log.info("doDMAFill: first byte %X = %X",addressRegister,fifoEntry.data & 0xFF)
 
         updateVRAMByte(addressRegister ^ 1,(fifoEntry.data >> 8) & 0xFF)
-        log.info("doDMAFill: VRAM => %X = %X",addressRegister ^ 1,(fifoEntry.data >> 8) & 0xFF)
+        if enableInfoLogging then log.info("doDMAFill: VRAM => %X = %X",addressRegister ^ 1,(fifoEntry.data >> 8) & 0xFF)
         updateTargetAddress()
       /*
        When it comes to DMA fills to CRAM and VSRAM, there's a bug.
@@ -1545,14 +1548,14 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         val address = fifoEntry.address & 0x7E // ignore odd addresses
         writeByteCRAM(address,(fifoEntry.data >> 8) & 0xFF)
         writeByteCRAM(address + 1,fifoEntry.data & 0xFF)
-        log.info("doDMAFill: CRAM addressRegister=%X; %X = %X",addressRegister,address,fifoEntry.data)
+        if enableInfoLogging then log.info("doDMAFill: CRAM addressRegister=%X; %X = %X",addressRegister,address,fifoEntry.data)
         updateTargetAddress()
       case VSRAM_WRITE =>
         val fifoEntry = fifo.getLastPopped
         val address = fifoEntry.address & 0x7E // ignore odd addresses
         writeByteVSRAM(address, (fifoEntry.data >> 8) & 0xFF)
         writeByteVSRAM(address + 1, fifoEntry.data & 0xFF)
-        log.info("doDMAFill: VSRAM addressRegister=%X; %X = %X",addressRegister,address,fifoEntry.data)
+        if enableInfoLogging then log.info("doDMAFill: VSRAM addressRegister=%X; %X = %X",addressRegister,address,fifoEntry.data)
         updateTargetAddress()
       case mode =>
         log.error("Unexpected doDMAFill memory target: %d",mode)
@@ -1563,7 +1566,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   private def writeByteCRAM(_address:Int,value:Int): Unit =
     val address = _address & 0x7F
-    log.info("Write CRAM byte: %X = %X",address,value)
+    if enableInfoLogging then log.info("Write CRAM byte: %X = %X",address,value)
     CRAM(address) = value
 
     val cramColorPalette = address >> 5
@@ -1584,9 +1587,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     val address = _address & 0x7F
     if address < VSRAM.length then
       VSRAM(address) = value
-      log.info("Write VSRAM byte: %X = %X",address,value)
+      if enableInfoLogging then log.info("Write VSRAM byte: %X = %X",address,value)
     else
-      log.info("Writing VSRAM over its size: %X",address)
+      if enableInfoLogging then log.info("Writing VSRAM over its size: %X",address)
 
   /*
    At any rate, during the VDP update cycle, if CD5, DMD1, and DMD0 are all set, a DMA copy operation will advance one step,
@@ -1597,11 +1600,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     if readCopyCache == -1 then
       val address = REG_DMA_SOURCE_ADDRESS // TODO check why ^ 1
       readCopyCache = VRAM(address)
-      log.info("doDMACopy: 1st phase readCopyCache read from %X = %X",address,readCopyCache)
+      if enableInfoLogging then log.info("doDMACopy: 1st phase readCopyCache read from %X = %X",address,readCopyCache)
       false
     else
       updateVRAMByte(addressRegister,readCopyCache) // TODO check why ^ 1
-      log.info("doDMACopy: 2nd phase readCopyCache write to %X = %X",addressRegister,readCopyCache)
+      if enableInfoLogging then log.info("doDMACopy: 2nd phase readCopyCache write to %X = %X",addressRegister,readCopyCache)
       readCopyCache = -1
       true
 
@@ -1624,20 +1627,20 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case VRAM_WRITE => // 2 phases
         if fifoEntry.vramFirstByteWritten then
           fifo.dequeue()
-          //log.info("doVRAMWriteWord: remaining fifo entries: %d",fifo.length)
+          if enableInfoLogging then log.info("doVRAMWriteWord: remaining fifo entries: %d",fifo.length)
           if REG_128K then
             updateVRAMByte(fifoEntry.address,fifoEntry.data & 0xFF)
           else if (fifoEntry.address & 1) == 1 then // swap low / high
             updateVRAMByte(address,fifoEntry.data & 0xFF)
             updateVRAMByte((address + 1) & 0xFFFF,(fifoEntry.data >> 8) & 0xFF)
-            //log.info("doVRAMWriteWord: 2nd byte; bytes swapped %X = %X",address,fifoEntry.data)
+            if enableInfoLogging then log.info("doVRAMWriteWord: 2nd byte; bytes swapped %X = %X",address,fifoEntry.data)
           else
             updateVRAMByte(address,(fifoEntry.data >> 8) & 0xFF)
             updateVRAMByte((address + 1) & 0xFFFF,fifoEntry.data & 0xFF)
-            //log.info("doVRAMWriteWord: 2nd byte; bytes %X = %X",address,fifoEntry.data)
+            if enableInfoLogging then log.info("doVRAMWriteWord: 2nd byte; bytes %X = %X",address,fifoEntry.data)
         else
           fifoEntry.vramFirstByteWritten = true
-          //log.info("doVRAMWriteWord: 1st byte")
+          if enableInfoLogging then log.info("doVRAMWriteWord: 1st byte")
       case CRAM_WRITE =>
         fifo.dequeue()
         if REG_128K then
@@ -2269,7 +2272,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     if vInterruptAsserted then
       intLevel |= VINT_LEVEL
 
-    log.info("VDP ack interrupt level %d: new level is %d",level,intLevel)
+    if enableInfoLogging then log.info("VDP ack interrupt level %d: new level is %d",level,intLevel)
     m68k.interrupt(intLevel)
 
   end intAcknowledged

@@ -190,11 +190,10 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     // display
     val display = new Display(SCREEN_WIDTH, megaDrive.model.videoType.totalLines, frame.getTitle, frame, megaDrive.masterClock)
     display.setFocusable(true)
+    display.setClipArea(megaDrive.model.videoType.getClipArea(h40 = false).getTuple)
     megaDrive.setDisplay(display)
-    display.setClipArea(megaDrive.model.videoType.getClipArea(h40 = false).getTuple)                // starts with H32
-    display.setPreferredSize(megaDrive.model.videoType.getClipArea(h40 = true).getPreferredSize(2)) // preferred size is relative to H40, double size
     frame.getContentPane.add("Center",display)
-    frame.pack()
+    zoom(2)
 
     debugger = new Debugger(megaDrive.m68k,megaDrive.mmu,megaDrive.mmu.get68KRAM,megaDrive.z80,megaDrive.mmu.getZ80RAM,megaDrive.vdp,() => debuggerCB.setSelected(false))
     val logger = Logger.setLogger(debugger.log)

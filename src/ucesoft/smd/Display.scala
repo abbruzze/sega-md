@@ -151,10 +151,9 @@ class Display(width: Int, height: Int, title: String, frame: JFrame, clk:Clock) 
   // light pen events
   def mouseDragged(e:MouseEvent) : Unit = { mouseMoved(e) }
   def mouseMoved(e:MouseEvent) : Unit = {
-    val mX = (e.getX / zoomFactorX).toInt
-    val mY = (e.getY / zoomFactorY).toInt
-    lpX =  mX + (if (clipArea != null) clipArea._1.x else 0)
-    lpY = mY + (if (clipArea != null) clipArea._1.y else 0)
+    lpX = (e.getX / zoomFactorX).toInt
+    lpY = (e.getY / zoomFactorY).toInt
+
     if (mouseZoomEnabled) {
       mouseZoomEndPoint.x = e.getX
       mouseZoomEndPoint.y = e.getY
@@ -172,6 +171,11 @@ class Display(width: Int, height: Int, title: String, frame: JFrame, clk:Clock) 
     setClipArea(clip._1,clip._2,clip._3,clip._4)
   def setClipArea(x1: Int, y1: Int, x2: Int, y2: Int) : Unit = {
     clipArea = (new Point(x1, y1), new Point(x2, y2))
+    recalcZoomFactors()
+  }
+  private def recalcZoomFactors(): Unit = {
+    zoomFactorX = dimension.width.toDouble / (if (clipArea != null) clipArea._2.x - clipArea._1.x else screen.getWidth(null))
+    zoomFactorY = dimension.height.toDouble / (if (clipArea != null) clipArea._2.y - clipArea._1.y else screen.getHeight(null))
   }
   def removeClipArea(): Option[(Point,Point)] = {
     val clip = clipArea
@@ -195,9 +199,8 @@ class Display(width: Int, height: Int, title: String, frame: JFrame, clk:Clock) 
       dimension.width = getWidth
       dimension.height = getHeight
       log.info("New screen dimension %d x %d",dimension.width,dimension.height)
-      zoomFactorX = dimension.width.toDouble / (if (clipArea != null) clipArea._2.x - clipArea._1.x else screen.getWidth(null))
-      zoomFactorY = dimension.height.toDouble / (if (clipArea != null) clipArea._2.y - clipArea._1.y else screen.getHeight(null))
-      //println(s"New screen dimension ${dimension.width} x ${dimension.height} width/height=${dimension.width.toDouble/dimension.height}")
+      recalcZoomFactors()
+      //println(s"New screen dimension ${dimension.width} x ${dimension.height} width/height=${dimension.width.toDouble/dimension.height} zoomFactorX=$zoomFactorX zoomFactorY=$zoomFactorY")
     }
     // interpolation
     g.asInstanceOf[Graphics2D].setRenderingHint(RenderingHints.KEY_INTERPOLATION,renderingHints)
