@@ -1,10 +1,10 @@
 package ucesoft.smd.ui
 
 import ucesoft.smd.MessageBus
+import ucesoft.smd.controller.{Controller, ControllerDevice, ControllerType, EmptyController, LightgunController, MouseController, RealPadController}
 import ucesoft.smd.controller.Controller.{CONTROLLER_DEVICE_PROP, CONTROLLER_TYPE_PROP, formatProp}
-import ucesoft.smd.controller.ControllerDevice.{Empty, KeyboardPad, Mouse, RealPad}
+import ucesoft.smd.controller.ControllerDevice.*
 import ucesoft.smd.controller.RealPadController.CONTROLLER_NAME_PROP
-import ucesoft.smd.controller.*
 
 import java.awt.{BorderLayout, GridLayout}
 import java.util.Properties
@@ -46,18 +46,21 @@ class ControllerConfigPanel(frame:JFrame,
         "Pad - real pad 6 buttons", // 3
         "Mouse", // 4
         "Mouse with start on CTRL", // 5
-        "Empty") // 6
+        "Lightgun Menacer",         // 6
+        "Empty") // 7
       )
 
       controller.device match
         case Empty =>
-          combos(tab).setSelectedIndex(6)
+          combos(tab).setSelectedIndex(7)
         case KeyboardPad =>
           combos(tab).setSelectedIndex(if controller.getControllerType == ControllerType.PAD3Buttons then 0 else 1)
         case Mouse =>
           combos(tab).setSelectedIndex(if controller.getControllerType == ControllerType.Mouse then 4 else 5)
         case RealPad =>
           combos(tab).setSelectedIndex(if controller.getControllerType == ControllerType.PAD3Buttons then 2 else 3)
+        case Lightgun =>
+          combos(tab).setSelectedIndex(6)
       dummyPanel.add(new JLabel("Device:"))
       dummyPanel.add(combos(tab))
       panel.add("Center",dummyPanel)
@@ -72,7 +75,7 @@ class ControllerConfigPanel(frame:JFrame,
         configure(tab,device,dtype)
       })
       combos(tab).addActionListener(_ => {
-        confButton.setEnabled(combos(tab).getSelectedIndex != 6)
+        confButton.setEnabled(combos(tab).getSelectedIndex != 7)
         applyButton.setEnabled(true)
       })
 
@@ -98,7 +101,8 @@ class ControllerConfigPanel(frame:JFrame,
       case 3 => (ControllerDevice.RealPad, ControllerType.PAD6Buttons)
       case 4 => (ControllerDevice.Mouse, ControllerType.Mouse)
       case 5 => (ControllerDevice.Mouse, ControllerType.MouseStartWithCTRLAndLeft)
-      case 6 => (ControllerDevice.Empty, ControllerType.Unknown)
+      case 6 => (ControllerDevice.Lightgun, ControllerType.Menacer)
+      case 7 => (ControllerDevice.Empty, ControllerType.Unknown)
   private def apply(): Unit =
     applyButton.setEnabled(false)
     import scala.jdk.CollectionConverters.*
@@ -147,6 +151,9 @@ class ControllerConfigPanel(frame:JFrame,
       case Mouse =>
         workingProps.setProperty(formatProp(CONTROLLER_DEVICE_PROP,index,MouseController.DEVICE_PROP_VALUE),MouseController.DEVICE_PROP_VALUE)
         JOptionPane.showMessageDialog(dialog,"Mouse controller configured","Mouse configuration",JOptionPane.INFORMATION_MESSAGE)
+      case Lightgun =>
+        workingProps.setProperty(formatProp(CONTROLLER_DEVICE_PROP,index,LightgunController.DEVICE_PROP_VALUE),LightgunController.DEVICE_PROP_VALUE)
+        JOptionPane.showMessageDialog(dialog,"Light gun controller configured","Light gun configuration",JOptionPane.INFORMATION_MESSAGE)
       case Empty =>
         workingProps.setProperty(formatProp(CONTROLLER_DEVICE_PROP, index,MouseController.DEVICE_PROP_VALUE), EmptyController.DEVICE_PROP_VALUE)
         JOptionPane.showMessageDialog(dialog, "Empty controller configured", "Empty controller configuration", JOptionPane.INFORMATION_MESSAGE)

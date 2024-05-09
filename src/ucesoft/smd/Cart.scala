@@ -328,6 +328,7 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
   def getRegionList: List[Region] = regions
   def getDeviceList: List[Device] = devices
   def getCRC32: String = crc32
+  def getCRC32Long : Long = crc32Int
   def isChecksumOK: Boolean = checksumOK
   def getSerialNumber: String = serial
 

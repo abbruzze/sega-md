@@ -9,10 +9,11 @@ enum ControllerType(val counterMask:Int):
   case PAD6Buttons extends ControllerType(7)
   case MouseStartWithCTRLAndLeft extends ControllerType(0)
   case Mouse extends ControllerType(0)
+  case Menacer extends ControllerType(0)
   case Unknown extends ControllerType(0)
   
 enum ControllerDevice:
-  case KeyboardPad, RealPad, Mouse, Empty
+  case KeyboardPad, RealPad, Mouse, Lightgun, Empty
 
 object Controller:
   inline val CONTROLLER_ROOT_PROP = "controller.%d."
@@ -63,6 +64,8 @@ abstract class Controller extends SMDComponent:
     control = value
 
   protected def performDataWrite(data:Int): Unit = {}
+  
+  def setGameCRC32(crc32:Long): Unit = {}
   
 object EmptyController:
   inline val DEVICE_PROP_VALUE = "empty"  

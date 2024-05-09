@@ -59,7 +59,9 @@ object VDP:
 
   trait VDPNewFrameListener:
     def onNewFrame(): Unit
-    
+
+  trait LightgunProvider:
+    def getHCounter(h40:Boolean,x:Int): Int
 end VDP
 
 
@@ -680,8 +682,9 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private inline val VRAM_8READ   = 12
 
   // INTERRUPT LEVELS
-  private inline val HINT_LEVEL = 4
-  private inline val VINT_LEVEL = 6
+  private inline val GUNINT_LEVEL   = 2
+  private inline val HINT_LEVEL     = 4
+  private inline val VINT_LEVEL     = 6
 
   private var statusRegister = STATUS_FIFO_EMPTY_MASK | STATUS_VB_MASK
 
@@ -793,6 +796,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var hcounter = 0          // internal 9 bit h-counter
   private var vcounter = 0          // internal 9 bit v-counter
   private var latchedHVCounter = 0  // latched value of hcounter + vcounter
+  private var forceToReadLatchedHVCounter = false
   private var hInterruptCounter = 0 // horizontal interrupt counter
 
   private val layerPixels = Array(0,0,0) // pixels from A, B and S
@@ -802,6 +806,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var hInterruptPending = false
   private var vInterruptAsserted = false
   private var hInterruptAsserted = false
+  private var gunInterruptAsserted = false
 
   private var display : Display = scala.compiletime.uninitialized
   private var videoPixels : Array[Int] = scala.compiletime.uninitialized
@@ -854,7 +859,13 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var initVRAMEnabled = false
 
   private var enableInfoLogging = false
+
+  private var lightgunEnabled = false
+  private var lightgunProvider : LightgunProvider = scala.compiletime.uninitialized
   // =================================================================================
+  def enableLightgun(enabled:Boolean,lightgunProvider : LightgunProvider): Unit =
+    lightgunEnabled = enabled
+    this.lightgunProvider = lightgunProvider
   def enableLogging(enabled:Boolean): Unit =
     enableInfoLogging = enabled
   def setInitVRAM(enabled:Boolean): Unit =
@@ -1111,7 +1122,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     readValue
 
   final def readHVCounter: Int =
-    if REG_M3 then
+    if REG_M3 || forceToReadLatchedHVCounter then
+      forceToReadLatchedHVCounter = false
       latchedHVCounter
     else
       val vcounter = if interlaceModeEnabled then (this.vcounter << 1 | (this.vcounter & 0x100) >> 8) & 0xFF else this.vcounter
@@ -1218,6 +1230,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case _ =>
         // was not a read
 
+  private def latchHVCounter(): Unit =
+    latchedHVCounter = (vcounter & 0xFF) << 8 | (hcounter >> 1) & 0xFF
   /*
    Writing to a VDP register will clear the code register.
    */
@@ -1236,7 +1250,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case 0 => // REG #0 |0 0 L IE1 0 1 M3 DE|
         if ((oldValue ^ regs(reg)) & 0x2) > 0 then // M3 changed
           if REG_M3 then
-            latchedHVCounter = (vcounter & 0xFF) << 8 | (hcounter >> 1) & 0xFF
+            latchHVCounter()
         if ((regs(0) ^ oldValue) & 0x10) != 0 then // IE1 changed
           if REG_IE1 && hInterruptPending then
             generateHInterrupt()
@@ -2115,6 +2129,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       end if
       // draw pixel
       setPixel(xpos, rasterLine, CRAM_COLORS(palette)(colorMode.ordinal)(color))
+      if lightgunEnabled then
+        val lightX = display.getLightPenX - hmode.leftBorderPixel
+        val lightY = math.max(0,display.getLightPenY - model.videoType.topBorderPixels)
+        if activeDisplayXPos == lightX && activeDisplayLine == lightY then
+          generateGunInterrupt(lightX)
     end if
     // epilogue
     xpos += 1
@@ -2157,6 +2176,14 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
     if !hInterruptAsserted then
       m68k.interrupt(HINT_LEVEL)
       hInterruptAsserted = true
+
+  private def generateGunInterrupt(x:Int): Unit =
+    if REG_IE2 then
+      m68k.interrupt(GUNINT_LEVEL)
+      gunInterruptAsserted = true
+    //if REG_M3 then
+    latchedHVCounter = (vcounter & 0xFF) << 8 | lightgunProvider.getHCounter(!REG_H32,x)
+    forceToReadLatchedHVCounter = true
   // =============================================================
 
   // returns true if vcounter must be incremented
@@ -2248,14 +2275,16 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   // interrupt ack from M68000
   override final def intAcknowledged(level:Int): Unit =
-    var ackLevel = 0
-    if hInterruptAsserted then
-      ackLevel |= HINT_LEVEL
-    if vInterruptAsserted then
-      ackLevel |= VINT_LEVEL
-    ackLevel |= level
+//    var ackLevel = 0
+//    if hInterruptAsserted then
+//      ackLevel |= HINT_LEVEL
+//    if vInterruptAsserted then
+//      ackLevel |= VINT_LEVEL
+//    if gunInterruptAsserted then
+//      ackLevel |= GUNINT_LEVEL
+//    ackLevel |= level
 
-    ackLevel match
+    level match
       case VINT_LEVEL =>
         vInterruptPending = false
         vInterruptAsserted = false
@@ -2263,6 +2292,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       case HINT_LEVEL =>
         hInterruptPending = false
         hInterruptAsserted = false
+      case GUNINT_LEVEL =>
+        gunInterruptAsserted = false
       case _ =>
         log.error("Unknown interrupt ack level: %d",level)
 
@@ -2271,6 +2302,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       intLevel |= HINT_LEVEL
     if vInterruptAsserted then
       intLevel |= VINT_LEVEL
+    if gunInterruptAsserted then
+      intLevel |= GUNINT_LEVEL
 
     if enableInfoLogging then log.info("VDP ack interrupt level %d: new level is %d",level,intLevel)
     m68k.interrupt(intLevel)

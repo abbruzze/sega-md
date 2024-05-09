@@ -255,6 +255,9 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       case EmptyController.DEVICE_PROP_VALUE =>
         Logger.getLogger.info("Controller %d set as empty",pos + 1)
         new EmptyController(pos)
+      case LightgunController.DEVICE_PROP_VALUE =>
+        Logger.getLogger.info("Controller %d set as lightgun",pos + 1)
+        new LightgunController(pos,megaDrive.vdp,megaDrive.display)
       case unknown =>
         Logger.getLogger.warning("Cannot make controller %d from configuration file: unknown device %s", pos, unknown)
         new EmptyController(pos)
@@ -266,8 +269,10 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
 
   private def checkControllers(): Unit =
     val mouseConfigured = megaDrive.mmu.getController(0).device == ControllerDevice.Mouse || megaDrive.mmu.getController(1).device == ControllerDevice.Mouse
-    mouseEnabledCB.setEnabled(mouseConfigured)
-    if !mouseConfigured then
+    val lighgunConfigured = megaDrive.mmu.getController(0).device == ControllerDevice.Lightgun || megaDrive.mmu.getController(1).device == ControllerDevice.Lightgun
+
+    mouseEnabledCB.setEnabled(mouseConfigured || lighgunConfigured)
+    if !mouseConfigured && !lighgunConfigured then
       MouseHider.hideMouseOn(megaDrive.display)
 
   private def swing(action : => Unit) : Unit = SwingUtilities.invokeLater(() => action)
@@ -341,6 +346,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     // check controllers
     megaDrive.mmu.setController(0,makeController(megaDrive.conf,0))
     megaDrive.mmu.setController(1,makeController(megaDrive.conf,1))
+//    val lg = new LightgunController(1,megaDrive.vdp,megaDrive.display)
+//    megaDrive.mmu.setController(1,lg)
 
     // ==================================================================================
     val pref = megaDrive.pref
@@ -869,6 +876,9 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         case ControllerDevice.Mouse =>
           MouseHider.showMouseOn(megaDrive.display)
           controller.asInstanceOf[MouseController].mouseEnabled(enabled)
+        case ControllerDevice.Lightgun =>
+          MouseHider.showMouseOn(megaDrive.display)
+          controller.asInstanceOf[LightgunController].mouseEnabled(enabled)
         case _ =>
 
     if !enabled then
@@ -991,6 +1001,11 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       debugger.showDebugger(true)
       debugger.enableTracing(true)
       swing { debuggerCB.setSelected(true) }
+
+    for i <- 0 to 2 do
+      megaDrive.mmu.getController(i).setGameCRC32(cart.getCRC32Long)
+
+    checkControllers()
 
     reset(hard = true,fromRestoredState)
 
