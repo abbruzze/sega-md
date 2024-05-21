@@ -66,7 +66,7 @@ class ControllerConfigPanel(frame:JFrame,
       panel.add("Center",dummyPanel)
       dummyPanel = new JPanel()
       val confButton = new JButton("Configure")
-      confButton.setEnabled(controller.device != Empty)
+      //confButton.setEnabled(controller.device != Empty)
       dummyPanel.add(confButton)
       panel.add("South",dummyPanel)
 
@@ -75,7 +75,7 @@ class ControllerConfigPanel(frame:JFrame,
         configure(tab,device,dtype)
       })
       combos(tab).addActionListener(_ => {
-        confButton.setEnabled(combos(tab).getSelectedIndex != 7)
+        //confButton.setEnabled(combos(tab).getSelectedIndex != 7)
         applyButton.setEnabled(true)
       })
 
