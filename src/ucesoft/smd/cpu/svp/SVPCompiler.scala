@@ -39,18 +39,6 @@ object SVPCompiler:
       for l <- comp.getLabels do
           println("%04X %s".format(l._2,l._1))
 
-    /*
-    val in = new FileInputStream("""C:\Users\ealeame\Documents\rust\svpdev\tools\ssp16asm\target\debug\svp.bin""")
-    in.skip(0x1F800)
-    for i <- 0 until 0x400 do
-      val w = in.read() << 8 | in.read()
-      val v = code(i)
-      println("%04X %04X %04X".format(i,w,v))
-      if w != v then
-        println("Error!")
-        sys.exit(1)
-    println("Equals!!!!")
-     */
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 14/05/2024 19:02  
@@ -589,7 +577,7 @@ class SVPCompiler:
 
   private def addWaitingLabel(label:String): Unit =
     val list = waitingForLabels.getOrElse(label,Nil)
-    waitingForLabels += label -> (code.length - 1 :: list)
+    waitingForLabels += label -> (code.length :: list)
 
   private def call(i:Instruction): Option[String] =
     import Token.*
