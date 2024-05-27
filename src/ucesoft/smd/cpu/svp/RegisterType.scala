@@ -10,7 +10,7 @@ enum RegisterType:
   /*00*/BLIND,
   /*01*/X,
   /*02*/Y,
-  /*03*/A,
+  /*03*/ACC,
   /*04*/ST,
   /*05*/STACK,
   /*06*/PC,

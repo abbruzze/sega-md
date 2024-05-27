@@ -17,6 +17,13 @@ class Register(val rtype:RegisterType):
   def reset(): Unit =
     value = 0
 
+  def blindAccessedRead(): Unit = {}
+  def blindAccessedWrite(): Unit = {}
+
+  def isExternal: Boolean = rtype.ordinal >= PM0.ordinal && rtype.ordinal <= EXT5.ordinal
+  def isPointer: Boolean = rtype.ordinal >= R0.ordinal && rtype.ordinal <= R7.ordinal
+  def toExternal: ExternalRegister = this.asInstanceOf[ExternalRegister]
+  def toPointer: PointerRegister = this.asInstanceOf[PointerRegister]
 // ===========================================================
 
 class BlindRegister extends Register(BLIND):
@@ -24,17 +31,111 @@ class BlindRegister extends Register(BLIND):
   override def write(value: Int): Unit = {}
 
 // ===========================================================
+class ProgramCounter extends Register(PC):
+  def getAndInc(): Int =
+    val pc = value
+    value += 1
+    pc
+// ===========================================================
 
-class Accumulator(val AL:Register) extends Register(A):
-  def write32(value:Int): Unit =
+class Accumulator(val AL:Register) extends Register(ACC):
+  inline private def write32(value:Int): Unit =
     this.value = value >> 16
     AL.write(value & 0xFFFF)
 
-  def read32: Int = value << 16 | AL.read
+  inline private def read32: Int = value << 16 | AL.read
+
+  final def getA: Int = read32
+  final def setA(value:Int,st:StatusRegister): Unit = 
+    write32(value)
+    setNZ(value,st)
+  final def addA(value: Int, st: StatusRegister): Unit =
+    write32(read32 + value)
+    setNZ(value, st)
 
   override def reset(): Unit = 
     super.reset()
     AL.reset()
+
+  // affects 32 bits
+  inline private def setNZ(a:Int,st:StatusRegister): Unit =
+    if a == 0 then st.setFlag(StatusRegisterFlag.Z) else st.clearFlag(StatusRegisterFlag.Z)
+    if (a & 0x8000_0000) != 0 then st.setFlag(StatusRegisterFlag.N) else st.clearFlag(StatusRegisterFlag.N)
+
+  final def aluADD(value:Int,st:StatusRegister,_32:Boolean): Unit =
+    var a = read32
+    a += (if _32 then value else value << 16)
+    write32(a)
+    setNZ(a,st)
+  final def aluSUB(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    var a = read32
+    a -= (if _32 then value else value << 16)
+    write32(a)
+    setNZ(a,st)
+  final def aluCMP(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    var a = read32
+    a -= (if _32 then value else value << 16)
+    setNZ(a,st)
+  final def aluAND(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    var a = read32
+    a &= (if _32 then value else value << 16)
+    write32(a)
+    setNZ(a, st)
+  final def aluOR(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    var a = read32
+    a |= (if _32 then value else value << 16)
+    write32(a)
+    setNZ(a, st)
+  final def aluXOR(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    var a = read32
+    a ^= (if _32 then value else value << 16)
+    write32(a)
+    setNZ(a, st)
+  final def aluROR(st:StatusRegister): Unit =
+    var a = read32
+    val lsb = a & 1
+    a = a >>> 1 | lsb << 31
+    write32(a)
+    setNZ(a, st)
+  final def aluROL(st: StatusRegister): Unit =
+    var a = read32
+    val msb = a >>> 31
+    a = a << 1 | msb
+    write32(a)
+    setNZ(a, st)
+  final def aluSHR(st: StatusRegister): Unit =
+    var a = read32
+    a = a >> 1
+    write32(a)
+    setNZ(a, st)
+  final def aluSHL(st: StatusRegister): Unit =
+    var a = read32
+    a = a << 1
+    write32(a)
+    setNZ(a, st)
+  final def aluINC(st: StatusRegister): Unit =
+    var a = read32
+    a += 1
+    write32(a)
+    setNZ(a, st)
+  final def aluDEC(st: StatusRegister): Unit =
+    var a = read32
+    a -= 1
+    write32(a)
+    setNZ(a, st)
+  final def aluNEG(st: StatusRegister): Unit =
+    var a = read32
+    a = ~a
+    write32(a)
+    setNZ(a, st)
+  final def aluABS(st: StatusRegister): Unit =
+    var a = read32
+    a = 0x7FFF_FFFF
+    write32(a)
+    setNZ(a, st)
+
+end Accumulator
+
 
 // ===========================================================
 
@@ -78,6 +179,8 @@ enum StatusRegisterFlag(val mask:Int,val shift:Int):
   case N      extends StatusRegisterFlag(0x8000,15)
 
 class StatusRegister extends Register(ST):
+  override def read: Int =
+    value & ~StatusRegisterFlag.IE.mask
   def getFlag(f:StatusRegisterFlag): Int =
     (value & f.mask) >> f.shift
   def setFlag(f:StatusRegisterFlag,value:Int): Unit =
@@ -109,14 +212,15 @@ class P(val X:Register,val Y:Register,st:StatusRegister) extends Register(Regist
     value
 
 // ===========================================================
-enum PointerRegisterModifier:
-  case None, PostIncrementModulo, PostDecrementModulo, PostIncrement, _00, _01, _10, _11
-
-  def from(ri:Int,mod:Int): PointerRegisterModifier =
+object PointerRegisterModifier:
+  def fromRI(ri: Int, mod: Int): PointerRegisterModifier =
     if ri == 3 || ri == 7 then
       PointerRegisterModifier.fromOrdinal(_00.ordinal + (mod & 3))
     else
       PointerRegisterModifier.fromOrdinal(mod & 3)
+enum PointerRegisterModifier:
+  case None, PostIncrementModulo, PostDecrementModulo, PostIncrement, _00, _01, _10, _11
+
 
 enum PointerRegisterAddressing:
   case Direct, Indirect1, Indirect2
@@ -331,9 +435,9 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
     java.util.Arrays.fill(externalAddress,0)
     java.util.Arrays.fill(externalAddressIncrement, 0)
 
-  def setReadMode(): Unit =
+  override def blindAccessedRead(): Unit =
     setMode(R)
-  def setWriteMode(): Unit =
+  override def blindAccessedWrite(): Unit =
     setMode(W)
 
   private def setMode(mode:0|1): Unit =
@@ -342,8 +446,8 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
     if mode == W then
       externalOverwrite = pmc.isOverwriteMode
 
-  protected def externalStatusRegisterRead(): Int = 0
-  protected def externalStatusRegisterWrite(value:Int): Unit = {}
+  protected def externalStatusRegisterRead(readByM68K:Boolean): Int = 0
+  protected def externalStatusRegisterWrite(value:Int,writeByM68K:Boolean): Unit = {}
 
   private def incrementAddress(): Unit =
     if externalAddressIncrement(R) == SPECIAL_INC then // special increment
@@ -352,13 +456,15 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
       externalAddress(R) += externalAddressIncrement(R)
     externalAddress(R) &= 0x1F_FFFF
 
-  override def read: Int =
+  override def read: Int = read(readByM68K = false)
+
+  def read(readByM68K:Boolean): Int =
     if index == 4 || st.getFlag(StatusRegisterFlag.RPL) > 0 then
       val value = mem.svpExternalRead(externalAddress(R))
       incrementAddress()
       value
     else
-      externalStatusRegisterRead()
+      externalStatusRegisterRead(readByM68K)
       
   private def overwrite(value:Int): Int =
     if externalOverwrite then
@@ -380,11 +486,13 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
     else
       value
 
-  override def write(value:Int): Unit =
+  override def write(value:Int): Unit = write(value,writeByM68K = false)
+
+  def write(value:Int,writeByM68K:Boolean): Unit =
     if index == 4 || st.getFlag(StatusRegisterFlag.RPL) > 0 then
       mem.svpExternalWrite(externalAddress(W),overwrite(value))
       incrementAddress()
     else
-      externalStatusRegisterWrite(value)
+      externalStatusRegisterWrite(value,writeByM68K)
 
 
