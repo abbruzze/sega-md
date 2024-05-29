@@ -156,6 +156,7 @@ class Clock (val name: String,private var clocksPerSecond: Int) extends SMDCompo
     end while
 
     shutdownNotifier.countDown()
+    log.info("Clock %s shutdown",name)
 
   private inline def doAction(): Unit =
     clockCycles += 1

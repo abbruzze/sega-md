@@ -124,6 +124,7 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
   private inline val SERIAL_NUMBER_ADDR = 0x180
   private inline val REGION_ADDR = 0x1F0
   private inline val DEVICE_ADDR = 0x190
+  private inline val SVP_ADDR = 0x1C8
 
   private val log = Logger.getLogger
 
@@ -137,6 +138,7 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
   private var crc32Int = 0L
   private var checksumOK = false
   private var serial = ""
+  private var svpCart = false
 
   loadROM()
 
@@ -200,6 +202,7 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
     regions = getRegions
     devices = getDeviceSupport
     serial = getSerial
+    svpCart = rom(SVP_ADDR) == 'S' && rom(SVP_ADDR + 1) == 'V'
   end loadROM
 
   private def getSerial: String =
@@ -331,6 +334,7 @@ class Cart(val file:Cart.CartFile,stateSavedRom:Option[Array[Int]] = None,fixChe
   def getCRC32Long : Long = crc32Int
   def isChecksumOK: Boolean = checksumOK
   def getSerialNumber: String = serial
+  def isSVPCart: Boolean = svpCart
 
   override def toString: String =
-    s"""Cart[file="${if file == null then "Restored from state" else new java.io.File(file.originalFile).getName}" serial="$serial" system type="$systemType" CRC32="$crc32" regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""
+    s"""Cart[file="${if file == null then "Restored from state" else new java.io.File(file.originalFile).getName}" ${if svpCart then "SVP " else ""}serial="$serial" system type="$systemType" CRC32="$crc32" regions=${regions.mkString("[",",","]")} devices=${devices.mkString("[",",","]")} oversea name="$cartNameOversea" extra memory=${if extraMemory == null then "N/A" else extraMemory}]"""

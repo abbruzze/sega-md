@@ -12,6 +12,7 @@ import ucesoft.smd.ModelType.{Domestic, Oversea}
 import ucesoft.smd.VideoType.{NTSC, PAL}
 import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.cheat.{Cheat, CheatManager}
+import ucesoft.smd.cpu.svp.SVPMapper
 import ucesoft.smd.misc.Preferences.{FIXCHECKSUM_PREF, LOAD_SAVE_EXTRA_RAM_PREF, TMSS_ENABLED_PREF, VERBOSE_MESSAGE_PREF}
 
 import java.awt.event.{KeyAdapter, KeyEvent, WindowAdapter, WindowEvent}
@@ -130,16 +131,27 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
           case Some(mf) =>
             saveCartExtraMemory(cart)
           case None =>
+        megaDrive.mmu.getM68KMapper.foreach(_.shutdown())
+        megaDrive.mmu.getZ80Mapper.foreach(_.shutdown())
       case MessageBus.CartInserted(_,cart) =>
         cart.getExtraMemoryInfo match
           case Some(mf) =>
             loadCartExtraMemory(cart)
           case None =>
+        if cart.isSVPCart then
+          enableSVP(cart)
       case MessageBus.ControllerConfigurationChanged(_) =>
         checkControllers()
       case MessageBus.StateRestored(_,cart) =>
         playCart(cart,fromRestoredState = true)
       case _ =>
+
+  private def enableSVP(cart:Cart): Unit =
+    val mapper = new SVPMapper(cart)
+    mapper.initComponent()
+    mapper.resetComponent()
+    megaDrive.mmu.setM68KMapper(mapper)
+    //mapper.start()
 
   private def saveCartExtraMemory(cart:Cart): Unit =
     if megaDrive.pref.get[Boolean](LOAD_SAVE_EXTRA_RAM_PREF).get.value then
@@ -281,6 +293,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private def pause(showMessagePause:Boolean = true): Unit =
     if !megaDrive.masterClock.isPaused then
       megaDrive.masterClock.pause()
+      megaDrive.mmu.getM68KMapper.foreach(_.pause())
+      megaDrive.mmu.getZ80Mapper.foreach(_.pause())
       pauseCB.setSelected(true)
       if showMessagePause then
         glassPane.addMessage(MessageBoard.builder.message("Paused").adminLevel().bold().xleft().ytop().delay().fadingMilliseconds(500).build())
@@ -291,6 +305,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         glassPane.interrupt()
       pauseCB.setSelected(false)
       megaDrive.masterClock.play()
+      megaDrive.mmu.getM68KMapper.foreach(_.play())
+      megaDrive.mmu.getZ80Mapper.foreach(_.play())
 
   private def shutdown(): Unit =
     megaDrive.cart.foreach(cart => {
@@ -331,6 +347,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         openDebugger()
       case JOptionPane.CANCEL_OPTION =>
         megaDrive.masterClock.pause()
+        megaDrive.mmu.getM68KMapper.foreach(_.pause())
+        megaDrive.mmu.getZ80Mapper.foreach(_.pause())
         MessageBus.send(MessageBus.CartRemoved(this,cart))
         detachCart()
         megaDrive.display.blankVideo()
@@ -488,6 +506,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   end checkEventRecordingOrPlayback
 
   private def reset(hard:Boolean,fromRestoredState:Boolean): Unit =
+    if cart == null then return
+
     glassPane.interrupt()
     if !megaDrive.masterClock.isPaused then
       pause(showMessagePause = false)

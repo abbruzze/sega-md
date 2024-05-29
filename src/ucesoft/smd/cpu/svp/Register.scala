@@ -9,6 +9,8 @@ import ucesoft.smd.cpu.svp.RegisterType.*
 class Register(val rtype:RegisterType):
   protected var value = 0 // 16 bit value
 
+  def get: Int = value
+
   def read: Int = value
 
   def write(value: Int): Unit =
@@ -28,6 +30,9 @@ class Register(val rtype:RegisterType):
 
 class BlindRegister extends Register(BLIND):
   value = 0xFFFF
+
+  override def reset(): Unit =
+    value = 0xFFFF
   override def write(value: Int): Unit = {}
 
 // ===========================================================
@@ -61,12 +66,16 @@ class Accumulator(val AL:Register) extends Register(ACC):
   inline private def setNZ(a:Int,st:StatusRegister): Unit =
     if a == 0 then st.setFlag(StatusRegisterFlag.Z) else st.clearFlag(StatusRegisterFlag.Z)
     if (a & 0x8000_0000) != 0 then st.setFlag(StatusRegisterFlag.N) else st.clearFlag(StatusRegisterFlag.N)
+  inline private def setL(preA:Int,postA:Int,st:StatusRegister): Unit =
+    if (preA & 0x10000) == 0 && (postA & 0x10000) != 0 then st.setFlag(StatusRegisterFlag.L) else st.clearFlag(StatusRegisterFlag.L)
 
   final def aluADD(value:Int,st:StatusRegister,_32:Boolean): Unit =
     var a = read32
+    val aPre = a
     a += (if _32 then value else value << 16)
     write32(a)
     setNZ(a,st)
+    setL(aPre,a,st)
   final def aluSUB(value: Int, st: StatusRegister, _32: Boolean): Unit =
     var a = read32
     a -= (if _32 then value else value << 16)
@@ -250,14 +259,18 @@ class PointerRegister(val index:0|1|2|3|4|5|6|7,val mem:SVPMemory,val ram:Array[
       modifier match
         case None =>
           ram(this.value) = value
+          //println(s"RAM[${if index < 4 then "0" else "1"}](${this.value.toHexString}) = ${value.toHexString}")
         case PostIncrementModulo =>
           ram(this.value) = value & 0xFF
+          //println(s"RAM[${if index < 4 then "0" else "1"}](${this.value.toHexString}) = ${value.toHexString}")
           modulo(1)
         case PostDecrementModulo =>
           ram(this.value) = value & 0xFF
+          //println(s"RAM[${if index < 4 then "0" else "1"}](${this.value.toHexString}) = ${value.toHexString}")
           modulo(-1)
         case PostIncrement =>
           ram(this.value) = value & 0xFF
+          //println(s"RAM[${if index < 4 then "0" else "1"}](${this.value.toHexString}) = ${value.toHexString}")
           if !(index == 3 || index == 7) then
             this.value = (this.value + 1) & 0xFF
         case _ =>
@@ -266,12 +279,16 @@ class PointerRegister(val index:0|1|2|3|4|5|6|7,val mem:SVPMemory,val ram:Array[
       modifier match
         case PointerRegisterModifier._00 =>
           ram(0) = value & 0xFF
+        //println(s"RAM[${if index < 4 then "0" else "1"}](0) = ${value.toHexString}")
         case PointerRegisterModifier._01 =>
           ram(1) = value & 0xFF
+        //println(s"RAM[${if index < 4 then "0" else "1"}](1) = ${value.toHexString}")
         case PointerRegisterModifier._10 =>
           ram(2) = value & 0xFF
+        //println(s"RAM[${if index < 4 then "0" else "1"}](2) = ${value.toHexString}")
         case PointerRegisterModifier._11 =>
           ram(3) = value & 0xFF
+        //println(s"RAM[${if index < 4 then "0" else "1"}](3) = ${value.toHexString}")
         case _ =>
           println(s"Wrong modifier for addressing $addressing: $modifier")
 
@@ -372,6 +389,8 @@ class PMC extends Register(PMC):
     address = 0
     mode = 0
     _ready = false
+
+  override def get: Int = mode << 16 | address
   
   def resetState(): Unit =
     state = Address
@@ -449,19 +468,19 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
   protected def externalStatusRegisterRead(readByM68K:Boolean): Int = 0
   protected def externalStatusRegisterWrite(value:Int,writeByM68K:Boolean): Unit = {}
 
-  private def incrementAddress(): Unit =
-    if externalAddressIncrement(R) == SPECIAL_INC then // special increment
-      externalAddress(R) += (if (externalAddress(R) & 1) == 1 then 31 else 1) // Why 31, doc says 32
+  private def incrementAddress(mode:0|1): Unit =
+    if externalAddressIncrement(mode) == SPECIAL_INC then // special increment
+      externalAddress(mode) += (if (externalAddress(mode) & 1) == 1 then 31 else 1) // Why 31, doc says 32
     else
-      externalAddress(R) += externalAddressIncrement(R)
-    externalAddress(R) &= 0x1F_FFFF
+      externalAddress(mode) += externalAddressIncrement(mode)
+    externalAddress(mode) &= 0x1F_FFFF
 
   override def read: Int = read(readByM68K = false)
 
   def read(readByM68K:Boolean): Int =
-    if index == 4 || st.getFlag(StatusRegisterFlag.RPL) > 0 then
+    if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
       val value = mem.svpExternalRead(externalAddress(R))
-      incrementAddress()
+      incrementAddress(R)
       value
     else
       externalStatusRegisterRead(readByM68K)
@@ -489,9 +508,9 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
   override def write(value:Int): Unit = write(value,writeByM68K = false)
 
   def write(value:Int,writeByM68K:Boolean): Unit =
-    if index == 4 || st.getFlag(StatusRegisterFlag.RPL) > 0 then
+    if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
       mem.svpExternalWrite(externalAddress(W),overwrite(value))
-      incrementAddress()
+      incrementAddress(W)
     else
       externalStatusRegisterWrite(value,writeByM68K)
 

@@ -13,6 +13,16 @@ object MMU:
   inline val Z80_CPU_MEM_OPTION = 1 << 2 // Z80 cpu must use this as read/write option
   inline val VDP_MEM_OPTION     = 2 << 2 // VDP must use this as read option
 
+  trait Mapper extends SMDComponent:
+    def start(): Unit = {}
+    def isAddressMapped(address:Int): Boolean
+    def shutdown(): Unit = {}
+    def pause(): Unit = {}
+    def play(): Unit = {}
+
+  trait M68KMapper extends Mapper with Memory
+  trait Z80Mapper extends Mapper with Z80.Memory
+
 /**
  * @author Alessandro Abbruzzetti
  * Created on 28/08/2023 18:33
@@ -145,6 +155,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
   private var ssf2RomPendingState = false
   private val ssf2Banks = Array.fill[Int](7)(-1)
 
+  private var m68kMapper : M68KMapper = uninitialized
+  private var z80Mapper : Z80Mapper = uninitialized
+
   private def loadOSRom(): Array[Int] =
     val os = getClass.getResource("/resources/rom/Genesis_OS_ROM.bin")
     if os == null then
@@ -172,6 +185,11 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     ssf2RomPendingState = false
     z80ram(0) = 0x76 // HALT
 
+    if m68kMapper != null then
+      m68kMapper.resetComponent()
+    if z80Mapper != null then
+      z80Mapper.resetComponent()
+
   override def hardReset(): Unit = {
     reset()
 
@@ -182,6 +200,13 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
       if controllers(i) != null then
         controllers(i).hardResetComponent()
   }
+
+  def setM68KMapper(m68KMapper: M68KMapper): Unit =
+    this.m68kMapper = m68KMapper
+  def setZ80Mapper(z80Mapper: Z80Mapper): Unit =
+    this.z80Mapper = z80Mapper
+  def getM68KMapper: Option[Mapper] = Option(m68kMapper)
+  def getZ80Mapper: Option[Mapper] = Option(z80Mapper)
 
   def get68KRAM: Array[Int] = m68kram
   def getZ80RAM: Array[Int] = z80ram
@@ -257,6 +282,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   // ========================= M68000 access ======================================
   override final def read(address: Int, size: Size, readOptions: Int): Int =
+    if m68kMapper != null && m68kMapper.isAddressMapped(address) then
+      return m68kMapper.read(address, size, readOptions)
+
     if (readOptions & VDP_MEM_OPTION) != 0 then // VDP is reading for DMA transfer to VRAM
       if address < 0x40_0000 then readROM(address,size)
       else if address >= 0xE0_0000 then
@@ -292,7 +320,11 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     else
       0xFF
 
-  override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit = 
+  override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
+    if m68kMapper != null && m68kMapper.isAddressMapped(address) then
+      m68kMapper.write(address,value,size,writeOptions)
+      return
+
     if address < 0x40_0000 then writeROM(address, value, size, writeOptions)
     else if address < 0x80_0000 then log.warning(s"Writing to unused space: %X = %X", address, value)
     else if address < 0xA0_0000 then
@@ -365,6 +397,9 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     println(s"OUT $addressHI/$addressLO $value")
   
   override final def read(address: Int): Int =
+    if z80Mapper != null && z80Mapper.isAddressMapped(address) then
+      return z80Mapper.read(address)
+
     val read = if address < 0x4000 then readZ80Memory(address,Byte)
     else if address < 0x6000 then readYM2612(address,Byte)
     else if address < 0x6100 then 0xFF // reads from bank register always return FF
@@ -375,7 +410,11 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
     read & 0xFF
 
-  override final def write(address:Int,value:Int): Unit = 
+  override final def write(address:Int,value:Int): Unit =
+    if z80Mapper != null && z80Mapper.isAddressMapped(address) then
+      z80Mapper.write(address,value)
+      return
+      
     if address < 0x4000 then writeZ80Memory(address, value, Byte)
     else if address < 0x6000 then writeYM2612(address, value, Byte)
     else if address < 0x6100 then writeZ80BankRegister(value)

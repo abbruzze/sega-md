@@ -187,7 +187,7 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     psgSampleCycles = psgAudio.getCyclesPerSample
     vdp.setModel(_model)
     mmu.setModel(_model)
-    clockRateChanged(_model.videoType.clockFrequency)
+    clockRateChanged(VDP_CLOCK_DIVIDER)
     // TODO
     
   private def cartInserted(cart:Cart): Unit =

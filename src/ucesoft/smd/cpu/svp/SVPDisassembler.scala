@@ -30,7 +30,7 @@ class SVPDisassembler(mem:SVPMemory):
   import SVPDisassembler.*
   private val REGS = Array(
     Array("-", "x", "y", "a", "st", "stack", "pc", "p", "ext0", "ext1", "ext2", "ext3", "ext4", "ext5", "ext6", "ext7"),
-    Array("-", "x", "y", "a", "st", "stack", "pc", "p", "ext0", "ext1", "ext2", "xst", "ext4", "ext5", "pmc", "al")
+    Array("-", "x", "y", "a", "st", "stack", "pc", "p", "pm0", "ext1", "ext2", "xst", "ext4", "ext5", "pmc", "al")
   )
   private val POINTER_REGS = Array("r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7")
   private val POINTER_REGS_MOD = Array("", "+!", "-", "+")
@@ -136,7 +136,7 @@ class SVPDisassembler(mem:SVPMemory):
       case 0x0A => // ld  ri, s     0001 010j ssss 00pp
         m = s"ld ${ri(opcode)},${regHi(opcode)}"
       case 0xC|0xD|0xE|0xF => // ldi ri, simm  0001 1jpp iiii iiii
-        m = s"ldi ${POINTER_REGS((opcode >> 8) & 3)},${"%02X".format(opcode & 0xFF)}"
+        m = s"ldi ${POINTER_REGS((opcode >> 8) & 7)},${"%02X".format(opcode & 0xFF)}"
       case 0x25 => // ld  d, (a)    0100 1010 dddd 0000
         m = s"ld ${regHi(opcode)},(a)"
       // ===================== CALL/BRA =========================
