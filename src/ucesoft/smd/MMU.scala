@@ -1,5 +1,6 @@
 package ucesoft.smd
 
+import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.audio.{FM, PSG}
 import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.controller.Controller
@@ -13,12 +14,9 @@ object MMU:
   inline val Z80_CPU_MEM_OPTION = 1 << 2 // Z80 cpu must use this as read/write option
   inline val VDP_MEM_OPTION     = 2 << 2 // VDP must use this as read option
 
-  trait Mapper extends SMDComponent:
-    def start(): Unit = {}
+  trait Mapper extends SMDComponent with Clockable:
     def isAddressMapped(address:Int): Boolean
     def shutdown(): Unit = {}
-    def pause(): Unit = {}
-    def play(): Unit = {}
 
   trait M68KMapper extends Mapper with Memory
   trait Z80Mapper extends Mapper with Z80.Memory

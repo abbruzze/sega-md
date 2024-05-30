@@ -133,6 +133,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
           case None =>
         megaDrive.mmu.getM68KMapper.foreach(_.shutdown())
         megaDrive.mmu.getZ80Mapper.foreach(_.shutdown())
+        megaDrive.setMapper(null)
       case MessageBus.CartInserted(_,cart) =>
         cart.getExtraMemoryInfo match
           case Some(mf) =>
@@ -151,7 +152,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     mapper.initComponent()
     mapper.resetComponent()
     megaDrive.mmu.setM68KMapper(mapper)
-    //mapper.start()
+    megaDrive.setMapper(mapper)
 
   private def saveCartExtraMemory(cart:Cart): Unit =
     if megaDrive.pref.get[Boolean](LOAD_SAVE_EXTRA_RAM_PREF).get.value then
@@ -293,8 +294,6 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private def pause(showMessagePause:Boolean = true): Unit =
     if !megaDrive.masterClock.isPaused then
       megaDrive.masterClock.pause()
-      megaDrive.mmu.getM68KMapper.foreach(_.pause())
-      megaDrive.mmu.getZ80Mapper.foreach(_.pause())
       pauseCB.setSelected(true)
       if showMessagePause then
         glassPane.addMessage(MessageBoard.builder.message("Paused").adminLevel().bold().xleft().ytop().delay().fadingMilliseconds(500).build())
@@ -305,8 +304,6 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         glassPane.interrupt()
       pauseCB.setSelected(false)
       megaDrive.masterClock.play()
-      megaDrive.mmu.getM68KMapper.foreach(_.play())
-      megaDrive.mmu.getZ80Mapper.foreach(_.play())
 
   private def shutdown(): Unit =
     megaDrive.cart.foreach(cart => {
@@ -347,8 +344,6 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         openDebugger()
       case JOptionPane.CANCEL_OPTION =>
         megaDrive.masterClock.pause()
-        megaDrive.mmu.getM68KMapper.foreach(_.pause())
-        megaDrive.mmu.getZ80Mapper.foreach(_.pause())
         MessageBus.send(MessageBus.CartRemoved(this,cart))
         detachCart()
         megaDrive.display.blankVideo()

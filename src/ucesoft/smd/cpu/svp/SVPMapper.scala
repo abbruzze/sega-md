@@ -36,8 +36,6 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
   private var lastWord = 0
   private val svp = new SVP(this)
 
-  private val masterClock = new Clock("SVP-Clock",46_000_000)
-
   override def reset(): Unit =
     java.util.Arrays.fill(dram,0)
     java.util.Arrays.fill(iramRomWord,0,0x3FF,0)
@@ -60,32 +58,11 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
 
   def getSVP: SVP = svp
 
-  override def start(): Unit =
-    if masterClock.isRunning then return
-
-    //masterClock.setClockables(svp)
-    val disa = new SVPDisassembler(this)
-    val pc = svp.getRegister(RegisterType.PC)
-    masterClock.setClockables(_ => {
-      println(disa.disassemble(pc.read))
-      svp.clock(0)
-      //println(svp.dumpRegs())
-      //io.StdIn.readLine(">")
-    })
-    masterClock.setClockDivider(0, 1)
-    masterClock.setErrorHandler(t => {
-      t.printStackTrace()
-    })
-    masterClock.start()
-    log.info("SVP master clock started")
-
-  override def shutdown(): Unit =
-    masterClock.shutdown()
-  override def pause(): Unit =
-    masterClock.pause()
-  override def play(): Unit =
-    if !masterClock.isRunning then start()
-    masterClock.play()
+  private val disa = new SVPDisassembler(this)
+  private val pc = svp.getRegister(RegisterType.PC)
+  override final def clock(cycles: Long): Unit =
+    //println(disa.disassemble(pc.read))
+    svp.clock(4)
 
   override final def isAddressMapped(address: Int): Boolean =
     (address >= 0x20_0000 && address < 0x40_0000) || (address >= 0xA1_5000 && address < 0xA1_5010)
