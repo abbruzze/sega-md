@@ -67,7 +67,7 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
     val disa = new SVPDisassembler(this)
     val pc = svp.getRegister(RegisterType.PC)
     masterClock.setClockables(_ => {
-      println(disa.disassemble(pc.read))
+      //println(disa.disassemble(pc.read))
       svp.clock(0)
       //println(svp.dumpRegs())
       //io.StdIn.readLine(">")
@@ -91,29 +91,33 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
     (address >= 0x20_0000 && address < 0x40_0000) || (address >= 0xA1_5000 && address < 0xA1_5010)
 
   override final def svpExternalRead(wordAddress: Int): Int =
-    lastWord = if wordAddress < 0x100000 then
-      val byteAddress = wordAddress << 1
-      gameRom(byteAddress) << 8 | gameRom(byteAddress + 1)
-    else if wordAddress < 0x18_0000 then
-      lastWord
-    else if wordAddress < 0x1C_0000 then
-      dram(wordAddress & 0xFFFF)
-    else if wordAddress < 0x1C_8000 then
-      lastWord
-    else if wordAddress < 0x1C_8400 then
-      iramRomWord(wordAddress & 0x3FF)
-    else
-      println(s"SVP external read from ${wordAddress.toHexString}")
-      0xFFFF
+    synchronized {
+      lastWord = if wordAddress < 0x100000 then
+        val byteAddress = wordAddress << 1
+        gameRom(byteAddress) << 8 | gameRom(byteAddress + 1)
+      else if wordAddress < 0x18_0000 then
+        lastWord
+      else if wordAddress < 0x1C_0000 then
+        dram(wordAddress & 0xFFFF)
+      else if wordAddress < 0x1C_8000 then
+        lastWord
+      else if wordAddress < 0x1C_8400 then
+        iramRomWord(wordAddress & 0x3FF)
+      else
+        println(s"SVP external read from ${wordAddress.toHexString}")
+        0xFFFF
 
-    lastWord
+      lastWord
+    }
 
   override final def svpExternalWrite(wordAddress: Int, value: Int): Unit =
     //println(s"Writing external ${wordAddress.toHexString} = ${value.toHexString}")
-    if wordAddress >= 0x18_0000 && wordAddress < 0x1C_0000 then
-      dram(wordAddress & 0xFFFF) = value
-    else if wordAddress >= 0x1C_8000 && wordAddress < 0x1C_8400 then
-      iramRomWord(wordAddress & 0x3FF) = value
+    synchronized {
+      if wordAddress >= 0x18_0000 && wordAddress < 0x1C_0000 then
+        dram(wordAddress & 0xFFFF) = value
+      else if wordAddress >= 0x1C_8000 && wordAddress < 0x1C_8400 then
+        iramRomWord(wordAddress & 0x3FF) = value
+    }
 
   override final def svpReadIRamRom(address: Int): Int =
     iramRomWord(address & 0xFFFF)
@@ -143,12 +147,12 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
       // ignore size
       var adr = address >> 1
       adr = (adr & 0x7001) | ((adr & 0x3e) << 6) | ((adr & 0xfc0) >> 5)
-      dram(adr & 0xFFFF)
+      synchronized { dram(adr & 0xFFFF) }
     else if address < 0x3B_0000 then // cell arrange 2
       // ignore size
       var adr = address >> 1
       adr = (adr & 0x7801) | ((adr & 0x1e) << 6) | ((adr & 0x7e0) >> 4)
-      dram(adr & 0xFFFF)
+      synchronized { dram(adr & 0xFFFF) }
     else if address >= 0xA1_5000 && address < 0xA1_5010 then
       size match
         case Byte|Word =>
@@ -176,13 +180,15 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
 
   override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
     if address >= 0x30_0000 && address < 0x38_0000 then // DRAM
-      val adr = (address >> 1) & 0xFFFF
-      size match
-        case Byte => dram(adr) = value // ??
-        case Word => dram(adr)
-        case Long =>
-          dram(adr) = value >> 16
-          dram((adr + 1) & 0xFFFF) = value & 0xFFFF
+      synchronized {
+        val adr = (address >> 1) & 0xFFFF
+        size match
+          case Byte => dram(adr) = value // ??
+          case Word => dram(adr)
+          case Long =>
+            dram(adr) = value >> 16
+            dram((adr + 1) & 0xFFFF) = value & 0xFFFF
+      }
     else if address >= 0xA1_5000 && address < 0xA1_5010 then
       size match
         case Byte =>
