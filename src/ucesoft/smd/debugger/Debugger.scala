@@ -4,6 +4,7 @@ import org.fife.ui.rsyntaxtextarea.{RSyntaxTextArea, SyntaxConstants}
 import org.fife.ui.rtextarea.RTextScrollPane
 import ucesoft.smd.cpu.m68k.*
 import ucesoft.smd.cpu.m68k.RegisterType.PC
+import ucesoft.smd.cpu.svp.SVPMapper
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.DebuggerUI.*
 import ucesoft.smd.ui.MessageBoard
@@ -95,6 +96,7 @@ class Debugger(m68k:M68000,
   private var frameByFrameCond = false
   private var frameCount = 0
 
+  private val svpDRAMDumpItem = new JCheckBoxMenuItem("SVP DRAM")
   private val vramMemoryDumpItem = new JCheckBoxMenuItem("VDP VRAM")
   private val cramMemoryDumpItem = new JCheckBoxMenuItem("VDP CRAM")
   private val vsramMemoryDumpItem = new JCheckBoxMenuItem("VDP VSRAM")
@@ -102,6 +104,7 @@ class Debugger(m68k:M68000,
   private val z80RamMemoryDumpItem = new JCheckBoxMenuItem("Z80 RAM")
   private val layerDumpItem = new JCheckBoxMenuItem("Pattern Layers")
   private val patternADumpItem = new JCheckBoxMenuItem("Pattern Dump")
+  private var svpDRAMDialog : JDialog = uninitialized
   private val vdpVRAMDialog = new MemoryDumper(vdpMemDump.ram, 0, "VRAM", frame, () => vramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val vdpVSRAMDialog = new MemoryDumper(vdpMemDump.vsram, 0, "VSRAM", frame, () => vsramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val vdpCRAMDialog = new MemoryDumper(vdpMemDump.cram, 0, "CRAM", frame, () => cramMemoryDumpItem.setSelected(false), withColorDumper = true).dialog
@@ -178,10 +181,7 @@ class Debugger(m68k:M68000,
   private class Z80Debugger extends InternalDebugger with GenericDebugger with Z80.EventListener:
     private val registerTableModel = new Z80RegisterTableModel(z80.ctx)
     private val statusTableModel = new Z80StatusRegisterTableModel(z80.ctx)
-    private val disassembledTableModel = new DisassembledTableModel(null,
-      null,
-      z80,
-      address => getBreakStringAt(address).map(_.substring(0, 1)))
+    private val disassembledTableModel = new DisassembledTableModel(address => getBreakStringAt(address).map(_.substring(0, 1)))
     private val distable = new JTable(disassembledTableModel)
     private var stepByStep = false
     private var stepAlways = false
@@ -442,10 +442,7 @@ class Debugger(m68k:M68000,
     private val addressRegisterTableModel = new M68KRegisterTableModel(m68k, data = false)
     private val statusRegisterTableModel = new M68KStatusRegisterTableModel(m68k)
     private val pcRegisterTableModel = new M68KPCTableModel(m68k)
-    private val disassembledTableModel = new DisassembledTableModel(m68k,
-      m68kMemory,
-      null,
-      address => getBreakStringAt(address))
+    private val disassembledTableModel = new DisassembledTableModel(address => getBreakStringAt(address))
     private val vdpTableMode = new VDPPropertiesTableModel(vdp,frame)
     private val distable = new JTable(disassembledTableModel)
 
@@ -621,11 +618,11 @@ class Debugger(m68k:M68000,
       end onFetch
 
       override def updateDisassembly(): Unit =
-        disassembledTableModel.clear()
+        //disassembledTableModel.clear()
         updateDisassembly(m68k)
         updateModels()
 
-      private def updateDisassembly(cpu: M6800X0,address:Int = -1): Unit =
+      private def updateDisassembly(cpu: M6800X0,address:Int = -1): Unit = swing {
         disassembledTableModel.clear()
         var adr = if address == -1 then cpu.getRegister(PC).get() else address
         for a <- 1 to 25 do
@@ -634,6 +631,7 @@ class Debugger(m68k:M68000,
             stepDisassemble = dis
           disassembledTableModel.add(dis, false)
           adr += dis.size
+      }
 
       private def checkStepOverOut(instruction: Instruction, address: Int): Unit =
         import InstructionType.*
@@ -805,6 +803,12 @@ class Debugger(m68k:M68000,
   end M68KDebugger
 
   // ==================================================================================================
+  def enableSVP(enabled:Boolean,mapper:SVPMapper): Unit =
+    if enabled then
+      svpDRAMDumpItem.setEnabled(true)
+      svpDRAMDialog = new MemoryDumper(mapper.getDRAM, 0, "SVP DRAM", frame, () => svpDRAMDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = false, wordValues = true).dialog
+    else
+      svpDRAMDumpItem.setEnabled(false)
   def setMessageBoard(mb:MessageBoardListener): Unit =
     messageBoard = mb
   def setCart(cart:Cart): Unit =
@@ -971,6 +975,7 @@ class Debugger(m68k:M68000,
     val dmaMenu = new JMenu("DMA")
     val breakMenu = new JMenu("Breaks")
 
+    svpDRAMDumpItem.addActionListener(_ => svpDRAMDialog.setVisible(svpDRAMDumpItem.isSelected))
     vramMemoryDumpItem.addActionListener(_ => vdpVRAMDialog.setVisible(vramMemoryDumpItem.isSelected) )
     cramMemoryDumpItem.addActionListener(_ => vdpCRAMDialog.setVisible(cramMemoryDumpItem.isSelected) )
     vsramMemoryDumpItem.addActionListener(_ => vdpVSRAMDialog.setVisible(vsramMemoryDumpItem.isSelected) )
@@ -983,6 +988,7 @@ class Debugger(m68k:M68000,
     memoryMenu.add(romDumpItem)
     memoryMenu.add(m68kramMemoryDumpItem)
     memoryMenu.add(z80RamMemoryDumpItem)
+    memoryMenu.add(svpDRAMDumpItem)
     menu.add(memoryMenu)
 
     layerDumpItem.addActionListener(_ => patternLayersDialog.setVisible(layerDumpItem.isSelected) )

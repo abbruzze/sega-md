@@ -5,7 +5,10 @@ import scala.collection.mutable.ListBuffer
 object SVPDisassembler:
   case class DisassembledInfo(address:Int,codes:Array[Int],mnemonic:String,wordSize:Int):
     override def toString: String =
-      "%04X %s %s".format(address,codes.map(c => "%04X".format(c)).mkString(" "),mnemonic)
+      if wordSize == 1 then
+        "%04X %s %s %s".format(address,"%04X".format(codes(0)),"    ",mnemonic)
+      else
+        "%04X %s %s %s".format(address,"%04X".format(codes(0)),"%04X".format(codes(1)),mnemonic)
 
   def main(args:Array[String]): Unit =
     if args.length == 0 then
@@ -53,11 +56,11 @@ class SVPDisassembler(mem:SVPMemory):
   def useAlternateRegisterNames(enabled:Boolean): Unit =
     regsIndex = if enabled then 1 else 0
 
-  inline private def ri(opcode:Int,low : Boolean = true,includej : Boolean = true): String =
+  inline private def ri(opcode:Int,low : Boolean = true,includej : Boolean = true,offset:Int = 0): String =
     val ri = if low then
       if includej then (opcode >> 6) & 4 | opcode & 3 else opcode & 3
     else
-      (opcode >> 4) & 3
+      ((opcode >> 4) & 3) + offset
 
     val mod = if low then (opcode >> 2) & 3 else (opcode >> 6) & 3
     val mods = if ri == 3 || ri == 7 then POINTER_REGS_R37_MOD else POINTER_REGS_MOD
@@ -84,6 +87,9 @@ class SVPDisassembler(mem:SVPMemory):
         m = s"${alu(opcode)} a,${regLo(opcode)}"
       case 0x11|0x31|0x41|0x51|0x61|0x71 => // OP  A, (ri)   ooo0 001j 0000 mmpp
         m = s"${alu(opcode)} a,(${ri(opcode)})"
+      case 0x03 => // ld A, adr
+        val j = ('A' + ((opcode >> 8) & 1)).toChar
+        m = s"ld a,$j[${"%02X".format(opcode & 0xFF)}]"
       case 0x13|0x33|0x43|0x53|0x63|0x73 => // OP  A, adr    ooo0 011j aaaa aaaa
         val j = ('A' + ((opcode >> 8) & 1)).toChar
         m = s"${alu(opcode)} a,$j[${"%02X".format(opcode & 0xFF)}]"
@@ -152,11 +158,11 @@ class SVPDisassembler(mem:SVPMemory):
         m = s"bra ${cond(opcode)},${"%04X".format(imm)}"
       // ===================== MLD/MPYA/MPYS ====================
       case 0x5B => // mld  (rj), (ri)  1011 0111 nnjj mmii
-        m = s"mld (${ri(opcode,low = false,includej = false)}),(${ri(opcode,includej = false)})"
+        m = s"mld (${ri(opcode,low = false,includej = false,offset = 4)}),(${ri(opcode,includej = false)})"
       case 0x4B => // mpya (rj), (ri)  1001 0111 nnjj mmii
-        m = s"mpya (${ri(opcode,low = false,includej = false)}),(${ri(opcode,includej = false)})"
+        m = s"mpya (${ri(opcode,low = false,includej = false,offset = 4)}),(${ri(opcode,includej = false)})"
       case 0x1B => // mpys (rj), (ri)  0011 0111 nnjj mmii
-        m = s"mpys (${ri(opcode,low = false,includej = false)}),(${ri(opcode,includej = false)})"
+        m = s"mpys (${ri(opcode,low = false,includej = false,offset = 4)}),(${ri(opcode,includej = false)})"
       // ===================== ?? ===============================
       case _ =>
         m = "dw %04X".format(opcode)

@@ -1,7 +1,7 @@
 package ucesoft.smd.cpu.svp
-import RegisterType.*
 import ucesoft.smd.Clock.Clockable
-import ucesoft.smd.{BusArbiter, Cart, MMU, SMDComponent}
+import ucesoft.smd.SMDComponent
+import ucesoft.smd.cpu.svp.RegisterType.*
 
 /**
  * @author Alessandro Abbruzzetti
@@ -101,6 +101,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
   private var halted = false
   // ======================================================================
   def getRegister(rtype:RegisterType): Register = regs(rtype.ordinal)
+  def getRegisters: Array[Register] = regs
 
   override def reset(): Unit =
     regs.foreach(_.reset())
@@ -155,7 +156,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
         false
 
   final def clock(cycles:Long): Unit =
-    if halted then return
+    //if halted then return
 
     import RegisterType.*
 
@@ -181,9 +182,12 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           val mod = PointerRegisterModifier.fromRI(ri.index,(opcode >> 2) & 3)
           alu(op >> 4,ri.read(PointerRegisterAddressing.Indirect1,mod),_32 = false)
         // OP  A, adr    ooo0 011j aaaa aaaa
+        case 0x03 => // ld a, adr
+          val j = (opcode >> 8) & 1
+          aReg.write(RAM(j)(opcode & 0xFF))
         case op@(0x13|0x33|0x43|0x53|0x63|0x73) =>
           val j = (opcode >> 8) & 1
-          alu(op >> 4,RAM(j)(opcode & 0xFFFF),_32 = false)
+          alu(op >> 4,RAM(j)(opcode & 0xFF),_32 = false)
         // OPi A, imm    ooo0 1000 0000 0000 , iiii iiii iiii iiii
         case op@(0x14|0x34|0x44|0x54|0x64|0x74) =>
           val imm = mem.svpReadIRamRom(pcReg.getAndInc())
@@ -278,7 +282,8 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
         // ld  adr, a    0000 111j aaaa aaaa
         case 0x07 =>
           val j = (opcode >> 8) & 1
-          RAM(j)(opcode & 0xFFFF) = aReg.read
+          RAM(j)(opcode & 0xFF) = aReg.read
+          //println(s"RAM($j)(${(opcode & 0xFF).toHexString})=${aReg.read}")
         // ld  d, ri     0001 001j dddd 00pp
         case 0x09 =>
           val ri = getRI(opcode)
@@ -345,7 +350,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           yReg.write(rj.read(PointerRegisterAddressing.Indirect1,mj))
         case x =>
           println("Unrecognized SVP opcode: %04X".format(x))
-
+          io.StdIn.readLine(">")
       _cycles -= 1
     end while
   end clock

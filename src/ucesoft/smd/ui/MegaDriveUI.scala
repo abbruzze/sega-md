@@ -996,6 +996,10 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       build()
     )
     debugger.setCart(cart)
+    if cart.isSVPCart then
+      debugger.enableSVP(enabled = true,megaDrive.mmu.getM68KMapper.get.asInstanceOf[SVPMapper])
+    else
+      debugger.enableSVP(enabled = false,null)
     saveStateItem.setEnabled(true)
     debugMenu.setEnabled(true)
     pauseCB.setEnabled(true)

@@ -14,9 +14,11 @@ object MMU:
   inline val Z80_CPU_MEM_OPTION = 1 << 2 // Z80 cpu must use this as read/write option
   inline val VDP_MEM_OPTION     = 2 << 2 // VDP must use this as read option
 
-  trait Mapper extends SMDComponent with Clockable:
+  trait Mapper extends SMDComponent:
     def isAddressMapped(address:Int): Boolean
     def shutdown(): Unit = {}
+    def getClockable: Clockable
+    def getClockRatio: Int
 
   trait M68KMapper extends Mapper with Memory
   trait Z80Mapper extends Mapper with Z80.Memory
