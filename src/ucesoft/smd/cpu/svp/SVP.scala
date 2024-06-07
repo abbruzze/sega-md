@@ -58,16 +58,13 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
     Affects PM0 when written to.
    */
   private val xstReg = new ExternalRegister(3,mem,pmcReg,stReg):
-    //value = 0xFFFF
-
-//    override def reset(): Unit =
-//      value = 0xFFFF
     override protected def externalStatusRegisterWrite(value: Int, writeByM68K: Boolean): Unit =
       this.value = value
       if writeByM68K then
         statusXST |= M68K_WRITTEN_A15000_MASK
       else
         statusXST |= SSP160x_WRITTEN_XST_MASK
+        println(s"SVP writes XST: ${value.toHexString}/${(value >> 8).toChar}${(value & 0xFF).toChar}")
       //println(s"Writing XST 68K=$writeByM68K ${value.toHexString} statusXST=$statusXST")
 
     override protected def externalStatusRegisterRead(readByM68K: Boolean): Int = value
@@ -129,7 +126,10 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
     xstReg.write(value,writeByM68K = true)
   final def m68kReadXST(): Int = xstReg.read(readByM68K = true)
   final def m68kReadPM0(): Int =
-    pm0Reg.read(readByM68K = true)
+    //pm0Reg.read(readByM68K = true)
+    val st = statusXST
+    statusXST &= ~SSP160x_WRITTEN_XST_MASK
+    st
   final def halt(enabled:Boolean): Unit =
     halted = enabled
 
@@ -302,7 +302,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
             ri.write(regs(s).read)
         // ldi ri, simm  0001 1jpp iiii iiii
         case 0xC|0xD|0xE|0xF =>
-          val ri = regs(R0.ordinal + ((opcode >> 8) & 7)).asInstanceOf[PointerRegister]
+          val ri = regs(R0.ordinal + ((opcode >> 8) & 7))
           ri.write(opcode & 0xFFFF)
         // ld  d, (a)    0100 1010 dddd 0000
         case 0x25 =>
@@ -349,7 +349,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           xReg.write(ri.read(PointerRegisterAddressing.Indirect1,mi))
           yReg.write(rj.read(PointerRegisterAddressing.Indirect1,mj))
         case x =>
-          println("Unrecognized SVP opcode: %04X".format(x))
+          println("Unrecognized SVP opcode: %04X at %04X".format(x,pcReg.get - 1))
           io.StdIn.readLine(">")
       _cycles -= 1
     end while

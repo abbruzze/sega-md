@@ -5,6 +5,7 @@ import ucesoft.smd.cpu.m68k.Size
 import ucesoft.smd.cpu.m68k.Size.{Byte, Long, Word}
 
 import java.io.{FileWriter, PrintWriter}
+import scala.collection.mutable
 import scala.compiletime.uninitialized
 
 /**
@@ -63,14 +64,31 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
   private val disa = new SVPDisassembler(this)
   private val pc = svp.getRegister(RegisterType.PC)
   private var readLine = false
+  private val pcset = new mutable.HashSet[Int]()
+  private var pcCheck = 0x53
 
   override def getClockable: Clock.Clockable = cycles => {
-    if pc.read < 0x400 || (pc.read > 0x423 && pc.read < 0xFC00) then
-      println(disa.disassemble(pc.read).toString)
-      //println(svp.dumpRegs())
-      //if pc.read == 0x097 then readLine = true
-      if readLine then
-        io.StdIn.readLine(">")
+//    if pc.read == pcCheck then readLine = true
+//    if readLine then
+//      println(disa.disassemble(pc.read).toString)
+//      println(svp.dumpRegs())
+//      val adr = io.StdIn.readLine(">")
+//      if adr.nonEmpty then
+//        readLine = false
+//        pcCheck = Integer.parseInt(adr,16)
+//    if pcset.add(pc.read) || readLine then
+//      println(disa.disassemble(pc.read).toString)
+//      println(svp.dumpRegs())
+//    if pc.read == 0xD1 then readLine = true
+//    if readLine then io.StdIn.readLine(">")
+//    if pc.read < 0x400 || (pc.read > 0x423 && pc.read < 0xFC00) then
+////      println(disa.disassemble(pc.read).toString)
+////      if readLine then println(svp.dumpRegs())
+//      if pc.read == 0x2794 then readLine = true
+//      if readLine then
+//        println(disa.disassemble(pc.read).toString)
+//        println(svp.dumpRegs())
+//        if io.StdIn.readLine(">") == "c" then readLine = false
     svp.clock(cycles)
   }
 
@@ -110,7 +128,7 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
     //println(s"Writing external ${wordAddress.toHexString} = ${value.toHexString}")
     if wordAddress >= 0x18_0000 && wordAddress < 0x1C_0000 then
       dram(wordAddress & 0xFFFF) = value & 0xFFFF
-      checkDRAMWrite(wordAddress << 1)
+      //checkDRAMWrite(wordAddress << 1)
     else if wordAddress >= 0x1C_8000 && wordAddress < 0x1C_8400 then
       iramRomWord(wordAddress & 0x3FF) = value
 
@@ -196,7 +214,7 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
           //println(s"68K writes DRAM(${adr.toHexString})=${(value >> 16).toHexString} LONG")
           dram((adr + 1) & 0xFFFF) = value & 0xFFFF
           //println(s"68K writes DRAM(${(adr + 1).toHexString})=${(value & 0xFFFF).toHexString} LONG")
-      checkDRAMWrite(address)
+      //checkDRAMWrite(address)
     else if address >= 0xA1_5000 && address < 0xA1_5010 then
       size match
         case Byte =>
@@ -219,8 +237,8 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
          writes 0xa, and after it's finished, writes 0. This is probably
          done to prevent SVP accessing DRAM and avoid bus clashes.
          */
-        svp.halt(value == 0)
-        println(s"Halting SVP: ${value > 0} $value")
+        svp.halt(value == 0xA)
+        //println(s"Halting SVP: ${value == 0x0A} $value")
       case 8 =>
         /*
          possibly causes an interrupt. There is (unused?) code which

@@ -19,7 +19,7 @@ class Register(val rtype:RegisterType):
   def reset(): Unit =
     value = 0
 
-  override def toString: String = value.toHexString
+  override def toString: String = get.toHexString
 
   def blindAccessedRead(): Unit = {}
   def blindAccessedWrite(): Unit = {}
@@ -84,7 +84,7 @@ class Accumulator(val AL:Register) extends Register(ACC):
     setNZ(a,st)
   final def aluAND(value: Int, st: StatusRegister, _32: Boolean): Unit =
     var a = read32
-    a &= (if _32 then value else value << 16 | 0xFFFF)
+    a &= (if _32 then value else value << 16/* | 0xFFFF*/)
     write32(a)
     setNZ(a, st)
   final def aluOR(value: Int, st: StatusRegister, _32: Boolean): Unit =
@@ -387,14 +387,12 @@ class PMC extends Register(PMC):
   private var state = Address
   private var address = 0
   private var mode = 0
-  private var _ready = false
 
   override def reset(): Unit = 
     super.reset()
     state = Address
     address = 0
     mode = 0
-    _ready = false
 
   override def get: Int = mode << 16 | address
   
@@ -420,11 +418,9 @@ class PMC extends Register(PMC):
       case Address =>
         address = value & 0xFFFF
         state = Mode
-        _ready = false
       case Mode =>
         mode = value & 0xFFFF
         state = Address
-        _ready = true
 
   override def read: Int =
     state match
@@ -433,6 +429,11 @@ class PMC extends Register(PMC):
         address
       case Mode =>
         state = Address
+        /*
+           If read in "waiting for mode" state, we get the same value as in other state, but rotated by 4
+           (or with nibbles swapped, VR always does this to words with both bytes equal,
+           like 'abab' to get 'baba' for chessboard dithering effect)
+         */
         (address << 4) & 0xFFF0 | (address >> 4) & 0xF
 
   def ready(): Boolean = state == Address
@@ -507,7 +508,6 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
   def read(readByM68K:Boolean): Int =
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
       val value = mem.svpExternalRead(externalAddress(R))
-      //if index == 0 then println(s"Reading external XT0 ${externalAddress(R).toHexString}")
       incrementAddress(R)
       value
     else

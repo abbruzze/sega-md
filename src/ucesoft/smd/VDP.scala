@@ -862,7 +862,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   private var lightgunEnabled = false
   private var lightgunProvider : LightgunProvider = scala.compiletime.uninitialized
+
+  private var svpEnabled = false
   // =================================================================================
+  def setSVPEnabled(enabled:Boolean): Unit =
+    svpEnabled = enabled
   def enableLightgun(enabled:Boolean,lightgunProvider : LightgunProvider): Unit =
     lightgunEnabled = enabled
     this.lightgunProvider = lightgunProvider
@@ -1163,6 +1167,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       // check DMA bit CD5
       val isVRAMWrite = isVRAMAccessModeWrite(codeRegister)
       if (codeRegister & 0x20) != 0 && REG_M1_DMA_ENABLED then
+        // SVP =======================================
+        if svpEnabled && (regs(23) & 0x60) == 0 then
+          updateDMACounterLen()
+          updateTargetAddress()
+        // ===========================================
         if REG_DMA_MODE == DMA_MODE.MEMORY_TO_VRAM then
           if isVRAMWrite then
             if !m68KBUSRequested then
