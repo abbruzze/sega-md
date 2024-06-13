@@ -42,11 +42,11 @@ class ProgramCounter extends Register(PC):
 
 class Accumulator(val st:StatusRegister) extends Register(ACC):
   private var lowValue = 0
-  
+
   final def readLow: Int = lowValue
   final def writeLow(value:Int): Unit =
     lowValue = value & 0xFFFF
-  
+
   inline private def write32(value:Int): Unit =
     this.value = value >>> 16
     lowValue = value & 0xFFFF
@@ -65,6 +65,7 @@ class Accumulator(val st:StatusRegister) extends Register(ACC):
 
   override def reset(): Unit = 
     super.reset()
+    lowValue = 0
     //AL.reset()
 
   // affects 32 bits
@@ -388,67 +389,107 @@ class PointerRegister(val index:0|1|2|3|4|5|6|7,val mem:SVPMemory,val ram:Array[
  */
 class PMC extends Register(PMC):
   private enum State:
-    case Address, Mode
+    case WaitingForAddress, WaitingForMode
 
   import State.*
 
-  private var state = Address
-  private var address = 0
-  private var mode = 0
+  private var state = WaitingForAddress
+  private var pmcSet = false
+
+  def update(value:Int): Unit =
+    this.value = value
+
+  override def reset(): Unit =
+    super.reset()
+    state = WaitingForAddress
+    pmcSet = false
+
+  def resetPMCSet(): Unit =
+    pmcSet = false
+  def isPMCSet: Boolean = pmcSet
+
+  def resetState(): Unit =
+    state = WaitingForAddress
+
+  override final def blindAccessedRead(): Unit = read
+
+  override final def write(value: Int): Unit =
+    state match
+      case WaitingForAddress =>
+        this.value = this.value & 0xFFFF0000 | value & 0xFFFF
+        //println(s"PMC write address=${address.toHexString}")
+        state = WaitingForMode
+      case WaitingForMode =>
+        this.value = this.value & 0x0000FFFF | (value & 0xFFFF) << 16
+        pmcSet = true
+        //println(s"PMC write mode=${mode.toHexString}")
+        state = WaitingForAddress
+
+  override final def read: Int =
+    val address = value & 0xFFFF
+    state match
+      case WaitingForAddress =>
+        state = WaitingForMode
+        //println(s"Reading PMC with : ${address.toHexString}")
+        address
+      case WaitingForMode =>
+        state = WaitingForAddress
+        pmcSet = true
+        //println(s"Reading PMC with address set: ${((address << 4) & 0xFFF0 | (address >> 4) & 0xF).toHexString}")
+        /*
+         If read in "waiting for mode" state, we get the same value as in other state, but rotated by 4
+         (or with nibbles swapped, VR always does this to words with both bytes equal,
+         like 'abab' to get 'baba' for chessboard dithering effect)
+        */
+        (address << 4) & 0xFFF0 | (address >> 4) & 0xF
+
+  def ready(): Boolean = state == WaitingForAddress
+  def isAddressSet: Boolean = state == WaitingForMode
+// ===========================================================
+class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val st:StatusRegister) extends Register(RegisterType.fromOrdinal(RegisterType.PM0.ordinal + index)):
+  private inline val R = 0
+  private inline val W = 1
+  private inline val SPECIAL_INC = 0xFF
+  private val externalAddress = Array(0,0)
+  private val externalAddressIncrement = Array(0,0) // SPECIAL_INC means special increment mode
+  private var externalOverwrite = false
+  private var rwmode = R
+
+  override def get: Int = externalAddress(rwmode)
 
   override def reset(): Unit = 
     super.reset()
-    state = Address
-    address = 0
-    mode = 0
+    externalOverwrite = false
+    java.util.Arrays.fill(externalAddress,0)
+    java.util.Arrays.fill(externalAddressIncrement, 0)
 
-  override def get: Int = mode << 16 | address
-  
-  def resetState(): Unit =
-    state = Address
 
   override def blindAccessedRead(): Unit =
-    state match
-      case Address =>
-        state = Mode
-      case Mode =>
-        state = Address
-
+    if !pmc.ready() then
+      println("PMx Blind read with pmc not ready")
+      io.StdIn.readLine(">")
+    if pmc.isPMCSet then
+      setMode(R)
+      pmc.resetPMCSet()
   override def blindAccessedWrite(): Unit =
-    state match
-      case Address =>
-        state = Mode
-      case Mode =>
-        state = Address
+    if !pmc.ready() then
+      println("PMx Blind write with pmc not ready")
+      io.StdIn.readLine(">")
+    if pmc.isPMCSet then
+      setMode(W)
+      pmc.resetPMCSet()
 
-  override def write(value: Int): Unit =
-    state match
-      case Address =>
-        address = value & 0xFFFF
-        state = Mode
-      case Mode =>
-        mode = value & 0xFFFF
-        state = Address
+  private def setMode(mode:0|1): Unit =
+    this.rwmode = mode
+    externalAddress(mode) = pmc.get
+    val pmcMode = externalAddress(mode) >>> 16
+    externalAddressIncrement(mode) = if isSpecialIncrementMode(pmcMode) then SPECIAL_INC else getAutoIncrement(pmcMode)
+    if mode == W then
+      externalOverwrite = isOverwriteMode(pmcMode)
 
-  override def read: Int =
-    state match
-      case Address =>
-        state = Mode
-        address
-      case Mode =>
-        state = Address
-        /*
-           If read in "waiting for mode" state, we get the same value as in other state, but rotated by 4
-           (or with nibbles swapped, VR always does this to words with both bytes equal,
-           like 'abab' to get 'baba' for chessboard dithering effect)
-         */
-        (address << 4) & 0xFFF0 | (address >> 4) & 0xF
-
-  def ready(): Boolean = state == Address
-
-  def getTargetAddress: Int =
-    address | (mode & 0x1F) << 16
-  def getAutoIncrement: Int =
+  inline private def isOverwriteMode(mode:Int): Boolean = (mode & 0x400) != 0
+  inline private def isSpecialIncrementMode(mode:Int): Boolean = (mode & 0x4000) != 0
+  inline private def getAutoIncrement(mode:Int): Int =
     val negative = (mode & 0x8000) != 0
     val nnn = (mode >> 11) & 7
     val autoinc = nnn match
@@ -461,45 +502,6 @@ class PMC extends Register(PMC):
       case 6 => 32
       case 7 => 128
     if negative then -autoinc else autoinc
-  def isSpecialIncrementMode: Boolean =
-    (mode & 0x4000) != 0
-  def isOverwriteMode: Boolean =
-    (mode & 0x400) != 0
-// ===========================================================
-class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val st:StatusRegister) extends Register(RegisterType.fromOrdinal(RegisterType.PM0.ordinal + index)):
-  private inline val R = 0
-  private inline val W = 1
-  private inline val SPECIAL_INC = 0xFF
-  private val externalAddress = Array(0,0)
-  private val externalAddressIncrement = Array(0,0) // SPECIAL_INC means special increment mode
-  private var externalOverwrite = false
-  private var mode = R
-
-  override def get: Int = externalAddress(mode)
-
-  override def reset(): Unit = 
-    super.reset()
-    externalOverwrite = false
-    java.util.Arrays.fill(externalAddress,0)
-    java.util.Arrays.fill(externalAddressIncrement, 0)
-
-  override def blindAccessedRead(): Unit =
-    if !pmc.ready() then
-      println("PMx Blind read with pmc not ready")
-      io.StdIn.readLine(">")
-    setMode(R)
-  override def blindAccessedWrite(): Unit =
-    if !pmc.ready() then
-      println("PMx Blind write with pmc not ready")
-      io.StdIn.readLine(">")
-    setMode(W)
-
-  private def setMode(mode:0|1): Unit =
-    this.mode = mode
-    externalAddress(mode) = pmc.getTargetAddress
-    externalAddressIncrement(mode) = if pmc.isSpecialIncrementMode then SPECIAL_INC else pmc.getAutoIncrement
-    if mode == W then
-      externalOverwrite = pmc.isOverwriteMode
 
   protected def externalStatusRegisterRead: Int = 0
   protected def externalStatusRegisterWrite(value:Int): Unit = {}
@@ -509,21 +511,21 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
       externalAddress(mode) += (if (externalAddress(mode) & 1) == 1 then 31 else 1) // Why 31, doc says 32
     else
       externalAddress(mode) += externalAddressIncrement(mode)
-    externalAddress(mode) &= 0x1F_FFFF
-
-  //override def read: Int = read(readByM68K = false)
+    //externalAddress(mode) &= 0x1F_FFFF
 
   override final def read: Int =
+    pmc.resetPMCSet()
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
-      val value = mem.svpExternalRead(externalAddress(R))
+      val value = mem.svpExternalRead(externalAddress(R) & 0x1F_FFFF)
       incrementAddress(R)
+      pmc.update(externalAddress(R))
       value
     else
       externalStatusRegisterRead
       
   private def overwrite(value:Int): Int =
     if externalOverwrite then
-      var currentVal = mem.svpExternalRead(externalAddress(W))
+      var currentVal = mem.svpExternalRead(externalAddress(W) & 0x1F_FFFF)
       if (value & 0xf000) > 0 then
         currentVal &= ~0xf000
         currentVal |= value & 0xf000
@@ -541,12 +543,12 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
     else
       value
 
-  //override def write(value:Int): Unit = write(value,writeByM68K = false)
-
   override final def write(value:Int): Unit =
+    pmc.resetPMCSet()
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
-      mem.svpExternalWrite(externalAddress(W),overwrite(value))
+      mem.svpExternalWrite(externalAddress(W) & 0x1F_FFFF,overwrite(value))
       incrementAddress(W)
+      pmc.update(externalAddress(W))
     else
       externalStatusRegisterWrite(value)
 
