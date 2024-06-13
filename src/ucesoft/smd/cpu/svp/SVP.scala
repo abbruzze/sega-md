@@ -3,6 +3,8 @@ import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.SMDComponent
 import ucesoft.smd.cpu.svp.RegisterType.*
 
+import java.util.concurrent.locks.ReentrantLock
+
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 24/05/2024 18:20  
@@ -25,16 +27,21 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
   private val pReg = new P(xReg,yReg,stReg)
 
   @volatile private var statusXST = 0
+  @volatile private var xstValue = 0
+  private val lock = new ReentrantLock()
 
   private val pmcReg = new PMC
+  private val aReg = new Accumulator(stReg)
   /*
    If this register is blind-accessed, it is "dummy programmed", i.e. nothing
    happens and PMC is reset to "waiting for address" state.
    */
   private val alReg = new Register(AL):
+    override final def read: Int = aReg.readLow
+    override final def write(value:Int): Unit = aReg.writeLow(value)
     override def blindAccessedRead(): Unit = pmcReg.resetState()
     override def blindAccessedWrite(): Unit = pmcReg.resetState()
-  private val aReg = new Accumulator(alReg)
+
   /*
     mapped to a15004 on 68k side:
        ???????? ??????10
@@ -45,29 +52,33 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
      */
   private val pm0Reg = new ExternalRegister(0,mem,pmcReg,stReg):
     override def get: Int = statusXST
-    override protected def externalStatusRegisterRead(readByM68K:Boolean): Int =
+    override protected def externalStatusRegisterRead: Int =
+      //lock.lock()
       val status = statusXST
       //println(s"Reading PM0 status 68K=$readByM68K $status")
-      if readByM68K then
-        statusXST &= ~SSP160x_WRITTEN_XST_MASK
-      else
-        statusXST &= ~M68K_WRITTEN_A15000_MASK
+      statusXST &= ~M68K_WRITTEN_A15000_MASK
+      //lock.unlock()
       status
   /*
     Mapped to a15000 and a15002 on 68k side.
     Affects PM0 when written to.
    */
   private val xstReg = new ExternalRegister(3,mem,pmcReg,stReg):
-    override protected def externalStatusRegisterWrite(value: Int, writeByM68K: Boolean): Unit =
-      this.value = value
-      if writeByM68K then
-        statusXST |= M68K_WRITTEN_A15000_MASK
-      else
-        statusXST |= SSP160x_WRITTEN_XST_MASK
-        println(s"SVP writes XST: ${value.toHexString}/${(value >> 8).toChar}${(value & 0xFF).toChar}")
+    override def get: Int = xstValue
+
+    override final protected def externalStatusRegisterWrite(value: Int): Unit =
+      //lock.lock()
+      xstValue = value
+//      this.value = value
+//      if writeByM68K then
+//        statusXST |= M68K_WRITTEN_A15000_MASK
+//      else
+      statusXST |= SSP160x_WRITTEN_XST_MASK
+      println(s"SVP writes XST: ${value.toHexString}/${(value >> 8).toChar}${(value & 0xFF).toChar}")
+      //lock.unlock()
       //println(s"Writing XST 68K=$writeByM68K ${value.toHexString} statusXST=$statusXST")
 
-    override protected def externalStatusRegisterRead(readByM68K: Boolean): Int = value
+    override final protected def externalStatusRegisterRead: Int = xstValue
 
   private val regs = Array(
     new BlindRegister,
@@ -103,12 +114,21 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
   override def reset(): Unit =
     regs.foreach(_.reset())
     statusXST = 0
+    xstValue = 0
     java.util.Arrays.fill(RAM(A),0)
     java.util.Arrays.fill(RAM(B), 0)
 
     pcReg.write(mem.svpReadIRamRom(0xFFFC))
     halted = false
   end reset
+
+  def dumpRamCRC(index:0|1): Int =
+    var crc = 0
+    var c = 0
+    while c < 256 do
+      crc += RAM(index)(c)
+      c += 1
+    crc & 0xFFFF
 
   def dumpRegs(): String =
     val sb = new StringBuilder()
@@ -123,24 +143,30 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
     sb.toString()
 
   final def m68kWriteXST(value:Int): Unit =
-    xstReg.write(value,writeByM68K = true)
-  final def m68kReadXST(): Int = xstReg.read(readByM68K = true)
+    //lock.lock()
+    xstValue = value
+    //xstReg.write(value,writeByM68K = true)
+    statusXST |= M68K_WRITTEN_A15000_MASK
+    //lock.unlock()
+  final def m68kReadXST(): Int = xstValue //xstReg.read(readByM68K = true)
   final def m68kReadPM0(): Int =
     //pm0Reg.read(readByM68K = true)
+    //lock.lock()
     val st = statusXST
     statusXST &= ~SSP160x_WRITTEN_XST_MASK
+    //lock.unlock()
     st
   final def halt(enabled:Boolean): Unit =
     halted = enabled
 
   private def alu(op:Int,operand:Int,_32:Boolean): Unit =
     op match
-      case 1 => aReg.aluSUB(operand,stReg,_32)
-      case 3 => aReg.aluCMP(operand,stReg,_32)
-      case 4 => aReg.aluADD(operand,stReg,_32)
-      case 5 => aReg.aluAND(operand,stReg,_32)
-      case 6 => aReg.aluOR(operand,stReg,_32)
-      case 7 => aReg.aluXOR(operand,stReg,_32)
+      case 1 => aReg.aluSUB(operand,_32)
+      case 3 => aReg.aluCMP(operand,_32)
+      case 4 => aReg.aluADD(operand,_32)
+      case 5 => aReg.aluAND(operand,_32)
+      case 6 => aReg.aluOR(operand,_32)
+      case 7 => aReg.aluXOR(operand,_32)
 
   inline private def getRI(opcode:Int): PointerRegister =
     regs(RegisterType.R0.ordinal + ((opcode & 0x100) >> 6 | opcode & 3)).asInstanceOf[PointerRegister]
@@ -209,14 +235,14 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
         case 0x48 =>
           if isCondition((opcode >> 4) & 0xF,(opcode >> 8) & 1) then
             opcode & 7 match
-              case 0 => aReg.aluROR(stReg)
-              case 1 => aReg.aluROL(stReg)
-              case 2 => aReg.aluSHR(stReg)
-              case 3 => aReg.aluSHL(stReg)
-              case 4 => aReg.aluINC(stReg)
-              case 5 => aReg.aluDEC(stReg)
-              case 6 => aReg.aluNEG(stReg)
-              case 7 => aReg.aluABS(stReg)
+              case 0 => aReg.aluROR()
+              case 1 => aReg.aluROL()
+              case 2 => aReg.aluSHR()
+              case 3 => aReg.aluSHL()
+              case 4 => aReg.aluINC()
+              case 5 => aReg.aluDEC()
+              case 6 => aReg.aluNEG()
+              case 7 => aReg.aluABS()
         // mod f, op     1001 0100 0000 oooo
         case 0x4A =>
           opcode & 0xF match
@@ -243,7 +269,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
             val d = opcode >> 4
             val s = opcode & 0xF
             if d == ACC.ordinal && s == P.ordinal then // A <- P
-              aReg.setA(pReg.multiply(),stReg)
+              aReg.setA(pReg.multiply())
             else if d == ACC.ordinal && s == ACC.ordinal then {/* do nothing */}// A <- A
             else
               val dr = regs(d)
@@ -327,7 +353,8 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           val mi = PointerRegisterModifier.fromRI(ri.index,(opcode >> 2) & 3)
           val rj = regs(R0.ordinal + ((opcode >> 4) & 3) + 4).asInstanceOf[PointerRegister]
           val mj = PointerRegisterModifier.fromRI(rj.index,(opcode >> 6) & 3)
-          aReg.setA(0,stReg)
+          aReg.setA(0)
+          stReg.write(stReg.read & 0x0FFF)
           xReg.write(ri.read(PointerRegisterAddressing.Indirect1,mi))
           yReg.write(rj.read(PointerRegisterAddressing.Indirect1,mj))
         // mpya (rj), (ri)  1001 0111 nnjj mmii
@@ -336,7 +363,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           val mi = PointerRegisterModifier.fromRI(ri.index,(opcode >> 2) & 3)
           val rj = regs(R0.ordinal + ((opcode >> 4) & 3) + 4).asInstanceOf[PointerRegister]
           val mj = PointerRegisterModifier.fromRI(rj.index,(opcode >> 6) & 3)
-          aReg.addA(pReg.multiply(),stReg)
+          aReg.addA(pReg.multiply())
           xReg.write(ri.read(PointerRegisterAddressing.Indirect1,mi))
           yReg.write(rj.read(PointerRegisterAddressing.Indirect1,mj))
         // mpys (rj), (ri)  0011 0111 nnjj mmii
@@ -345,7 +372,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           val mi = PointerRegisterModifier.fromRI(ri.index,(opcode >> 2) & 3)
           val rj = regs(R0.ordinal + ((opcode >> 4) & 3) + 4).asInstanceOf[PointerRegister]
           val mj = PointerRegisterModifier.fromRI(rj.index,(opcode >> 6) & 3)
-          aReg.addA(-pReg.multiply(),stReg)
+          aReg.addA(-pReg.multiply())
           xReg.write(ri.read(PointerRegisterAddressing.Indirect1,mi))
           yReg.write(rj.read(PointerRegisterAddressing.Indirect1,mj))
         case x =>

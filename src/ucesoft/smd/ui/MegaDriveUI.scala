@@ -153,6 +153,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     mapper.resetComponent()
     megaDrive.mmu.setM68KMapper(mapper)
     megaDrive.setMapper(mapper)
+    mapper.start()
 
   private def saveCartExtraMemory(cart:Cart): Unit =
     if megaDrive.pref.get[Boolean](LOAD_SAVE_EXTRA_RAM_PREF).get.value then
@@ -520,6 +521,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         megaDrive.masterClock.start()
         megaDrive.fmAudio.start()
         megaDrive.psgAudio.start()
+      megaDrive.mmu.getM68KMapper.foreach(_.play())
       play()
 
   private def changeRegion(): Unit =

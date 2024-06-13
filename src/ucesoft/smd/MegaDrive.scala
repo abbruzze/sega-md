@@ -225,10 +225,11 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   final override def clock(cycles: Long): Unit =
     vdp.clock(cycles)
     if mapperClock != null then
-      mapperClockCycles += 1
-      if mapperClockCycles == mapperClockRatio then
-        mapperClock.clock(1)
-        mapperClockCycles = 0
+      mapperClock.clock(1)
+//      mapperClockCycles += 1
+//      if mapperClockCycles == mapperClockRatio then
+//        mapperClock.clock(mapperClockRatio << 2)
+//        mapperClockCycles = 0
       
     if m68k.isComponentEnabled then
       m68Acc += m68Div

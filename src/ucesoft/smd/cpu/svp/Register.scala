@@ -40,106 +40,114 @@ class ProgramCounter extends Register(PC):
     pc
 // ===========================================================
 
-class Accumulator(val AL:Register) extends Register(ACC):
+class Accumulator(val st:StatusRegister) extends Register(ACC):
+  private var lowValue = 0
+  
+  final def readLow: Int = lowValue
+  final def writeLow(value:Int): Unit =
+    lowValue = value & 0xFFFF
+  
   inline private def write32(value:Int): Unit =
     this.value = value >>> 16
-    AL.write(value & 0xFFFF)
+    lowValue = value & 0xFFFF
+    //AL.write(value & 0xFFFF)
 
-  inline private def read32: Int = value << 16 | AL.read
+  inline private def read32: Int = value << 16 | lowValue //AL.read
 
   final def getA: Int = read32
-  final def setA(value:Int,st:StatusRegister): Unit = 
+  final def setA(value:Int): Unit =
     write32(value)
-    setNZ(value,st)
-  final def addA(value: Int, st: StatusRegister): Unit =
-    write32(read32 + value)
-    setNZ(value, st)
+    //setNZ(value,st) // TODO check
+  final def addA(value: Int): Unit =
+    val a = read32 + value
+    write32(a)
+    setNZ(a)
 
   override def reset(): Unit = 
     super.reset()
-    AL.reset()
+    //AL.reset()
 
   // affects 32 bits
-  inline private def setNZ(a:Int,st:StatusRegister): Unit =
+  inline private def setNZ(a:Int): Unit =
     if a == 0 then st.setFlag(StatusRegisterFlag.Z) else st.clearFlag(StatusRegisterFlag.Z)
     if (a & 0x8000_0000) != 0 then st.setFlag(StatusRegisterFlag.N) else st.clearFlag(StatusRegisterFlag.N)
-  inline private def setL(preA:Int,postA:Int,st:StatusRegister): Unit =
+  inline private def setL(preA:Int,postA:Int): Unit =
     if (preA & 0x10000) == 0 && (postA & 0x10000) != 0 then st.setFlag(StatusRegisterFlag.L) else st.clearFlag(StatusRegisterFlag.L)
 
-  final def aluADD(value:Int,st:StatusRegister,_32:Boolean): Unit =
+  final def aluADD(value:Int,_32:Boolean): Unit =
     var a = read32
     val aPre = a
     a += (if _32 then value else value << 16)
     write32(a)
-    setNZ(a,st)
-    setL(aPre,a,st)
-  final def aluSUB(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    setNZ(a)
+    setL(aPre,a)
+  final def aluSUB(value: Int, _32: Boolean): Unit =
     var a = read32
     a -= (if _32 then value else value << 16)
     write32(a)
-    setNZ(a,st)
-  final def aluCMP(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    setNZ(a)
+  final def aluCMP(value: Int, _32: Boolean): Unit =
     var a = read32
     a -= (if _32 then value else value << 16)
-    setNZ(a,st)
-  final def aluAND(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    setNZ(a)
+  final def aluAND(value: Int, _32: Boolean): Unit =
     var a = read32
     a &= (if _32 then value else value << 16/* | 0xFFFF*/)
     write32(a)
-    setNZ(a, st)
-  final def aluOR(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    setNZ(a)
+  final def aluOR(value: Int, _32: Boolean): Unit =
     var a = read32
     a |= (if _32 then value else value << 16)
     write32(a)
-    setNZ(a, st)
-  final def aluXOR(value: Int, st: StatusRegister, _32: Boolean): Unit =
+    setNZ(a)
+  final def aluXOR(value: Int, _32: Boolean): Unit =
     var a = read32
     a ^= (if _32 then value else value << 16)
     write32(a)
-    setNZ(a, st)
-  final def aluROR(st:StatusRegister): Unit =
+    setNZ(a)
+  final def aluROR(): Unit =
     var a = read32
     val lsb = a & 1
     a = a >>> 1 | lsb << 31
     write32(a)
-    setNZ(a, st)
-  final def aluROL(st: StatusRegister): Unit =
+    setNZ(a)
+  final def aluROL(): Unit =
     var a = read32
     val msb = a >>> 31
     a = a << 1 | msb
     write32(a)
-    setNZ(a, st)
-  final def aluSHR(st: StatusRegister): Unit =
+    setNZ(a)
+  final def aluSHR(): Unit =
     var a = read32
     a = a >> 1
     write32(a)
-    setNZ(a, st)
-  final def aluSHL(st: StatusRegister): Unit =
+    setNZ(a)
+  final def aluSHL(): Unit =
     var a = read32
     a = a << 1
     write32(a)
-    setNZ(a, st)
-  final def aluINC(st: StatusRegister): Unit =
+    setNZ(a)
+  final def aluINC(): Unit =
     var a = read32
     a += 1
     write32(a)
-    setNZ(a, st)
-  final def aluDEC(st: StatusRegister): Unit =
+    setNZ(a)
+  final def aluDEC(): Unit =
     var a = read32
     a -= 1
     write32(a)
-    setNZ(a, st)
-  final def aluNEG(st: StatusRegister): Unit =
+    setNZ(a)
+  final def aluNEG(): Unit =
     var a = read32
     a = -a
     write32(a)
-    setNZ(a, st)
-  final def aluABS(st: StatusRegister): Unit =
+    setNZ(a)
+  final def aluABS(): Unit =
     var a = read32
     if a < 0 then
       a = -a
       write32(a)
-    setNZ(a, st)
+    setNZ(a)
 
 end Accumulator
 
@@ -493,8 +501,8 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
     if mode == W then
       externalOverwrite = pmc.isOverwriteMode
 
-  protected def externalStatusRegisterRead(readByM68K:Boolean): Int = 0
-  protected def externalStatusRegisterWrite(value:Int,writeByM68K:Boolean): Unit = {}
+  protected def externalStatusRegisterRead: Int = 0
+  protected def externalStatusRegisterWrite(value:Int): Unit = {}
 
   private def incrementAddress(mode:0|1): Unit =
     if externalAddressIncrement(mode) == SPECIAL_INC then // special increment
@@ -503,15 +511,15 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
       externalAddress(mode) += externalAddressIncrement(mode)
     externalAddress(mode) &= 0x1F_FFFF
 
-  override def read: Int = read(readByM68K = false)
+  //override def read: Int = read(readByM68K = false)
 
-  def read(readByM68K:Boolean): Int =
+  override final def read: Int =
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
       val value = mem.svpExternalRead(externalAddress(R))
       incrementAddress(R)
       value
     else
-      externalStatusRegisterRead(readByM68K)
+      externalStatusRegisterRead
       
   private def overwrite(value:Int): Int =
     if externalOverwrite then
@@ -533,13 +541,13 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
     else
       value
 
-  override def write(value:Int): Unit = write(value,writeByM68K = false)
+  //override def write(value:Int): Unit = write(value,writeByM68K = false)
 
-  def write(value:Int,writeByM68K:Boolean): Unit =
+  override final def write(value:Int): Unit =
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
       mem.svpExternalWrite(externalAddress(W),overwrite(value))
       incrementAddress(W)
     else
-      externalStatusRegisterWrite(value,writeByM68K)
+      externalStatusRegisterWrite(value)
 
 
