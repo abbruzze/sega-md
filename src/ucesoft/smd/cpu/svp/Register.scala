@@ -15,7 +15,7 @@ class Register(val rtype:RegisterType):
 
   def write(value: Int): Unit =
     this.value = value & 0xFFFF
-    
+
   def reset(): Unit =
     value = 0
 
@@ -63,7 +63,7 @@ class Accumulator(val st:StatusRegister) extends Register(ACC):
     write32(a)
     setNZ(a)
 
-  override def reset(): Unit = 
+  override def reset(): Unit =
     super.reset()
     lowValue = 0
     //AL.reset()
@@ -162,7 +162,7 @@ class Stack extends Register(STACK):
   override def toString: String = elements.mkString("[",",","]")
 
   override def get: Int = top
-  override def reset(): Unit = 
+  override def reset(): Unit =
     super.reset()
     top = -1
 
@@ -457,7 +457,7 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
 
   override def get: Int = externalAddress(rwmode)
 
-  override def reset(): Unit = 
+  override def reset(): Unit =
     super.reset()
     externalOverwrite = false
     java.util.Arrays.fill(externalAddress,0)
@@ -470,14 +470,14 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
       io.StdIn.readLine(">")
     if pmc.isPMCSet then
       setMode(R)
-      pmc.resetPMCSet()
+    pmc.resetPMCSet()
   override def blindAccessedWrite(): Unit =
     if !pmc.ready() then
       println("PMx Blind write with pmc not ready")
       io.StdIn.readLine(">")
     if pmc.isPMCSet then
       setMode(W)
-      pmc.resetPMCSet()
+    pmc.resetPMCSet()
 
   private def setMode(mode:0|1): Unit =
     this.rwmode = mode
@@ -514,15 +514,20 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
     //externalAddress(mode) &= 0x1F_FFFF
 
   override final def read: Int =
-    pmc.resetPMCSet()
+    //pmc.resetPMCSet()
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
+      val mode = externalAddress(R) >>> 16
+      val ok = (mode & 0xfff0) == 0x0800 || (mode & 0x47ff) == 0x0018
+      if !ok then
+        println(s"Mode ${mode.toHexString} NOT OK")
+        sys.exit(1)
       val value = mem.svpExternalRead(externalAddress(R) & 0x1F_FFFF)
       incrementAddress(R)
       pmc.update(externalAddress(R))
       value
     else
       externalStatusRegisterRead
-      
+
   private def overwrite(value:Int): Int =
     if externalOverwrite then
       var currentVal = mem.svpExternalRead(externalAddress(W) & 0x1F_FFFF)
@@ -538,14 +543,20 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
       if (value & 0x000f) > 0 then
         currentVal &= ~0x000f
         currentVal |= value & 0x000f
-      
+
       currentVal
     else
       value
 
   override final def write(value:Int): Unit =
-    pmc.resetPMCSet()
+    //pmc.resetPMCSet()
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
+      val mode = externalAddress(W) >>> 16
+      val ok = (mode & 0x43ff) == 0x0018 || (mode & 0xfbff) == 0x4018 || (mode & 0x47ff) == 0x001c
+      if !ok then
+        println(s"Mode W ${mode.toHexString} NOT OK")
+        //io.StdIn.readLine(">")
+        //sys.exit(1)
       mem.svpExternalWrite(externalAddress(W) & 0x1F_FFFF,overwrite(value))
       incrementAddress(W)
       pmc.update(externalAddress(W))
