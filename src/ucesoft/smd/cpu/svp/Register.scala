@@ -22,7 +22,8 @@ class Register(val rtype:RegisterType):
   override def toString: String = get.toHexString
 
   def blindAccessedRead(): Unit = {}
-  def blindAccessedWrite(): Unit = {}
+  def blindAccessedWrite(): Unit =
+    value = 0xFFFF
 // ===========================================================
 
 class BlindRegister extends Register(BLIND):
@@ -245,7 +246,7 @@ object PointerRegisterModifier:
     else
       PointerRegisterModifier.fromOrdinal(mod & 3)
 enum PointerRegisterModifier:
-  case None, PostIncrementModulo, PostDecrementModulo, PostIncrement, _00, _01, _10, _11
+  case None, PostIncrement,PostDecrementModulo, PostIncrementModulo, _00, _01, _10, _11
 
 
 enum PointerRegisterAddressing:
@@ -410,6 +411,7 @@ class PMC extends Register(PMC):
 
   def resetState(): Unit =
     state = WaitingForAddress
+    pmcSet = false
 
   override final def blindAccessedRead(): Unit = read
 
@@ -450,17 +452,17 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
   private inline val R = 0
   private inline val W = 1
   private inline val SPECIAL_INC = 0xFF
-  private val externalAddress = Array(0,0)
+  private val externalModeAddress = Array(0,0)
   private val externalAddressIncrement = Array(0,0) // SPECIAL_INC means special increment mode
   private var externalOverwrite = false
   private var rwmode = R
 
-  override def get: Int = externalAddress(rwmode)
+  override def get: Int = externalModeAddress(rwmode)
 
   override def reset(): Unit =
     super.reset()
     externalOverwrite = false
-    java.util.Arrays.fill(externalAddress,0)
+    java.util.Arrays.fill(externalModeAddress,0)
     java.util.Arrays.fill(externalAddressIncrement, 0)
 
 
@@ -481,8 +483,8 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
 
   private def setMode(mode:0|1): Unit =
     this.rwmode = mode
-    externalAddress(mode) = pmc.get
-    val pmcMode = externalAddress(mode) >>> 16
+    externalModeAddress(mode) = pmc.get
+    val pmcMode = externalModeAddress(mode) >>> 16
     externalAddressIncrement(mode) = if isSpecialIncrementMode(pmcMode) then SPECIAL_INC else getAutoIncrement(pmcMode)
     if mode == W then
       externalOverwrite = isOverwriteMode(pmcMode)
@@ -508,29 +510,29 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
 
   private def incrementAddress(mode:0|1): Unit =
     if externalAddressIncrement(mode) == SPECIAL_INC then // special increment
-      externalAddress(mode) += (if (externalAddress(mode) & 1) == 1 then 31 else 1) // Why 31, doc says 32
+      externalModeAddress(mode) += (if (externalModeAddress(mode) & 1) == 1 then 31 else 1) // Why 31, doc says 32
     else
-      externalAddress(mode) += externalAddressIncrement(mode)
+      externalModeAddress(mode) += externalAddressIncrement(mode)
     //externalAddress(mode) &= 0x1F_FFFF
 
   override final def read: Int =
     //pmc.resetPMCSet()
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
-      val mode = externalAddress(R) >>> 16
+      val mode = externalModeAddress(R) >>> 16
       val ok = (mode & 0xfff0) == 0x0800 || (mode & 0x47ff) == 0x0018
       if !ok then
         println(s"Mode ${mode.toHexString} NOT OK")
         sys.exit(1)
-      val value = mem.svpExternalRead(externalAddress(R) & 0x1F_FFFF)
+      val value = mem.svpExternalRead(externalModeAddress(R) & 0x1F_FFFF)
       incrementAddress(R)
-      pmc.update(externalAddress(R))
+      pmc.update(externalModeAddress(R))
       value
     else
       externalStatusRegisterRead
 
   private def overwrite(value:Int): Int =
     if externalOverwrite then
-      var currentVal = mem.svpExternalRead(externalAddress(W) & 0x1F_FFFF)
+      var currentVal = mem.svpExternalRead(externalModeAddress(W) & 0x1F_FFFF)
       if (value & 0xf000) > 0 then
         currentVal &= ~0xf000
         currentVal |= value & 0xf000
@@ -551,15 +553,16 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
   override final def write(value:Int): Unit =
     //pmc.resetPMCSet()
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
-      val mode = externalAddress(W) >>> 16
-      val ok = (mode & 0x43ff) == 0x0018 || (mode & 0xfbff) == 0x4018 || (mode & 0x47ff) == 0x001c
-      if !ok then
-        println(s"Mode W ${mode.toHexString} NOT OK")
-        //io.StdIn.readLine(">")
-        //sys.exit(1)
-      mem.svpExternalWrite(externalAddress(W) & 0x1F_FFFF,overwrite(value))
+//      val mode = externalModeAddress(W) >>> 16
+//      val ok = (mode & 0x43ff) == 0x0018 || (mode & 0xfbff) == 0x4018 || (mode & 0x47ff) == 0x001c
+//      if !ok then
+//        println(s"Mode W ${mode.toHexString} NOT OK")
+      val bank = (externalModeAddress(W) >>> 16) & 0x1F
+      if bank != 0x18 && bank != 0x1C then
+        println(s"Accessing BAD address: ${externalModeAddress(W).toHexString}")
+      mem.svpExternalWrite(externalModeAddress(W) & 0x1F_FFFF,overwrite(value))
       incrementAddress(W)
-      pmc.update(externalAddress(W))
+      pmc.update(externalModeAddress(W))
     else
       externalStatusRegisterWrite(value)
 
