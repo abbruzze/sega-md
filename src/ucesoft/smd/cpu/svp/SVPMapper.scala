@@ -1,14 +1,8 @@
 package ucesoft.smd.cpu.svp
 
-import ucesoft.smd.{Cart, Clock, MMU, SMDComponent}
 import ucesoft.smd.cpu.m68k.Size
 import ucesoft.smd.cpu.m68k.Size.{Byte, Long, Word}
-import ucesoft.smd.cpu.svp.RegisterType.{ACC, ST}
-
-import java.io.{FileWriter, PrintWriter}
-import java.util.concurrent.locks.ReentrantLock
-import scala.collection.mutable
-import scala.compiletime.uninitialized
+import ucesoft.smd.{Cart, Clock, MMU}
 
 /**
  * @author Alessandro Abbruzzetti
@@ -33,37 +27,12 @@ import scala.compiletime.uninitialized
 class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
   override protected val smdComponentName : String = "SVPMapper"
 
-  private final val iramRomWord = Array.ofDim[Int](0x10000)
+  override final val iramRomWord = Array.ofDim[Int](0x10000)
   private final val svpRom = Array.ofDim[Int](0x400)
   private final val gameRom = cart.getROM
   private final val dram = Array.ofDim[Int](0x10000)
   private var lastWord = 0
   private val svp = new SVP(this)
-
-  private val disa = new SVPDisassembler(this)
-  private val pc = svp.getRegister(RegisterType.PC)
-  private var readLine = false
-  private val pcset = new mutable.HashSet[Int]()
-  private var pcCheck = 0x53
-  private var svpCycles = 0L
-  private var ts = System.currentTimeMillis()
-  private val lock = new ReentrantLock()
-  private val clock = new Clock("SVP",46_000_000)
-
-  override def start(): Unit =
-    //clock.setClockables(svp)
-
-    clock.setClockables(_ => {
-      //println(disa.disassemble(pc.read).toString)
-      svp.clock(1)
-    })
-    clock.setClockDivider(0, 1)
-
-
-  override def play(): Unit =
-//    if !thread.isAlive then
-//      thread.start()
-    {}//clock.start()
 
   override def reset(): Unit =
     java.util.Arrays.fill(dram,0)
@@ -88,40 +57,10 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
   def getSVP: SVP = svp
   def getDRAM: Array[Int] = dram
 
+  override def getClockable: Clock.Clockable = svp
 
-  //override def getClockable: Clock.Clockable = svp
-  override def getClockable: Clock.Clockable = cycles => {
-//    if pc.read == pcCheck then readLine = true
-//    if readLine then
-//      println(disa.disassemble(pc.read).toString)
-//      println(svp.dumpRegs())
-//      val adr = io.StdIn.readLine(">")
-//      if adr.nonEmpty then
-//        readLine = false
-//        pcCheck = Integer.parseInt(adr,16)
-    if pcset.add(pc.read) || readLine then
-      println(disa.disassemble(pc.read).toString + s" A=${svp.getRegister(ACC).asInstanceOf[Accumulator].getA.toHexString} RA=${svp.dumpRamCRC(0).toHexString} RB=${svp.dumpRamCRC(1).toHexString} ST=${svp.getRegister(ST).get.toHexString}")
-//      println(svp.dumpRegs())
-//    if pc.read == 0xD1 then readLine = true
-//    if readLine then io.StdIn.readLine(">")
-//    if pc.read < 0x400 || (pc.read > 0x423 && pc.read < 0xFC00) then
-////      println(disa.disassemble(pc.read).toString)
-////      if readLine then println(svp.dumpRegs())
-//      if pc.read == 0x2794 then readLine = true
-//      if readLine then
-//        println(disa.disassemble(pc.read).toString)
-//        println(svp.dumpRegs())
-//        if io.StdIn.readLine(">") == "c" then readLine = false
-    svp.clock(cycles)
-//    svpCycles += cycles
-//    if System.currentTimeMillis() - ts > 1000 then
-//      ts = System.currentTimeMillis()
-//      println(s"SVP CYCLES $svpCycles")
-//      svpCycles = 0
-
-  }
-
-  override def getClockRatio: Int = 8
+  override def getClockPeriod: Int = 8
+  override def getCycles: Int = 8
 
   override final def isAddressMapped(address: Int): Boolean =
     (address >= 0x20_0000 && address < 0x40_0000) || (address >= 0xA1_5000 && address < 0xA1_5010)
@@ -139,38 +78,16 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
     else if wordAddress < 0x1C_8400 then
       iramRomWord(wordAddress & 0x3FF)
     else
-      //println(s"SVP external read from ${wordAddress.toHexString}")
+      println(s"SVP external read from ${wordAddress.toHexString}")
       0xFFFF
 
     lastWord
 
-  private def checkDRAMWrite(byteAddress:Int): Unit =
-    val label = byteAddress match
-      case 0x30FE00 => "Screen mirror flag"
-      case 0x30FE02 => "Command finished flag"
-      case 0x30FE06 => "Command sent flag"
-      case 0x30FE08 => "Command ID"
-      case 0x30FE10 => "Command parameter"
-      case _ => null
-    if label != null then println(s"DRAM[${byteAddress.toHexString}/$label]=${(dram((byteAddress >> 1) & 0xFFFF)).toHexString}")
-
   override final def svpExternalWrite(wordAddress: Int, value: Int): Unit =
-    //println(s"Writing external ${wordAddress.toHexString} = ${value.toHexString}")
-    //lock.lock()
     if wordAddress >= 0x18_0000 && wordAddress < 0x1C_0000 then
       dram(wordAddress & 0xFFFF) = value & 0xFFFF
-      //println(s"SVP writes DRAM ${(wordAddress & 0xFFFF).toHexString}=${value.toHexString}")
-      //checkDRAMWrite(wordAddress << 1)
     else if wordAddress >= 0x1C_8000 && wordAddress < 0x1C_8400 then
       iramRomWord(wordAddress & 0x3FF) = value
-    //lock.unlock()
-
-  override final def svpReadIRamRom(address: Int): Int =
-    iramRomWord(address & 0xFFFF)
-  override def svpWriteIRamRom(address: Int, value: Int): Unit =
-    println(s"SVP write iramrom at ${address.toHexString}")
-//    if address < 0x400 then
-//      iramRomWord(address) = value
 
   override final def read(address: Int, size: Size, readOptions: Int): Int =
     if address < 0x30_0000 then // unused (1)
@@ -180,17 +97,13 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
         case Word => lastWord
         case Long => lastWord << 16 | lastWord
     else if address < 0x38_0000 then // DRAM
-      //println(s"68K is reading DRAM ${address.toHexString} as $size")
       val adr = (address >> 1) & 0xFFFF
       size match
         case Byte =>
           dram(adr) & 0xFF // ?
         case Word =>
-          //println(s"68K reading WORD DRAM(${adr.toHexString})=${dram(adr).toHexString}")
-          //if (readOptions & (2 << 2)) != 0 && dram(adr) != 0 then println(s"VDP reads DRAM ${adr.toHexString})=${dram(adr).toHexString}")
           dram(adr)
         case Long =>
-          //println(s"68K reading LONG DRAM(${adr.toHexString})=${(dram(adr) << 16 | dram((adr + 1) & 0xFFFF)).toHexString}")
           dram(adr) << 16 | dram((adr + 1) & 0xFFFF)
     else if address < 0x39_0000 then // unused (1)
       println("Reading unused(1) SVP space")
@@ -230,8 +143,6 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
         svp.m68kReadXST()
       case 4 =>
         svp.m68kReadPM0()
-//      case 5 =>
-//        svp.m68kReadPM0() & 0xFF
       case _ =>
         println(s"M68K reads from ${address.toHexString}")
         0
@@ -239,21 +150,15 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
   override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
     if address >= 0x30_0000 && address < 0x38_0000 then // DRAM
       val adr = (address >> 1) & 0xFFFF
-      //lock.lock()
       size match
         case Byte =>
           dram(adr) = value // ??
           println("M68k writes byte to DRAM!!")
         case Word =>
           dram(adr) = value
-          //println(s"68K writes DRAM(${adr.toHexString})=${value.toHexString}")
         case Long =>
           dram(adr) = value >>> 16
-          //println(s"68K writes DRAM(${adr.toHexString})=${(value >> 16).toHexString} LONG")
           dram((adr + 1) & 0xFFFF) = value & 0xFFFF
-          //println(s"68K writes DRAM(${(adr + 1).toHexString})=${(value & 0xFFFF).toHexString} LONG")
-      //checkDRAMWrite(address)
-      //lock.unlock()
     else if address >= 0xA1_5000 && address < 0xA1_5010 then
       size match
         case Byte =>
@@ -269,7 +174,6 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
     address & 0xF match
       case 0 | 2 =>
         svp.m68kWriteXST(value)
-        println(s"68K writes XST: ${value.toHexString}/${(value >> 8).toChar}${(value & 0xFF).toChar}")
       case 6 =>
         /*
          possibly halts the SVP. Before doing DMA from DRAM, 68k code
@@ -277,7 +181,6 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
          done to prevent SVP accessing DRAM and avoid bus clashes.
          */
         svp.halt(value == 0xA)
-        //println(s"Halting SVP: ${value == 0x0A} $value")
       case 8 =>
         /*
          possibly causes an interrupt. There is (unused?) code which

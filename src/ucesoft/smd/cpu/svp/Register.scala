@@ -51,14 +51,12 @@ class Accumulator(val st:StatusRegister) extends Register(ACC):
   inline private def write32(value:Int): Unit =
     this.value = value >>> 16
     lowValue = value & 0xFFFF
-    //AL.write(value & 0xFFFF)
 
   inline private def read32: Int = value << 16 | lowValue //AL.read
 
   final def getA: Int = read32
   final def setA(value:Int): Unit =
     write32(value)
-    //setNZ(value,st) // TODO check
   final def addA(value: Int): Unit =
     val a = read32 + value
     write32(a)
@@ -170,7 +168,6 @@ class Stack extends Register(STACK):
   override final def read: Int =
     if top == -1 then
       println("Reading empty stack")
-      io.StdIn.readLine(">")
       0
     else
       val v = stack(top)
@@ -180,7 +177,6 @@ class Stack extends Register(STACK):
   override final def write(value: Int): Unit =
     if top == 5 then
       println("Writing full stack")
-      io.StdIn.readLine(">")
     else
       top += 1
       stack(top) = value & 0xFFFF
@@ -206,19 +202,19 @@ enum StatusRegisterFlag(val mask:Int,val shift:Int):
   case N      extends StatusRegisterFlag(0x8000,15)
 
 class StatusRegister extends Register(ST):
-  override def read: Int =
+  override final def read: Int =
     value & ~StatusRegisterFlag.IE.mask
-  def getFlag(f:StatusRegisterFlag): Int =
+  final def getFlag(f:StatusRegisterFlag): Int =
     (value & f.mask) >> f.shift
-  def setFlag(f:StatusRegisterFlag,value:Int): Unit =
+  final def setFlag(f:StatusRegisterFlag,value:Int): Unit =
     this.value &= ~f.mask
     this.value |= (value << f.shift) & f.mask
-  def setFlag(f:StatusRegisterFlag): Unit = setFlag(f,1)
-  def clearFlag(f:StatusRegisterFlag): Unit =
+  final def setFlag(f:StatusRegisterFlag): Unit = setFlag(f,1)
+  final def clearFlag(f:StatusRegisterFlag): Unit =
     this.value &= ~f.mask
-  def isSet(f:StatusRegisterFlag): Boolean =
+  final def isSet(f:StatusRegisterFlag): Boolean =
     (value & f.mask) != 0
-  def isClear(f: StatusRegisterFlag): Boolean =
+  final def isClear(f: StatusRegisterFlag): Boolean =
     (value & f.mask) == 0
 
 // ===========================================================
@@ -233,7 +229,7 @@ class P(val X:Register,val Y:Register,st:StatusRegister) extends Register(Regist
     else
       value
 
-  def multiply(): Int =
+  final def multiply(): Int =
     val shift = if st.isClear(StatusRegisterFlag.MACS) then 1 else 0
     value = (signExtend32(X.read) * signExtend32(Y.read)) << shift
     value
@@ -253,10 +249,11 @@ enum PointerRegisterAddressing:
   case Direct, Indirect1, Indirect2
 
 class PointerRegister(val index:0|1|2|3|4|5|6|7,val mem:SVPMemory,val ram:Array[Int],val st:StatusRegister) extends Register(RegisterType.fromOrdinal(RegisterType.R0.ordinal + index)):
-  override def read: Int =
+  private val iramrom = mem.iramRomWord
+  override final def read: Int =
     if index == 3 || index == 7 then 0 else value
 
-  override def write(value: Int): Unit =
+  override final def write(value: Int): Unit =
     if !(index == 3 || index == 7) then
       this.value = value & 0xFF
 
@@ -277,18 +274,14 @@ class PointerRegister(val index:0|1|2|3|4|5|6|7,val mem:SVPMemory,val ram:Array[
       modifier match
         case None =>
           ram(this.value) = value & 0xFFFF
-          //println(s"RAM[${if index < 4 then "0" else "1"}](${this.value.toHexString}) = ${value.toHexString}")
         case PostIncrementModulo =>
           ram(this.value) = value & 0xFFFF
-          //println(s"RAM[${if index < 4 then "0" else "1"}](${this.value.toHexString}) = ${value.toHexString}")
           modulo(1)
         case PostDecrementModulo =>
           ram(this.value) = value & 0xFFFF
-          //println(s"RAM[${if index < 4 then "0" else "1"}](${this.value.toHexString}) = ${value.toHexString}")
           modulo(-1)
         case PostIncrement =>
           ram(this.value) = value & 0xFFFF
-          //println(s"RAM[${if index < 4 then "0" else "1"}](${this.value.toHexString}) = ${value.toHexString}")
           this.value = (this.value + 1) & 0xFF
         case _ =>
           println(s"Wrong modifier for addressing $addressing: $modifier")
@@ -296,16 +289,12 @@ class PointerRegister(val index:0|1|2|3|4|5|6|7,val mem:SVPMemory,val ram:Array[
       modifier match
         case PointerRegisterModifier._00 =>
           ram(0) = value & 0xFFFF
-          //println(s"RAM[${if index < 4 then "0" else "1"}](0) = ${value.toHexString}")
         case PointerRegisterModifier._01 =>
           ram(1) = value & 0xFFFF
-          //println(s"RAM[${if index < 4 then "0" else "1"}](1) = ${value.toHexString}")
         case PointerRegisterModifier._10 =>
           ram(2) = value & 0xFFFF
-          //println(s"RAM[${if index < 4 then "0" else "1"}](2) = ${value.toHexString}")
         case PointerRegisterModifier._11 =>
           ram(3) = value & 0xFFFF
-          //println(s"RAM[${if index < 4 then "0" else "1"}](3) = ${value.toHexString}")
         case _ =>
           println(s"Wrong modifier for addressing $addressing: $modifier")
 
@@ -346,7 +335,7 @@ class PointerRegister(val index:0|1|2|3|4|5|6|7,val mem:SVPMemory,val ram:Array[
           io.StdIn.readLine(">")
           0
 
-  def write(addressing:PointerRegisterAddressing,modifier:PointerRegisterModifier,value:Int): Unit =
+  final def write(addressing:PointerRegisterAddressing,modifier:PointerRegisterModifier,value:Int): Unit =
     import PointerRegisterAddressing.*
     addressing match
       case Direct =>
@@ -355,9 +344,8 @@ class PointerRegister(val index:0|1|2|3|4|5|6|7,val mem:SVPMemory,val ram:Array[
         modWrite(addressing,modifier, value)
       case Indirect2 =>
         println(s"Invalid $addressing with write operation")
-        io.StdIn.readLine(">")
 
-  def read(addressing:PointerRegisterAddressing,modifier:PointerRegisterModifier): Int =
+  final def read(addressing:PointerRegisterAddressing,modifier:PointerRegisterModifier): Int =
     import PointerRegisterAddressing.*
     addressing match
       case Direct =>
@@ -368,7 +356,7 @@ class PointerRegister(val index:0|1|2|3|4|5|6|7,val mem:SVPMemory,val ram:Array[
         val oldAddress = read
         val target = modRead(addressing, modifier)
         ram(oldAddress) = (ram(oldAddress) + 1) & 0xFFFF
-        mem.svpReadIRamRom(target)
+        iramrom(target)
 // ===========================================================
 /*
  dsnn nv?? ???a aaaa
@@ -419,12 +407,10 @@ class PMC extends Register(PMC):
     state match
       case WaitingForAddress =>
         this.value = this.value & 0xFFFF0000 | value & 0xFFFF
-        //println(s"PMC write address=${address.toHexString}")
         state = WaitingForMode
       case WaitingForMode =>
         this.value = this.value & 0x0000FFFF | (value & 0xFFFF) << 16
         pmcSet = true
-        //println(s"PMC write mode=${mode.toHexString}")
         state = WaitingForAddress
 
   override final def read: Int =
@@ -432,7 +418,6 @@ class PMC extends Register(PMC):
     state match
       case WaitingForAddress =>
         state = WaitingForMode
-        //println(s"Reading PMC with : ${address.toHexString}")
         address
       case WaitingForMode =>
         state = WaitingForAddress
@@ -445,7 +430,6 @@ class PMC extends Register(PMC):
         */
         (address << 4) & 0xFFF0 | (address >> 4) & 0xF
 
-  def ready(): Boolean = state == WaitingForAddress
   def isAddressSet: Boolean = state == WaitingForMode
 // ===========================================================
 class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val st:StatusRegister) extends Register(RegisterType.fromOrdinal(RegisterType.PM0.ordinal + index)):
@@ -466,17 +450,11 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
     java.util.Arrays.fill(externalAddressIncrement, 0)
 
 
-  override def blindAccessedRead(): Unit =
-    if !pmc.ready() then
-      println("PMx Blind read with pmc not ready")
-      io.StdIn.readLine(">")
+  override final def blindAccessedRead(): Unit =
     if pmc.isPMCSet then
       setMode(R)
     pmc.resetPMCSet()
-  override def blindAccessedWrite(): Unit =
-    if !pmc.ready() then
-      println("PMx Blind write with pmc not ready")
-      io.StdIn.readLine(">")
+  override final def blindAccessedWrite(): Unit =
     if pmc.isPMCSet then
       setMode(W)
     pmc.resetPMCSet()
@@ -510,19 +488,13 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
 
   private def incrementAddress(mode:0|1): Unit =
     if externalAddressIncrement(mode) == SPECIAL_INC then // special increment
-      externalModeAddress(mode) += (if (externalModeAddress(mode) & 1) == 1 then 31 else 1) // Why 31, doc says 32
+      externalModeAddress(mode) += (if (externalModeAddress(mode) & 1) == 1 then 31 else 1)
     else
       externalModeAddress(mode) += externalAddressIncrement(mode)
-    //externalAddress(mode) &= 0x1F_FFFF
 
   override final def read: Int =
     //pmc.resetPMCSet()
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
-      val mode = externalModeAddress(R) >>> 16
-      val ok = (mode & 0xfff0) == 0x0800 || (mode & 0x47ff) == 0x0018
-      if !ok then
-        println(s"Mode ${mode.toHexString} NOT OK")
-        sys.exit(1)
       val value = mem.svpExternalRead(externalModeAddress(R) & 0x1F_FFFF)
       incrementAddress(R)
       pmc.update(externalModeAddress(R))
@@ -553,13 +525,6 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
   override final def write(value:Int): Unit =
     //pmc.resetPMCSet()
     if index == 4 || st.getFlag(StatusRegisterFlag.ST56) > 0 then
-//      val mode = externalModeAddress(W) >>> 16
-//      val ok = (mode & 0x43ff) == 0x0018 || (mode & 0xfbff) == 0x4018 || (mode & 0x47ff) == 0x001c
-//      if !ok then
-//        println(s"Mode W ${mode.toHexString} NOT OK")
-      val bank = (externalModeAddress(W) >>> 16) & 0x1F
-      if bank != 0x18 && bank != 0x1C then
-        println(s"Accessing BAD address: ${externalModeAddress(W).toHexString}")
       mem.svpExternalWrite(externalModeAddress(W) & 0x1F_FFFF,overwrite(value))
       incrementAddress(W)
       pmc.update(externalModeAddress(W))

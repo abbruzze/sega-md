@@ -15,12 +15,11 @@ object MMU:
   inline val VDP_MEM_OPTION     = 2 << 2 // VDP must use this as read option
 
   trait Mapper extends SMDComponent:
-    def start(): Unit = {}
-    def play(): Unit = {}
     def isAddressMapped(address:Int): Boolean
     def shutdown(): Unit = {}
     def getClockable: Clockable
-    def getClockRatio: Int
+    def getClockPeriod: Int
+    def getCycles: Int
 
   trait M68KMapper extends Mapper with Memory
   trait Z80Mapper extends Mapper with Z80.Memory

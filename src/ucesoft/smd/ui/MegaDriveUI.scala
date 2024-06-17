@@ -12,7 +12,7 @@ import ucesoft.smd.ModelType.{Domestic, Oversea}
 import ucesoft.smd.VideoType.{NTSC, PAL}
 import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.cheat.{Cheat, CheatManager}
-import ucesoft.smd.cpu.svp.SVPMapper
+import ucesoft.smd.cpu.svp.{SVP2Mapper, SVPMapper}
 import ucesoft.smd.misc.Preferences.{FIXCHECKSUM_PREF, LOAD_SAVE_EXTRA_RAM_PREF, TMSS_ENABLED_PREF, VERBOSE_MESSAGE_PREF}
 
 import java.awt.event.{KeyAdapter, KeyEvent, WindowAdapter, WindowEvent}
@@ -153,7 +153,6 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     mapper.resetComponent()
     megaDrive.mmu.setM68KMapper(mapper)
     megaDrive.setMapper(mapper)
-    mapper.start()
 
   private def saveCartExtraMemory(cart:Cart): Unit =
     if megaDrive.pref.get[Boolean](LOAD_SAVE_EXTRA_RAM_PREF).get.value then
@@ -521,7 +520,6 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
         megaDrive.masterClock.start()
         megaDrive.fmAudio.start()
         megaDrive.psgAudio.start()
-      megaDrive.mmu.getM68KMapper.foreach(_.play())
       play()
 
   private def changeRegion(): Unit =

@@ -38,7 +38,8 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   private var fixChecksum = false
   private var mapperClock : Clockable = uninitialized
   private var mapperClockCycles = 0
-  private var mapperClockRatio = 0
+  private var mapperClockPeriod = 0
+  private var mapperCycles = 0
   // ============== Public =======================================================
 
   final val masterClock = new Clock("masterClock",model.videoType.clockFrequency)
@@ -108,7 +109,8 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     if mapper != null then
       mapperClock = mapper.getClockable
       mapperClockCycles = 0
-      mapperClockRatio = mapper.getClockRatio
+      mapperClockPeriod = mapper.getClockPeriod
+      mapperCycles = mapper.getCycles
     else
       mapperClock = null
 
@@ -199,7 +201,6 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     vdp.setModel(_model)
     mmu.setModel(_model)
     clockRateChanged(VDP_CLOCK_DIVIDER)
-    // TODO
     
   private def cartInserted(cart:Cart): Unit =
     _cart = cart
@@ -225,11 +226,10 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   final override def clock(cycles: Long): Unit =
     vdp.clock(cycles)
     if mapperClock != null then
-      mapperClock.clock(1)
-//      mapperClockCycles += 1
-//      if mapperClockCycles == mapperClockRatio then
-//        mapperClock.clock(mapperClockRatio << 2)
-//        mapperClockCycles = 0
+      mapperClockCycles += 1
+      if mapperClockCycles == mapperClockPeriod then
+        mapperClock.clock(mapperCycles)
+        mapperClockCycles = 0
       
     if m68k.isComponentEnabled then
       m68Acc += m68Div

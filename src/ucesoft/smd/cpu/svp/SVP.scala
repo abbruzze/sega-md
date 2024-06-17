@@ -3,8 +3,6 @@ import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.SMDComponent
 import ucesoft.smd.cpu.svp.RegisterType.*
 
-import java.util.concurrent.locks.ReentrantLock
-
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 24/05/2024 18:20  
@@ -19,6 +17,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
 
   private val RAM = Array( Array.ofDim[Int](256), Array.ofDim[Int](256) )
 
+  private val iramrom = mem.iramRomWord
   private val pcReg = new ProgramCounter
   private val stackReg = new Stack
   private val stReg = new StatusRegister
@@ -26,9 +25,8 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
   private val yReg = new Register(Y)
   private val pReg = new P(xReg,yReg,stReg)
 
-  @volatile private var statusXST = 0
-  @volatile private var xstValue = 0
-  private val lock = new ReentrantLock()
+  private var statusXST = 0
+  private var xstValue = 0
 
   private val pmcReg = new PMC
   private val aReg = new Accumulator(stReg)
@@ -53,11 +51,8 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
   private val pm0Reg = new ExternalRegister(0,mem,pmcReg,stReg):
     override def get: Int = if st.getFlag(StatusRegisterFlag.ST56) > 0 then super.get else statusXST
     override protected def externalStatusRegisterRead: Int =
-      //lock.lock()
       val status = statusXST
-      //println(s"Reading PM0 status 68K=$readByM68K $status")
       statusXST &= ~M68K_WRITTEN_A15000_MASK
-      //lock.unlock()
       status
 
     override final protected def externalStatusRegisterWrite(value: Int): Unit =
@@ -70,16 +65,8 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
     override def get: Int = xstValue
 
     override final protected def externalStatusRegisterWrite(value: Int): Unit =
-      //lock.lock()
       xstValue = value
-//      this.value = value
-//      if writeByM68K then
-//        statusXST |= M68K_WRITTEN_A15000_MASK
-//      else
       statusXST |= SSP160x_WRITTEN_XST_MASK
-      println(s"SVP writes XST: ${value.toHexString}/${(value >> 8).toChar}${(value & 0xFF).toChar}")
-      //lock.unlock()
-      //println(s"Writing XST 68K=$writeByM68K ${value.toHexString} statusXST=$statusXST")
 
     override final protected def externalStatusRegisterRead: Int = xstValue
 
@@ -121,7 +108,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
     java.util.Arrays.fill(RAM(A),0)
     java.util.Arrays.fill(RAM(B), 0)
 
-    pcReg.write(mem.svpReadIRamRom(0xFFFC))
+    pcReg.write(iramrom(0xFFFC))
     halted = false
   end reset
 
@@ -146,18 +133,12 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
     sb.toString()
 
   final def m68kWriteXST(value:Int): Unit =
-    //lock.lock()
     xstValue = value
-    //xstReg.write(value,writeByM68K = true)
     statusXST |= M68K_WRITTEN_A15000_MASK
-    //lock.unlock()
-  final def m68kReadXST(): Int = xstValue //xstReg.read(readByM68K = true)
+  final def m68kReadXST(): Int = xstValue
   final def m68kReadPM0(): Int =
-    //pm0Reg.read(readByM68K = true)
-    //lock.lock()
     val st = statusXST
     statusXST &= ~SSP160x_WRITTEN_XST_MASK
-    //lock.unlock()
     st
   final def halt(enabled:Boolean): Unit =
     halted = enabled
@@ -185,14 +166,14 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
         false
 
   final def clock(cycles:Long): Unit =
-    //if halted then return
+    if halted then return
 
     import RegisterType.*
 
     var _cycles = cycles
 
     while _cycles > 0 do
-      val opcode = mem.svpReadIRamRom(pcReg.getAndInc())
+      val opcode = iramrom(pcReg.getAndInc())
       opcode >> 9 match
         // ALU
         // OP  A, s      ooo0 0000 0000 rrrr
@@ -218,7 +199,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           alu(op >> 4,RAM(j)(opcode & 0xFF),_32 = false)
         // OPi A, imm    ooo0 1000 0000 0000 , iiii iiii iiii iiii
         case op@(0x14|0x34|0x44|0x54|0x64|0x74) =>
-          val imm = mem.svpReadIRamRom(pcReg.getAndInc())
+          val imm = iramrom(pcReg.getAndInc())
           alu(op >> 4,imm,_32 = false)
         // op  A, ((ri)) ooo0 101j 0000 mmpp
         case op@(0x15|0x35|0x45|0x55|0x65|0x75) =>
@@ -294,7 +275,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           ri.write(PointerRegisterAddressing.Indirect1,mod,regs((opcode >> 4) & 0xF).read)
         // ldi d, imm    0000 1000 dddd 0000 , iiii iiii iiii iiii
         case 0x04 =>
-          val imm = mem.svpReadIRamRom(pcReg.getAndInc())
+          val imm = iramrom(pcReg.getAndInc())
           regs((opcode >> 4) & 0xF).write(imm)
         // ld  d, ((ri)) 0000 101j dddd mmpp
         case 0x05 =>
@@ -305,7 +286,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
         case 0x06 =>
           val ri = getRI(opcode)
           val mod = PointerRegisterModifier.fromRI(ri.index,(opcode >> 2) & 3)
-          val imm = mem.svpReadIRamRom(pcReg.getAndInc())
+          val imm = iramrom(pcReg.getAndInc())
           ri.write(PointerRegisterAddressing.Indirect1,mod,imm)
         // ld  adr, a    0000 111j aaaa aaaa
         case 0x07 =>
@@ -334,18 +315,18 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           ri.write(opcode & 0xFFFF)
         // ld  d, (a)    0100 1010 dddd 0000
         case 0x25 =>
-          val read = mem.svpReadIRamRom(aReg.read)
+          val read = iramrom(aReg.read)
           regs((opcode >> 4) & 0xF).write(read)
         // ===================== CALL/BRA =========================
         // call cond, addr  0100 100f cccc 0000 , aaaa aaaa aaaa aaaa
         case 0x24 =>
-          val address = mem.svpReadIRamRom(pcReg.getAndInc())
+          val address = iramrom(pcReg.getAndInc())
           if isCondition((opcode >> 4) & 0xF,(opcode >> 8) & 1) then
             stackReg.write(pcReg.read)
             pcReg.write(address)
         // bra  cond, addr  0100 110f cccc 0000 , aaaa aaaa aaaa aaaa
         case 0x26 =>
-          val address = mem.svpReadIRamRom(pcReg.getAndInc())
+          val address = iramrom(pcReg.getAndInc())
           if isCondition((opcode >> 4) & 0xF,(opcode >> 8) & 1) then
             pcReg.write(address)
         // ===================== MLD/MPYA/MPYS ====================
@@ -379,7 +360,6 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           yReg.write(rj.read(PointerRegisterAddressing.Indirect1,mj))
         case x =>
           println("Unrecognized SVP opcode: %04X at %04X".format(x,pcReg.get - 1))
-          io.StdIn.readLine(">")
       _cycles -= 1
     end while
   end clock

@@ -47,8 +47,7 @@ class SVPDisassembler(mem:SVPMemory):
 
   def this(rom:Array[Int]) =
     this(new SVPMemory:
-      override def svpReadIRamRom(address: Int): Int = rom(address)
-      override def svpWriteIRamRom(address: Int, value: Int): Unit = {}
+      override final val iramRomWord = rom
       override def svpExternalRead(address: Int): Int = 0
       override def svpExternalWrite(address: Int, value: Int): Unit = {}
     )
@@ -76,7 +75,7 @@ class SVPDisassembler(mem:SVPMemory):
 
   def disassemble(_address:Int,org:Int = 0): DisassembledInfo =
     val address = _address - org
-    val opcode = mem.svpReadIRamRom(address)
+    val opcode = mem.iramRomWord(address)
     val opcodes = new ListBuffer[Int]
     opcodes += opcode
     var m = ""
@@ -95,7 +94,7 @@ class SVPDisassembler(mem:SVPMemory):
         m = s"${alu(opcode)} a,$j[${"%02X".format(opcode & 0xFF)}]"
       case 0x14|0x34|0x44|0x54|0x64|0x74 => // OPi A, imm    ooo0 1000 0000 0000 , iiii iiii iiii iiii
         size = 2
-        val imm = mem.svpReadIRamRom(address + 1)
+        val imm = mem.iramRomWord(address + 1)
         opcodes += imm
         m = s"${alu(opcode)}i a,${"%04X".format(imm)}"
       case 0x15|0x35|0x45|0x55|0x65|0x75 => // op  A, ((ri)) ooo0 101j 0000 mmpp
@@ -124,14 +123,14 @@ class SVPDisassembler(mem:SVPMemory):
         m = s"ld (${ri(opcode)}),${regHi(opcode)}"
       case 0x04 => // ldi d, imm    0000 1000 dddd 0000 , iiii iiii iiii iiii
         size = 2
-        val imm = mem.svpReadIRamRom(address + 1)
+        val imm = mem.iramRomWord(address + 1)
         opcodes += imm
         m = s"ldi ${regHi(opcode)},${"%04X".format(imm)}"
       case 0x05 => // ld  d, ((ri)) 0000 101j dddd mmpp
         m = s"ld ${regHi(opcode)},((${ri(opcode)}))"
       case 0x06 => // ldi (ri), imm 0000 110j 0000 mmpp , iiii iiii iiii iiii
         size = 2
-        val imm = mem.svpReadIRamRom(address + 1)
+        val imm = mem.iramRomWord(address + 1)
         opcodes += imm
         m = s"ldi (${ri(opcode)}),${"%04X".format(imm)}"
       case 0x07 => // ld  adr, a    0000 111j aaaa aaaa
@@ -148,12 +147,12 @@ class SVPDisassembler(mem:SVPMemory):
       // ===================== CALL/BRA =========================
       case 0x24 => // call cond, addr  0100 100f cccc 0000 , aaaa aaaa aaaa aaaa
         size = 2
-        val imm = mem.svpReadIRamRom(address + 1)
+        val imm = mem.iramRomWord(address + 1)
         opcodes += imm
         m = s"call ${cond(opcode)},${"%04X".format(imm)}"
       case 0x26 => // bra  cond, addr  0100 110f cccc 0000 , aaaa aaaa aaaa aaaa
         size = 2
-        val imm = mem.svpReadIRamRom(address + 1)
+        val imm = mem.iramRomWord(address + 1)
         opcodes += imm
         m = s"bra ${cond(opcode)},${"%04X".format(imm)}"
       // ===================== MLD/MPYA/MPYS ====================
