@@ -51,7 +51,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           (cleared on PM0 read by SSP160x)
      */
   private val pm0Reg = new ExternalRegister(0,mem,pmcReg,stReg):
-    override def get: Int = statusXST
+    override def get: Int = if st.getFlag(StatusRegisterFlag.ST56) > 0 then super.get else statusXST
     override protected def externalStatusRegisterRead: Int =
       //lock.lock()
       val status = statusXST
@@ -59,6 +59,9 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
       statusXST &= ~M68K_WRITTEN_A15000_MASK
       //lock.unlock()
       status
+
+    override final protected def externalStatusRegisterWrite(value: Int): Unit =
+      statusXST = value
   /*
     Mapped to a15000 and a15002 on 68k side.
     Affects PM0 when written to.
@@ -190,7 +193,6 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
 
     while _cycles > 0 do
       val opcode = mem.svpReadIRamRom(pcReg.getAndInc())
-
       opcode >> 9 match
         // ALU
         // OP  A, s      ooo0 0000 0000 rrrr
@@ -315,7 +317,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           val ri = getRI(opcode)
           val d = (opcode >> 4) & 0xF
           if d == 0 then
-            ri.blindAccessedRead()
+            ri.blindAccessedRead() // TODO CHECK
           else
             regs(d).write(ri.read)
         // ld  ri, s     0001 010j ssss 00pp
@@ -323,7 +325,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
           val ri = getRI(opcode)
           val s = (opcode >> 4) & 0xF
           if s == 0 then
-            ri.blindAccessedWrite()
+            ri.blindAccessedWrite() // TODO CHECK
           else
             ri.write(regs(s).read)
         // ldi ri, simm  0001 1jpp iiii iiii
