@@ -179,10 +179,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     for i <- 0 to 2 do
       if controllers(i) != null then
         controllers(i).resetComponent()
-
-    java.util.Arrays.fill(m68kram,0)
-    java.util.Arrays.fill(z80ram,0)
-    java.util.Arrays.fill(ssf2Banks,-1)
+    
     ssf2RomPendingState = false
     z80ram(0) = 0x76 // HALT
 
@@ -193,6 +190,10 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   override def hardReset(): Unit = {
     reset()
+
+    java.util.Arrays.fill(m68kram, 0)
+    java.util.Arrays.fill(z80ram, 0)
+    java.util.Arrays.fill(ssf2Banks, -1)
 
     tmssActive = osRomEnabled
     java.util.Arrays.fill(tmssBuffer,0)

@@ -132,6 +132,7 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     fmCycles = 0
     m68WaitCycles = 0
     z80WaitCycles = 0
+    clockRateChanged(VDP_CLOCK_DIVIDER)
   
   override def init(): Unit =
     add(masterClock)
@@ -183,7 +184,6 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
       m68k.setComponentEnabled(true)
       z80.setComponentEnabled(true)
     })
-    clockRateChanged(VDP_CLOCK_DIVIDER)
 
   // ===============================================================================
   def setDisplay(display:Display): Unit =
@@ -201,7 +201,7 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     vdp.setModel(_model)
     mmu.setModel(_model)
     clockRateChanged(VDP_CLOCK_DIVIDER)
-    
+
   private def cartInserted(cart:Cart): Unit =
     _cart = cart
     mmu.setCart(cart)

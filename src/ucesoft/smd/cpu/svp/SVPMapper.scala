@@ -29,10 +29,15 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
 
   override final val iramRomWord = Array.ofDim[Int](0x10000)
   private final val svpRom = Array.ofDim[Int](0x400)
-  private final val gameRom = cart.getROM
+  private final val gameRom = bytesToWords(cart.getROM)
   private final val dram = Array.ofDim[Int](0x10000)
   private var lastWord = 0
   private val svp = new SVP(this)
+
+  private def bytesToWords(a:Array[Int]): Array[Int] =
+    a.sliding(2,2).map(w => {
+      if w.length == 1 then w(0) else w(0) << 8 | w(1)
+    }).toArray
 
   override def reset(): Unit =
     java.util.Arrays.fill(dram,0)
@@ -44,12 +49,10 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
       log.error("svp_rom.bin not found in resources")
       return
 
-    val rom = bios.openStream().readAllBytes().map(_.toInt & 0xFF).sliding(2,2).map(w => w(0) << 8 | w(1)).toArray
+    val rom = bytesToWords(bios.openStream().readAllBytes().map(_.toInt & 0xFF))
     log.info("SVP ROM loaded")
     System.arraycopy(rom,0,iramRomWord,0xFC00,0x400)
-    for a <- 0x400 until 0xFC00 do
-      val ga = a << 1
-      iramRomWord(a) = gameRom(ga) << 8 | gameRom(ga + 1)
+    System.arraycopy(gameRom,0x400,iramRomWord,0x400,0xF800)
     log.info("IRAM/ROM ready")
 
     add(svp)
@@ -67,8 +70,7 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
 
   override final def svpExternalRead(wordAddress: Int): Int =
     lastWord = if wordAddress < 0x100000 then
-      val byteAddress = wordAddress << 1
-      gameRom(byteAddress) << 8 | gameRom(byteAddress + 1)
+        gameRom(wordAddress)
     else if wordAddress < 0x18_0000 then
       lastWord
     else if wordAddress < 0x1C_0000 then

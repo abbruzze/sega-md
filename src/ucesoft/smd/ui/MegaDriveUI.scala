@@ -139,8 +139,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
           case Some(mf) =>
             loadCartExtraMemory(cart)
           case None =>
-        if cart.isSVPCart then
-          enableSVP(cart)
+        enableSVP(cart)
       case MessageBus.ControllerConfigurationChanged(_) =>
         checkControllers()
       case MessageBus.StateRestored(_,cart) =>
@@ -148,11 +147,15 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
       case _ =>
 
   private def enableSVP(cart:Cart): Unit =
-    val mapper = new SVPMapper(cart)
-    mapper.initComponent()
-    mapper.resetComponent()
-    megaDrive.mmu.setM68KMapper(mapper)
-    megaDrive.setMapper(mapper)
+    if cart.isSVPCart then
+      val mapper = new SVPMapper(cart)
+      mapper.initComponent()
+      mapper.resetComponent()
+      megaDrive.mmu.setM68KMapper(mapper)
+      megaDrive.setMapper(mapper)
+    else
+      megaDrive.mmu.setM68KMapper(null)
+      megaDrive.setMapper(null)
 
   private def saveCartExtraMemory(cart:Cart): Unit =
     if megaDrive.pref.get[Boolean](LOAD_SAVE_EXTRA_RAM_PREF).get.value then
@@ -590,7 +593,10 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     val resetItem = new JMenuItem("Reset")
     fileMenu.add(resetItem)
     resetItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_R,java.awt.event.InputEvent.ALT_DOWN_MASK))
-    resetItem.addActionListener(_ => reset(hard = true,fromRestoredState = false))
+    resetItem.addActionListener(_ => reset(hard = false,fromRestoredState = false))
+    val hardResetItem = new JMenuItem("Power off/on")
+    fileMenu.add(hardResetItem)
+    hardResetItem.addActionListener(_ => reset(hard = true, fromRestoredState = false))
 
     autosaveCB.setSelected(megaDrive.pref.get[Boolean](Preferences.AUTOSAVE_PREF).exists(_.value))
     autosaveCB.addActionListener(_ => megaDrive.pref.update[Boolean](Preferences.AUTOSAVE_PREF, autosaveCB.isSelected))
@@ -944,7 +950,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
                 FullScreenMode.restore(w)
                 megaDrive.display.removeKeyListener(this)
               case VK_R =>
-                reset(hard = true,fromRestoredState = false)
+                reset(hard = false,fromRestoredState = false)
               case VK_W =>
                 warpModeCB.setSelected(!warpModeCB.isSelected)
                 setWarpMode(warpModeCB.isSelected)
