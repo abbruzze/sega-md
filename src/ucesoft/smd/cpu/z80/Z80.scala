@@ -2933,6 +2933,7 @@ class Z80(_mem:Memory,
     M1Fetch = false
     refresh = false
     dummyRead = false
+    if (notifyEventListeners) onResetEvent()
   }
 
   private def fetch(addr:Array[Int] = null) : Opcode = {

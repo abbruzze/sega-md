@@ -216,6 +216,7 @@ class Debugger(m68k:M68000,
         case "nmi" => if breakOnNMI then Some(java.lang.Boolean.TRUE) else None
         case _ => None
     override def addBreakEvent(eventName: String, value: AnyRef): Unit =
+      z80.addEventListener(this)
       eventName match
         case "reset" => breakOnReset = true
         case "halt" => breakOnHalt = true
@@ -223,6 +224,8 @@ class Debugger(m68k:M68000,
         case "nmi" => breakOnNMI = true
         case _ =>
     override def removeBreakEvent(eventName: String): Unit =
+      if !existsBreakPending then
+        z80.removeEventListener(this)
       eventName match
         case "reset" => breakOnReset = false
         case "halt" => breakOnHalt = false
@@ -498,6 +501,7 @@ class Debugger(m68k:M68000,
             if ex == -1 then None else Some(Integer.valueOf(ex))
           case _ => None
       override def addBreakEvent(eventName: String, value: AnyRef): Unit =
+        m68k.addEventListener(this)
         eventName match
           case "reset" => setBreakOnReset(true)
           case "halt" => setBreakOnHalt(true)
@@ -505,6 +509,8 @@ class Debugger(m68k:M68000,
           case "interrupt" => setBreakOnInterrupt(value.asInstanceOf[Integer].intValue())
           case "exception" => setBreakOnExceptionNumber(value.asInstanceOf[Integer].intValue())
       override def removeBreakEvent(eventName: String): Unit =
+        if !existsBreakPending then
+          m68k.removeEventListener(this)
         eventName match
           case "reset" => setBreakOnReset(false)
           case "halt" => setBreakOnHalt(false)
