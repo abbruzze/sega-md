@@ -1,5 +1,6 @@
 package ucesoft.smd
 
+import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.audio.{FM, PSG}
 import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.controller.Controller
@@ -14,11 +15,11 @@ object MMU:
   inline val VDP_MEM_OPTION     = 2 << 2 // VDP must use this as read option
 
   trait Mapper extends SMDComponent:
-    def start(): Unit = {}
     def isAddressMapped(address:Int): Boolean
     def shutdown(): Unit = {}
-    def pause(): Unit = {}
-    def play(): Unit = {}
+    def getClockable: Clockable
+    def getClockPeriod: Int
+    def getCycles: Int
 
   trait M68KMapper extends Mapper with Memory
   trait Z80Mapper extends Mapper with Z80.Memory
@@ -178,10 +179,7 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
     for i <- 0 to 2 do
       if controllers(i) != null then
         controllers(i).resetComponent()
-
-    java.util.Arrays.fill(m68kram,0)
-    java.util.Arrays.fill(z80ram,0)
-    java.util.Arrays.fill(ssf2Banks,-1)
+    
     ssf2RomPendingState = false
     z80ram(0) = 0x76 // HALT
 
@@ -192,6 +190,10 @@ class MMU(busArbiter:BusArbiter) extends SMDComponent with Memory with Z80.Memor
 
   override def hardReset(): Unit = {
     reset()
+
+    java.util.Arrays.fill(m68kram, 0)
+    java.util.Arrays.fill(z80ram, 0)
+    java.util.Arrays.fill(ssf2Banks, -1)
 
     tmssActive = osRomEnabled
     java.util.Arrays.fill(tmssBuffer,0)

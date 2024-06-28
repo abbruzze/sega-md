@@ -1,10 +1,8 @@
 package ucesoft.smd.cpu.svp
 
-import ucesoft.smd.{Cart, Clock, MMU, SMDComponent}
 import ucesoft.smd.cpu.m68k.Size
 import ucesoft.smd.cpu.m68k.Size.{Byte, Long, Word}
-
-import scala.compiletime.uninitialized
+import ucesoft.smd.{Cart, Clock, MMU}
 
 /**
  * @author Alessandro Abbruzzetti
@@ -29,14 +27,17 @@ import scala.compiletime.uninitialized
 class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
   override protected val smdComponentName : String = "SVPMapper"
 
-  private final val iramRomWord = Array.ofDim[Int](0x10000)
+  override final val iramRomWord = Array.ofDim[Int](0x10000)
   private final val svpRom = Array.ofDim[Int](0x400)
-  private final val gameRom = cart.getROM
+  private final val gameRom = bytesToWords(cart.getROM)
   private final val dram = Array.ofDim[Int](0x10000)
   private var lastWord = 0
   private val svp = new SVP(this)
 
-  private val masterClock = new Clock("SVP-Clock",46_000_000)
+  private def bytesToWords(a:Array[Int]): Array[Int] =
+    a.sliding(2,2).map(w => {
+      if w.length == 1 then w(0) else w(0) << 8 | w(1)
+    }).toArray
 
   override def reset(): Unit =
     java.util.Arrays.fill(dram,0)
@@ -48,86 +49,51 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
       log.error("svp_rom.bin not found in resources")
       return
 
-    val rom = bios.openStream().readAllBytes().map(_.toInt & 0xFF).sliding(2,2).map(w => w(0) << 8 | w(1)).toArray
+    val rom = bytesToWords(bios.openStream().readAllBytes().map(_.toInt & 0xFF))
     log.info("SVP ROM loaded")
     System.arraycopy(rom,0,iramRomWord,0xFC00,0x400)
-    for a <- 0x400 until 0xFC00 do
-      val ga = a << 1
-      iramRomWord(a) = gameRom(ga) << 8 | gameRom(ga + 1)
+    System.arraycopy(gameRom,0x400,iramRomWord,0x400,0xF800)
     log.info("IRAM/ROM ready")
 
     add(svp)
 
   def getSVP: SVP = svp
+  def getDRAM: Array[Int] = dram
 
-  override def start(): Unit =
-    if masterClock.isRunning then return
+  override def getClockable: Clock.Clockable = svp
 
-    //masterClock.setClockables(svp)
-    val disa = new SVPDisassembler(this)
-    val pc = svp.getRegister(RegisterType.PC)
-    masterClock.setClockables(_ => {
-      //println(disa.disassemble(pc.read))
-      svp.clock(0)
-      //println(svp.dumpRegs())
-      //io.StdIn.readLine(">")
-    })
-    masterClock.setClockDivider(0, 1)
-    masterClock.setErrorHandler(t => {
-      t.printStackTrace()
-    })
-    masterClock.start()
-    log.info("SVP master clock started")
-
-  override def shutdown(): Unit =
-    masterClock.shutdown()
-  override def pause(): Unit =
-    masterClock.pause()
-  override def play(): Unit =
-    if !masterClock.isRunning then start()
-    masterClock.play()
+  override def getClockPeriod: Int = 8
+  override def getCycles: Int = 8
 
   override final def isAddressMapped(address: Int): Boolean =
     (address >= 0x20_0000 && address < 0x40_0000) || (address >= 0xA1_5000 && address < 0xA1_5010)
 
   override final def svpExternalRead(wordAddress: Int): Int =
-    synchronized {
-      lastWord = if wordAddress < 0x100000 then
-        val byteAddress = wordAddress << 1
-        gameRom(byteAddress) << 8 | gameRom(byteAddress + 1)
-      else if wordAddress < 0x18_0000 then
-        lastWord
-      else if wordAddress < 0x1C_0000 then
-        dram(wordAddress & 0xFFFF)
-      else if wordAddress < 0x1C_8000 then
-        lastWord
-      else if wordAddress < 0x1C_8400 then
-        iramRomWord(wordAddress & 0x3FF)
-      else
-        println(s"SVP external read from ${wordAddress.toHexString}")
-        0xFFFF
-
+    lastWord = if wordAddress < 0x100000 then
+        gameRom(wordAddress)
+    else if wordAddress < 0x18_0000 then
       lastWord
-    }
+    else if wordAddress < 0x1C_0000 then
+      dram(wordAddress & 0xFFFF)
+    else if wordAddress < 0x1C_8000 then
+      lastWord
+    else if wordAddress < 0x1C_8400 then
+      iramRomWord(wordAddress & 0x3FF)
+    else
+      println(s"SVP external read from ${wordAddress.toHexString}")
+      0xFFFF
+
+    lastWord
 
   override final def svpExternalWrite(wordAddress: Int, value: Int): Unit =
-    //println(s"Writing external ${wordAddress.toHexString} = ${value.toHexString}")
-    synchronized {
-      if wordAddress >= 0x18_0000 && wordAddress < 0x1C_0000 then
-        dram(wordAddress & 0xFFFF) = value
-      else if wordAddress >= 0x1C_8000 && wordAddress < 0x1C_8400 then
-        iramRomWord(wordAddress & 0x3FF) = value
-    }
-
-  override final def svpReadIRamRom(address: Int): Int =
-    iramRomWord(address & 0xFFFF)
-  override def svpWriteIRamRom(address: Int, value: Int): Unit =
-    println(s"SVP write iramrom at ${address.toHexString}")
-//    if address < 0x400 then
-//      iramRomWord(address) = value
+    if wordAddress >= 0x18_0000 && wordAddress < 0x1C_0000 then
+      dram(wordAddress & 0xFFFF) = value & 0xFFFF
+    else if wordAddress >= 0x1C_8000 && wordAddress < 0x1C_8400 then
+      iramRomWord(wordAddress & 0x3FF) = value
 
   override final def read(address: Int, size: Size, readOptions: Int): Int =
     if address < 0x30_0000 then // unused (1)
+      println("Reading unused(1) SVP space")
       size match
         case Byte => lastWord & 0xFF
         case Word => lastWord
@@ -135,10 +101,14 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
     else if address < 0x38_0000 then // DRAM
       val adr = (address >> 1) & 0xFFFF
       size match
-        case Byte => dram(adr) & 0xFF // ?
-        case Word => dram(adr)
-        case Long => dram(adr) << 16 | dram((adr + 1) & 0xFFFF)
+        case Byte =>
+          dram(adr) & 0xFF // ?
+        case Word =>
+          dram(adr)
+        case Long =>
+          dram(adr) << 16 | dram((adr + 1) & 0xFFFF)
     else if address < 0x39_0000 then // unused (1)
+      println("Reading unused(1) SVP space")
       size match
         case Byte => lastWord & 0xFF
         case Word => lastWord
@@ -147,15 +117,18 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
       // ignore size
       var adr = address >> 1
       adr = (adr & 0x7001) | ((adr & 0x3e) << 6) | ((adr & 0xfc0) >> 5)
-      synchronized { dram(adr & 0xFFFF) }
+      dram(adr & 0xFFFF)
     else if address < 0x3B_0000 then // cell arrange 2
       // ignore size
       var adr = address >> 1
       adr = (adr & 0x7801) | ((adr & 0x1e) << 6) | ((adr & 0x7e0) >> 4)
-      synchronized { dram(adr & 0xFFFF) }
+      dram(adr & 0xFFFF)
     else if address >= 0xA1_5000 && address < 0xA1_5010 then
       size match
-        case Byte|Word =>
+        case Byte =>
+          val read = readReg(address & ~1)
+          if (address & 1) != 0 then read & 0xFF else read >> 8
+        case Word =>
           readReg(address)
         case Long =>
           readReg(address) << 16 | readReg(address + 2)
@@ -172,23 +145,22 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
         svp.m68kReadXST()
       case 4 =>
         svp.m68kReadPM0()
-      case 5 =>
-        svp.m68kReadPM0() & 0xFF
       case _ =>
         println(s"M68K reads from ${address.toHexString}")
         0
 
   override final def write(address: Int, value: Int, size: Size, writeOptions: Int): Unit =
     if address >= 0x30_0000 && address < 0x38_0000 then // DRAM
-      synchronized {
-        val adr = (address >> 1) & 0xFFFF
-        size match
-          case Byte => dram(adr) = value // ??
-          case Word => dram(adr)
-          case Long =>
-            dram(adr) = value >> 16
-            dram((adr + 1) & 0xFFFF) = value & 0xFFFF
-      }
+      val adr = (address >> 1) & 0xFFFF
+      size match
+        case Byte =>
+          dram(adr) = value // ??
+          println("M68k writes byte to DRAM!!")
+        case Word =>
+          dram(adr) = value
+        case Long =>
+          dram(adr) = value >>> 16
+          dram((adr + 1) & 0xFFFF) = value & 0xFFFF
     else if address >= 0xA1_5000 && address < 0xA1_5010 then
       size match
         case Byte =>
@@ -210,8 +182,7 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
          writes 0xa, and after it's finished, writes 0. This is probably
          done to prevent SVP accessing DRAM and avoid bus clashes.
          */
-        svp.halt(value > 0)
-        println(s"Halting SVP: ${value > 0}")
+        svp.halt(value == 0xA)
       case 8 =>
         /*
          possibly causes an interrupt. There is (unused?) code which

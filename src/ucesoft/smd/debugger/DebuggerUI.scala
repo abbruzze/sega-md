@@ -2,6 +2,8 @@ package ucesoft.smd.debugger
 
 import ucesoft.smd.VDP
 import ucesoft.smd.cpu.m68k.*
+import ucesoft.smd.cpu.svp.RegisterType.*
+import ucesoft.smd.cpu.svp.SVP
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger.AddressBreakType
 
@@ -19,7 +21,7 @@ import scala.collection.mutable.ArrayBuffer
  *         Created on 22/11/2023 19:46  
  */
 object DebuggerUI {
-  private case class Reg(value:Int,modified:Boolean)
+  private case class Reg(value:Int,modified:Boolean,format:Option[String] = None,empty:Boolean = false)
   private final val MOD_COLOR = Color.YELLOW.darker()
 
   class RegisterRenderer(format: String) extends DefaultTableCellRenderer:
@@ -27,11 +29,84 @@ object DebuggerUI {
 
     override def setValue(value: Any): Unit =
       value match
-        case Reg(value, modified) =>
+        case Reg(value, modified,f,empty) =>
           setHorizontalAlignment(SwingConstants.CENTER)
-          setText(format.format(value))
+          if empty then
+            setText("")
+          else
+            setText(f.getOrElse(format).format(value))
           setForeground(if modified then MOD_COLOR else defaultForegroundColor)
   end RegisterRenderer
+
+  enum SVPRegsType:
+    case General, PMx, Pointer
+
+  class SVPRegisterTableModel(svp:SVP,regsType:SVPRegsType) extends AbstractTableModel:
+    private val columns = Array(
+      Array("ACC","X","Y","ST","PC","P"),
+      Array("PM0","PM1","PM2","XST","PM4","EXT5","PMC"),
+      Array("R0","R1","R2","R3","R4","R5","R6","R7")
+    )
+    private val values = Array.ofDim[Int](columns(regsType.ordinal).length)
+    private val modified = Array.ofDim[Boolean](columns(regsType.ordinal).length)
+
+    override def getColumnName(column: Int): String = columns(regsType.ordinal)(column)
+    override def isCellEditable(row: Int, col: Int): Boolean = false
+    override def getColumnCount: Int = columns(regsType.ordinal).length
+    override def getRowCount: Int = 1
+    override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
+      val format = if regsType == SVPRegsType.General && (columnIndex == 0 || columnIndex == 5) then "%08X" else "%04X"
+      Reg(values(columnIndex), modified(columnIndex), Some(format))
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
+
+    def contentUpdated(): Unit =
+      import SVPRegsType.*
+      for c <- columns(regsType.ordinal).indices do
+        val reg = regsType match
+          case General =>
+            c match
+              case 0 => svp.getRegister(ACC).get
+              case 1 => svp.getRegister(X).get
+              case 2 => svp.getRegister(Y).get
+              case 3 => svp.getRegister(ST).get
+              case 4 => svp.getRegister(PC).get
+              case 5 => svp.getRegister(P).get
+          case PMx =>
+            c match
+              case 0 => svp.getRegister(PM0).get
+              case 1 => svp.getRegister(PM1).get
+              case 2 => svp.getRegister(PM2).get
+              case 3 => svp.getRegister(XST).get
+              case 4 => svp.getRegister(PM4).get
+              case 5 => svp.getRegister(EXT5).get
+              case 6 => svp.getRegister(PMC).get
+          case Pointer =>
+            svp.getRegister(ucesoft.smd.cpu.svp.RegisterType.fromOrdinal(R0.ordinal + c)).get
+        modified(c) = reg != this.values(c)
+        this.values(c) = reg
+
+      fireTableDataChanged()
+  end SVPRegisterTableModel
+
+  class SVPStackTableModel(svp:SVP) extends AbstractTableModel:
+    private var changed = false
+    private var values = Array.ofDim[Int](0)
+
+    override def getColumnName(column: Int): String = if column == 0 then "TOP" else ""
+    override def isCellEditable(row: Int, col: Int): Boolean = false
+    override def getColumnCount: Int = 6
+    override def getRowCount: Int = 1
+    override def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef =
+      if columnIndex < values.length then
+        Reg(values(columnIndex), changed)
+      else
+        Reg(0,false,empty = true)
+    override def getColumnClass(columnIndex: Int): Class[?] = classOf[String]
+
+    def contentUpdated(): Unit =
+      val oldSize = values.length
+      values = svp.getRegister(STACK).asInstanceOf[ucesoft.smd.cpu.svp.Stack].elements
+      changed = oldSize != values.length
 
   class Z80RegisterTableModel(ctx:Z80.Context) extends AbstractTableModel:
     private val columns = Array("AF","BC","DE","HL","IX","IY","I","IM","PC","SP")
@@ -90,7 +165,7 @@ object DebuggerUI {
 
     override def getTableCellRendererComponent(table: JTable, _value: Any, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int): Component =
       val (value, modified) = _value match
-        case Reg(v, m) => (v, m)
+        case Reg(v, m,_,_) => (v, m)
         case _ => (0, false)
 
       if isSelected then
@@ -245,10 +320,7 @@ object DebuggerUI {
       c
   end DisassembledCellRenderer
 
-  class DisassembledTableModel(m68k: M6800X0,
-                               m68kMemory:Memory,
-                               z80:Z80,
-                               addressBreakHandler: Int => Option[String],
+  class DisassembledTableModel(addressBreakHandler: Int => Option[String],
                                noteEditable: Boolean = false) extends AbstractTableModel:
     private case class DisInfo(numAddress: Int, address: String, opcodes: String, mnemonic: String, var notes: String, disString: String)
 
@@ -398,7 +470,7 @@ object DebuggerUI {
                           frame:JFrame,
                           disassemblerBreakHandler: DisassemblerBreakHandler,
                           override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame, s"$name Disassembler", windowCloseOperation) with BreakListener:
-    private val model = new DisassembledTableModel(m68k,null,z80,disassemblerBreakHandler.getBreakStringAt, true)
+    private val model = new DisassembledTableModel(disassemblerBreakHandler.getBreakStringAt, true)
     private var isAdjusting = false
     
     init()

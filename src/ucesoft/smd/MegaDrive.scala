@@ -12,6 +12,7 @@ import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, FileReader, F
 import java.time.LocalDateTime
 import java.util.Properties
 import javax.imageio.ImageIO
+import scala.compiletime.uninitialized
 
 object MegaDrive:
   case class StateInfo(model:Model,timestamp:LocalDateTime,version:String,buildDate:LocalDateTime,cartInfo:Cart.CartInfo,snap:BufferedImage)
@@ -29,13 +30,16 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
   inline private val DIV_Z80 = 14.0
 
   private var _model = Model(ModelType.Oversea,VideoType.NTSC,0)
-  private var _display : Display = scala.compiletime.uninitialized
-  private var _cart : Cart = scala.compiletime.uninitialized
+  private var _display : Display = uninitialized
+  private var _cart : Cart = uninitialized
 
-  private var configurationFile : File = scala.compiletime.uninitialized
+  private var configurationFile : File = uninitialized
 
   private var fixChecksum = false
-  
+  private var mapperClock : Clockable = uninitialized
+  private var mapperClockCycles = 0
+  private var mapperClockPeriod = 0
+  private var mapperCycles = 0
   // ============== Public =======================================================
 
   final val masterClock = new Clock("masterClock",model.videoType.clockFrequency)
@@ -100,6 +104,15 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
         if fr != null then
           fr.close()
   end configure
+  
+  def setMapper(mapper:MMU.M68KMapper): Unit =
+    if mapper != null then
+      mapperClock = mapper.getClockable
+      mapperClockCycles = 0
+      mapperClockPeriod = mapper.getClockPeriod
+      mapperCycles = mapper.getCycles
+    else
+      mapperClock = null
 
   def setMakeController(mkController:(Int,ControllerType,ControllerDevice) => Unit): Unit =
     makeController = mkController
@@ -119,6 +132,7 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     fmCycles = 0
     m68WaitCycles = 0
     z80WaitCycles = 0
+    clockRateChanged(VDP_CLOCK_DIVIDER)
   
   override def init(): Unit =
     add(masterClock)
@@ -170,7 +184,6 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
       m68k.setComponentEnabled(true)
       z80.setComponentEnabled(true)
     })
-    clockRateChanged(VDP_CLOCK_DIVIDER)
 
   // ===============================================================================
   def setDisplay(display:Display): Unit =
@@ -188,8 +201,7 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     vdp.setModel(_model)
     mmu.setModel(_model)
     clockRateChanged(VDP_CLOCK_DIVIDER)
-    // TODO
-    
+
   private def cartInserted(cart:Cart): Unit =
     _cart = cart
     mmu.setCart(cart)
@@ -213,6 +225,12 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
     z80Div = math.round((rate / DIV_Z80) * MULTIPLIER).toInt
   final override def clock(cycles: Long): Unit =
     vdp.clock(cycles)
+    if mapperClock != null then
+      mapperClockCycles += 1
+      if mapperClockCycles == mapperClockPeriod then
+        mapperClock.clock(mapperCycles)
+        mapperClockCycles = 0
+      
     if m68k.isComponentEnabled then
       m68Acc += m68Div
       if m68Acc >= MULTIPLIER then

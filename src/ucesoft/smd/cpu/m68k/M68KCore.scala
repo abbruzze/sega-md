@@ -356,6 +356,7 @@ abstract class M68KCore(val mem:Memory) extends SMDComponent with M6800X0:
     busAccess(BusAccessMode.Idle,Size.Word,false,0,0,2)
     changeState(CPUState.EXECUTING)
     prefetch()
+    fireResetEvent()
 
   protected def changeState(newState:CPUState): Unit =
     state = newState

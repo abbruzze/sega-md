@@ -24,7 +24,8 @@ class MemoryDumper(mem:Array[Int],
                    setPreferredScrollableViewportSize:Boolean = true,
                    withColorDumper:Boolean = false,
                    showASCII:Boolean = false,
-                   canUpdate:Boolean = true) extends RefreshableDialog(frame, title, windowCloseOperation):
+                   canUpdate:Boolean = true,
+                   wordValues:Boolean = false) extends RefreshableDialog(frame, title, windowCloseOperation):
 
   private val model = new DumperTableModel
   private val colorDumper = if withColorDumper then new ColorDumper(mem) else null
@@ -70,9 +71,10 @@ class MemoryDumper(mem:Array[Int],
 
     override def setValueAt(aValue: Any, rowIndex: Int, columnIndex: Int): Unit =
       try
+        val maxValue = if wordValues then 0xFFFF else 0xFF
         val address = (rowIndex << 4) + (columnIndex - 1)
         val byte = Integer.parseInt(aValue.toString,16)
-        if byte < 0 || byte > 0xFF then
+        if byte < 0 || byte > maxValue then
           throw new IllegalArgumentException()
         mem(address) = byte
         fireTableRowsUpdated(rowIndex,rowIndex)
@@ -99,7 +101,8 @@ class MemoryDumper(mem:Array[Int],
         val address = (rowIndex << 4) + (columnIndex - 1)
         if address >= mem.length then ""
         else
-          "%02X".format(mem(address))
+          val digits = if wordValues then 4 else 2
+          s"%0${digits}X".format(mem(address))
 
     def update(): Unit =
       fireTableDataChanged()

@@ -5,8 +5,7 @@ package ucesoft.smd.cpu.svp
  *         Created on 13/05/2024 14:31  
  */
 trait SVPMemory:
+  val iramRomWord : Array[Int]
   def svpExternalRead(address:Int): Int
   def svpExternalWrite(address:Int,value:Int): Unit
-  def svpReadIRamRom(address:Int): Int
-  def svpWriteIRamRom(address:Int,value:Int): Unit
   
