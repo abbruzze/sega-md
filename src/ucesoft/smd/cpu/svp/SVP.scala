@@ -98,6 +98,7 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
   )
   private var halted = false
   // ======================================================================
+  def getRAM: Array[Array[Int]] = RAM
   def getRegister(rtype:RegisterType): Register = regs(rtype.ordinal)
   def getRegisters: Array[Register] = regs
 
