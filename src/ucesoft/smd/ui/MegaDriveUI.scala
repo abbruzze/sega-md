@@ -2,26 +2,26 @@ package ucesoft.smd.ui
 
 import com.formdev.flatlaf.FlatLightLaf
 import org.yaml.snakeyaml.{DumperOptions, Yaml}
-import ucesoft.smd.VDP.SCREEN_WIDTH
-import ucesoft.smd.controller.*
-import ucesoft.smd.debugger.Debugger
-import ucesoft.smd.misc.{CartInfoPanel, EventPlayback, EventRecorder, FullScreenMode, GIFPanel, IconFlasher, Preferences, StateInfoPanel}
-import ucesoft.smd.ui.MessageBoard.MessageLevel.{ADMIN, NORMAL}
 import ucesoft.smd.*
 import ucesoft.smd.ModelType.{Domestic, Oversea}
+import ucesoft.smd.VDP.SCREEN_WIDTH
 import ucesoft.smd.VideoType.{NTSC, PAL}
 import ucesoft.smd.cheat.Cheat.CheatCode
 import ucesoft.smd.cheat.{Cheat, CheatManager}
-import ucesoft.smd.cpu.svp.{SVP2Mapper, SVPMapper}
+import ucesoft.smd.controller.*
+import ucesoft.smd.cpu.svp.SVPMapper
+import ucesoft.smd.debugger.Debugger
 import ucesoft.smd.misc.Preferences.{FIXCHECKSUM_PREF, LOAD_SAVE_EXTRA_RAM_PREF, TMSS_ENABLED_PREF, VERBOSE_MESSAGE_PREF}
+import ucesoft.smd.misc.*
+import ucesoft.smd.ui.MessageBoard.MessageLevel.{ADMIN, NORMAL}
 
 import java.awt.event.{KeyAdapter, KeyEvent, WindowAdapter, WindowEvent}
 import java.io.*
 import java.util.Properties
 import java.util.logging.Level
 import java.util.zip.{GZIPInputStream, GZIPOutputStream}
-import javax.swing.filechooser.FileFilter
 import javax.swing.*
+import javax.swing.filechooser.FileFilter
 import scala.collection.mutable.ListBuffer
 
 object MegaDriveUI:
