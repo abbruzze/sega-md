@@ -1,5 +1,6 @@
 package ucesoft.smd.cpu.svp
 
+import ucesoft.smd.StateBuilder
 import ucesoft.smd.cpu.svp.RegisterType.*
 
 /**
@@ -24,6 +25,10 @@ class Register(val rtype:RegisterType):
   def blindAccessedRead(): Unit = {}
   def blindAccessedWrite(): Unit =
     value = 0xFFFF
+  def createState(sb:StateBuilder): Unit =
+    sb.w("value",value)
+  def restoreState(sb:StateBuilder): Unit =
+    value = sb.r[Int]("value")
 // ===========================================================
 
 class BlindRegister extends Register(BLIND):
@@ -43,6 +48,13 @@ class ProgramCounter extends Register(PC):
 
 class Accumulator(val st:StatusRegister) extends Register(ACC):
   private var lowValue = 0
+
+  override def createState(sb: StateBuilder): Unit =
+    super.createState(sb)
+    sb.w("lowValue",lowValue)
+  override def restoreState(sb: StateBuilder): Unit =
+    super.restoreState(sb)
+    lowValue = sb.r[Int]("lowValue")
 
   final def readLow: Int = lowValue
   final def writeLow(value:Int): Unit =
@@ -157,6 +169,14 @@ end Accumulator
 class Stack extends Register(STACK):
   private final val stack = Array(0,0,0,0,0,0)
   private var top = -1
+
+  override def createState(sb: StateBuilder): Unit =
+    sb.
+      w("top", top).
+      w("stack",stack)
+  override def restoreState(sb: StateBuilder): Unit =
+    top = sb.r[Int]("top")
+    sb.r("stack",stack)
 
   override def toString: String = elements.mkString("[",",","]")
 
@@ -385,6 +405,17 @@ class PMC extends Register(PMC):
   private var state = WaitingForAddress
   private var pmcSet = false
 
+  override def createState(sb: StateBuilder): Unit =
+    super.createState(sb)
+    sb.
+      w("state",state.toString).
+      w("pmcSet",pmcSet)
+
+  override def restoreState(sb: StateBuilder): Unit =
+    super.restoreState(sb)
+    state = State.valueOf(sb.r[String]("state"))
+    pmcSet = sb.r[Boolean]("pmcSet")
+
   def update(value:Int): Unit =
     this.value = value
 
@@ -440,6 +471,19 @@ class ExternalRegister(val index:0|1|2|3|4|5,val mem:SVPMemory,val pmc:PMC,val s
   private val externalAddressIncrement = Array(0,0) // SPECIAL_INC means special increment mode
   private var externalOverwrite = false
   private var rwmode = R
+
+  override def createState(sb: StateBuilder): Unit =
+    super.createState(sb)
+    sb.
+      w("externalModeAddress",externalModeAddress).
+      w("externalAddressIncrement",externalAddressIncrement).
+      w("externalOverwrite",externalOverwrite)
+
+  override def restoreState(sb: StateBuilder): Unit =
+    super.restoreState(sb)
+    sb.r("externalModeAddress",externalModeAddress)
+    sb.r("externalAddressIncrement",externalAddressIncrement)
+    externalOverwrite = sb.r[Boolean]("externalOverwrite")
 
   override def get: Int = externalModeAddress(rwmode)
 

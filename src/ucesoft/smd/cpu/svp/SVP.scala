@@ -1,6 +1,6 @@
 package ucesoft.smd.cpu.svp
 import ucesoft.smd.Clock.Clockable
-import ucesoft.smd.SMDComponent
+import ucesoft.smd.{SMDComponent, StateBuilder}
 import ucesoft.smd.cpu.svp.RegisterType.*
 
 /**
@@ -364,3 +364,30 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
       _cycles -= 1
     end while
   end clock
+
+  override protected def createState(sb: StateBuilder): Unit =
+    sb.
+      serialize("RAM_A", RAM(A), zip = true).
+      serialize("RAM_B", RAM(B), zip = true).
+      w("statusXST",statusXST).
+      w("xstValue",xstValue)
+    val registers = new StateBuilder()
+    for r <- regs do
+      val reg = new StateBuilder()
+      r.createState(reg)
+      registers.w(r.rtype.toString,reg.build())
+    sb.w("registers",registers.build())
+
+  override protected def restoreState(sb: StateBuilder): Unit =
+    val ra = sb.deserialize[Array[Int]]("RAM_A", zip = true)
+    System.arraycopy(ra, 0, RAM(A), 0, ra.length)
+    val rb = sb.deserialize[Array[Int]]("RAM_B", zip = true)
+    System.arraycopy(rb, 0, RAM(B), 0, rb.length)
+
+    statusXST = sb.r[Int]("statusXST")
+    xstValue = sb.r[Int]("xstValue")
+
+    val registers = sb.getSubStateBuilder("registers")
+    for r <- regs do
+      val reg = registers.getSubStateBuilder(r.rtype.toString)
+      r.restoreState(reg)

@@ -322,6 +322,16 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
       w("m68WaitCycles",m68WaitCycles).
       w("z80WaitCycles",z80WaitCycles)
     sb.w("loop",loopSB.build())
+
+    // mappers
+    mmu.getM68KMapper.foreach(m => {
+      val mSb = m.createComponentState()
+      sb.w("68kMapper",mSb.build())
+    })
+    mmu.getZ80Mapper.foreach(m => {
+      val mSb = m.createComponentState()
+      sb.w("z80Mapper", mSb.build())
+    })
     
     // Cart
     Cart.createState(_cart,sb)
@@ -356,6 +366,11 @@ class MegaDrive extends SMDComponent with Clockable with VDP.VDPChangeClockRateL
 
     val cart = Cart.restoreState(sb,fixChecksum)
     MessageBus.send(MessageBus.CartInserted(this,cart))
+
+    // mappers
+    mmu.getM68KMapper.foreach(_.restoreComponentState(sb.getSubStateBuilder("68kMapper")))
+    mmu.getZ80Mapper.foreach(_.restoreComponentState(sb.getSubStateBuilder("z80Mapper")))
+
     MessageBus.send(MessageBus.StateRestored(this,cart))
 
 

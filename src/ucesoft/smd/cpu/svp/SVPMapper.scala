@@ -2,7 +2,7 @@ package ucesoft.smd.cpu.svp
 
 import ucesoft.smd.cpu.m68k.Size
 import ucesoft.smd.cpu.m68k.Size.{Byte, Long, Word}
-import ucesoft.smd.{Cart, Clock, MMU}
+import ucesoft.smd.{Cart, Clock, MMU, StateBuilder}
 
 /**
  * @author Alessandro Abbruzzetti
@@ -191,3 +191,15 @@ class SVPMapper(cart:Cart) extends MMU.M68KMapper with SVPMemory:
         println(s"SVP Interrupt? $value")
       case _ =>
         println(s"M68K writes to ${address.toHexString}")
+
+  // ===================================================================
+  override protected def createState(sb: StateBuilder): Unit =
+    sb.
+      serialize("iramRomWord",iramRomWord,zip = true).
+      serialize("dram",dram,zip = true)
+
+  override protected def restoreState(sb: StateBuilder): Unit =
+    val irrw = sb.deserialize[Array[Int]]("iramRomWord",zip = true)
+    System.arraycopy(irrw,0,iramRomWord,0,irrw.length)
+    val _dram = sb.deserialize[Array[Int]]("dram",zip = true)
+    System.arraycopy(_dram,0,dram,0,_dram.length)
