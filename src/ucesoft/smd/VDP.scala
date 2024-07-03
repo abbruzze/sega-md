@@ -151,8 +151,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       tail = sb.r[Int]("tail")
       head = sb.r[Int]("head")
       size = sb.r[Int]("size")
-      for i <- fifo.indices do
-        fifo(i) = null
+
       var slot = head
       var sz = size
       while sz > 0 do
