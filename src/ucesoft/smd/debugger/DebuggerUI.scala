@@ -3,7 +3,7 @@ package ucesoft.smd.debugger
 import ucesoft.smd.VDP
 import ucesoft.smd.cpu.m68k.*
 import ucesoft.smd.cpu.svp.RegisterType.*
-import ucesoft.smd.cpu.svp.SVP
+import ucesoft.smd.cpu.svp.{SVP, SVPDisassembler}
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.Debugger.AddressBreakType
 
@@ -371,6 +371,8 @@ object DebuggerUI {
 
     def add(d: Z80.DisassembledInfo): Unit =
       rows += DisInfo(d.address, "%04X".format(d.address), d.opcodes.map(o => "%02X".format(o)).mkString(" "), d.mnemonic, "", "")
+    def add(d: SVPDisassembler.DisassembledInfo): Unit =
+      rows += DisInfo(d.address,"%04X".format(d.address),d.codes.map(c => "%04X".format(c)).mkString(" "),d.mnemonic,"","")
 
     def update(): Unit = fireTableDataChanged()
 
@@ -465,8 +467,7 @@ object DebuggerUI {
         l.removeBreak(address)
 
   class DisassemblerPanel(name:String,
-                          m68k: M6800X0, // set to null to use z80 instead
-                          z80: Z80,
+                          disaHandler: (DisassembledTableModel,Int) => Int,
                           frame:JFrame,
                           disassemblerBreakHandler: DisassemblerBreakHandler,
                           override val windowCloseOperation: () => Unit) extends RefreshableDialog(frame, s"$name Disassembler", windowCloseOperation) with BreakListener:
@@ -514,14 +515,7 @@ object DebuggerUI {
         new Thread(() => {
           var a = from
           while a <= to do
-            if m68k != null then
-              val dis = m68k.disassemble(a)
-              a += dis.size
-              model.add(dis, false)
-            else
-              val dis = z80.getDisassembledInfo(a)
-              a += dis.size
-              model.add(dis)
+            a = disaHandler(model,a)
           model.update()
         }).start()
       catch

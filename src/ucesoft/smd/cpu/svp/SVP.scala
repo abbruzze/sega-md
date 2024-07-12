@@ -3,6 +3,12 @@ import ucesoft.smd.Clock.Clockable
 import ucesoft.smd.{SMDComponent, StateBuilder}
 import ucesoft.smd.cpu.svp.RegisterType.*
 
+import scala.annotation.switch
+
+object SVP:
+  trait SVPTracer:
+    def trace(address:Int): Unit
+
 /**
  * @author Alessandro Abbruzzetti
  *         Created on 24/05/2024 18:20  
@@ -14,6 +20,13 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
 
   private inline val SSP160x_WRITTEN_XST_MASK = 1
   private inline val M68K_WRITTEN_A15000_MASK = 2
+  
+  private var tracers : List[SVP.SVPTracer] = Nil
+  private var tracing = false
+  private var svpEnabled = true
+  private val disa = new SVPDisassembler(mem)
+  
+  disa.useAlternateRegisterNames(true)
 
   private val RAM = Array( Array.ofDim[Int](256), Array.ofDim[Int](256) )
 
@@ -98,6 +111,17 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
   )
   private var halted = false
   // ======================================================================
+  def disassemble(address:Int): SVPDisassembler.DisassembledInfo =
+    disa.disassemble(address)
+  override def setComponentEnabled(enabled:Boolean): Unit =
+    super.setComponentEnabled(enabled)
+    svpEnabled = enabled
+  def addTracer(t:SVP.SVPTracer): Unit =
+    tracing = true
+    tracers ::= t
+  def removeTracer(t:SVP.SVPTracer): Unit =
+    tracers = tracers.filterNot(tr => tr == t)
+    tracing = tracers.nonEmpty
   def getRAM: Array[Array[Int]] = RAM
   def getRegister(rtype:RegisterType): Register = regs(rtype.ordinal)
   def getRegisters: Array[Register] = regs
@@ -173,9 +197,13 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
 
     var _cycles = cycles
 
-    while _cycles > 0 do
+    while _cycles > 0 && svpEnabled do
+      if tracing then
+        for t <- tracers do 
+          t.trace(pcReg.get)
+          
       val opcode = iramrom(pcReg.getAndInc())
-      opcode >> 9 match
+      (opcode >> 9 : @switch) match
         // ALU
         // OP  A, s      ooo0 0000 0000 rrrr
         case op@(0x10|0x30|0x40|0x50|0x60|0x70) =>

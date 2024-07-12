@@ -51,19 +51,23 @@ object Cart:
     
   def extractFromZIP(file:String): Either[UNZIP_ERROR,File] =
     val zis = new ZipInputStream(new FileInputStream(file))
-    val entry = zis.getNextEntry
-    if entry != null && !entry.isDirectory then
-      val fileName = entry.getName.toUpperCase()
-      if fileName.endsWith(".BIN") || fileName.endsWith(".MD") || fileName.endsWith(".SMD") then
-        val tmpFile = File.createTempFile(fileName, null)
-        tmpFile.deleteOnExit()
-        java.nio.file.Files.copy(zis, tmpFile.toPath, StandardCopyOption.REPLACE_EXISTING)
-        zis.close()
-        Right(tmpFile)
-      else
-        Left(NO_SUITABLE_CART)
-    else
-      Left(DIRECTORY_FOUND)
+    try
+      var entry = zis.getNextEntry
+      while entry != null do
+        if !entry.isDirectory then
+          val fileName = entry.getName.toUpperCase()
+          if fileName.endsWith(".BIN") || fileName.endsWith(".MD") || fileName.endsWith(".SMD") then
+            val tmpFile = File.createTempFile(fileName, null)
+            tmpFile.deleteOnExit()
+            java.nio.file.Files.copy(zis, tmpFile.toPath, StandardCopyOption.REPLACE_EXISTING)
+            zis.close()
+            return Right(tmpFile)
+
+        entry = zis.getNextEntry
+
+      Left(NO_SUITABLE_CART)
+    finally
+      zis.close()
       
   def getInfo(sb:StateBuilder): Option[CartInfo] =
     try

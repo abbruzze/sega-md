@@ -20,7 +20,7 @@ trait SMDComponent extends MessageBus.MessageListener:
     components -= c
   
   final def isComponentEnabled: Boolean = componentEnabled
-  final def setComponentEnabled(enabled:Boolean): Unit =
+  def setComponentEnabled(enabled:Boolean): Unit =
     this.componentEnabled = enabled
   
   protected def init(): Unit = {}

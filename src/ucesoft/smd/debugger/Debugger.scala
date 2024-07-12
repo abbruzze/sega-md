@@ -4,12 +4,12 @@ import org.fife.ui.rsyntaxtextarea.{RSyntaxTextArea, SyntaxConstants}
 import org.fife.ui.rtextarea.RTextScrollPane
 import ucesoft.smd.cpu.m68k.*
 import ucesoft.smd.cpu.m68k.RegisterType.PC
-import ucesoft.smd.cpu.svp.SVPMapper
+import ucesoft.smd.cpu.svp.{SVP, SVPDisassembler, SVPMapper}
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.DebuggerUI.*
 import ucesoft.smd.ui.MessageBoard
 import ucesoft.smd.ui.MessageBoard.MessageBoardListener
-import ucesoft.smd.{Cart, Logger, VDP}
+import ucesoft.smd.{Cart, Logger, VDP, cpu}
 
 import java.awt.event.{MouseAdapter, MouseEvent, WindowAdapter, WindowEvent}
 import java.awt.{BorderLayout, Dimension, FlowLayout, GridLayout}
@@ -97,6 +97,8 @@ class Debugger(m68k:M68000,
   private var frameCount = 0
 
   private val svpDRAMDumpItem = new JCheckBoxMenuItem("SVP DRAM")
+  private val svpRAMADumpItem = new JCheckBoxMenuItem("SVP RAM A")
+  private val svpRAMBDumpItem = new JCheckBoxMenuItem("SVP RAM B")
   private val vramMemoryDumpItem = new JCheckBoxMenuItem("VDP VRAM")
   private val cramMemoryDumpItem = new JCheckBoxMenuItem("VDP CRAM")
   private val vsramMemoryDumpItem = new JCheckBoxMenuItem("VDP VSRAM")
@@ -105,6 +107,8 @@ class Debugger(m68k:M68000,
   private val layerDumpItem = new JCheckBoxMenuItem("Pattern Layers")
   private val patternADumpItem = new JCheckBoxMenuItem("Pattern Dump")
   private var svpDRAMDialog : JDialog = uninitialized
+  private var svpRAMADialog : JDialog = uninitialized
+  private var svpRAMBDialog : JDialog = uninitialized
   private val vdpVRAMDialog = new MemoryDumper(vdpMemDump.ram, 0, "VRAM", frame, () => vramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val vdpVSRAMDialog = new MemoryDumper(vdpMemDump.vsram, 0, "VSRAM", frame, () => vsramMemoryDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = true).dialog
   private val vdpCRAMDialog = new MemoryDumper(vdpMemDump.cram, 0, "CRAM", frame, () => cramMemoryDumpItem.setSelected(false), withColorDumper = true).dialog
@@ -119,26 +123,45 @@ class Debugger(m68k:M68000,
   private var romDialog: JDialog = uninitialized
   private val m68KDisassemblerItem = new JCheckBoxMenuItem("M68K Disassembler")
   private val z80DisassemblerItem = new JCheckBoxMenuItem("Z80 Disassembler")
+  private val svpDisassemblerItem = new JCheckBoxMenuItem("SVP Disassembler")
   private val dmaItem = new JCheckBoxMenuItem("DMA trace")
   private val dmaDialog = new DMAEventPanel(frame,vdp,() => dmaItem.setSelected(false)).dialog
   private val fifoPanel = new VDPFifoPanel(vdp)
 
   private val m68kDebugger = new M68KDebugger
   private val m68kDisassemblerPanel = new DisassemblerPanel("M68K",
-    m68k,
-    z80,
+    (model,a) => {
+      val dis = m68k.disassemble(a)
+      model.add(dis, false)
+      a + dis.size
+    },
     frame,
     m68kDebugger,
     () => m68KDisassemblerItem.setSelected(false))
   private val m68kDisassemblerDialog = m68kDisassemblerPanel.dialog
   private val z80Debugger = new Z80Debugger
   private val z80DisassemblerPanel = new DisassemblerPanel("Z80",
-    null,
-    z80,
+    (model, a) => {
+      val dis = z80.getDisassembledInfo(a)
+      model.add(dis)
+      a + dis.size
+    },
     frame,
     z80Debugger,
     () => z80DisassemblerItem.setSelected(false))
   private val z80DisassemblerDialog = z80DisassemblerPanel.dialog
+
+  private var svpDebugger : SVPDebugger = uninitialized
+  private val svpDisassemblerPanel = new DisassemblerPanel("SVP",
+    (model, a) => {
+      val dis = svpDebugger.svp.disassemble(a)
+      model.add(dis)
+      a + dis.wordSize
+    },
+    frame,
+    m68kDebugger,
+    () => m68KDisassemblerItem.setSelected(false))
+  private val svpDisassemblerDialog = svpDisassemblerPanel.dialog
 
   private var selectedDebugger : InternalDebugger = m68kDebugger
 
@@ -166,6 +189,7 @@ class Debugger(m68k:M68000,
     () => z80BreakItem.setSelected(false)
   ).dialog
 
+
   private var messageBoard: MessageBoardListener = scala.compiletime.uninitialized
 
   private val tabbedPane = new JTabbedPane()
@@ -177,6 +201,143 @@ class Debugger(m68k:M68000,
     def nextStep(): Unit
     def updateDisassembly(): Unit
     def isTracing: Boolean
+
+  private class SVPDebugger(val svp:SVP) extends InternalDebugger with GenericDebugger with SVP.SVPTracer:
+    private val breaks = new collection.mutable.HashMap[Int,AddressBreakType]
+
+    private val generalRegisterTableModel = new SVPRegisterTableModel(svp,SVPRegsType.General)
+    private val pmxRegisterTableModel = new SVPRegisterTableModel(svp,SVPRegsType.PMx)
+    private val pointerRegisterTableModel = new SVPRegisterTableModel(svp,SVPRegsType.Pointer)
+
+    private val disassembledTableModel = new DisassembledTableModel(address => getBreakStringAt(address).map(_.substring(0, 1)))
+    private val distable = new JTable(disassembledTableModel)
+
+    private var stepByStep = false
+
+    init()
+
+    override protected def onCPUEnabled(enabled:Boolean): Unit =
+      svp.setComponentEnabled(enabled)
+    override def enableTracing(enabled: Boolean): Unit =
+      stepByStep = enabled
+      if enabled then
+        svp.addTracer(this)
+      else
+        svp.removeTracer(this)
+        nextStep()
+    override def stepIn(): Unit = nextStep()
+    override def stepOver(): Unit = stepIn()
+    override def stepOut(): Unit = stepIn()
+    override def nextStep(): Unit =
+      semaphore.release()
+    override def updateModels(): Unit = swing {
+      generalRegisterTableModel.contentUpdated()
+      pmxRegisterTableModel.contentUpdated()
+      pointerRegisterTableModel.contentUpdated()
+      distable.setRowSelectionInterval(0, 0)
+    }
+    override def updateDisassembly(): Unit =
+      disassembledTableModel.clear()
+      updateDisassemblyAddress()
+      updateModels()
+    override def isTracing: Boolean = stepByStep
+    override def trace(address: Int): Unit =
+      selectDebugger(2)
+      disassembledTableModel.clear()
+      updateDisassemblyAddress(address)
+      m68kDebugger.updateDisassembly()
+      z80Debugger.updateDisassembly()
+      checkTracingState(true)
+      updateModels()
+      semaphore.acquire()
+
+    override def hasBreakAt(address: Int): Boolean = ???
+    override def addBreakAt(address: Int, read: Boolean, write: Boolean, execute: Boolean): Unit = ???
+    override def removeBreakAt(address: Int): Unit = ???
+    override def getBreakStringAt(address: Int): Option[String] = breaks.get(address).map(_.toString)
+    override def getBreakEvent(eventName: String): Option[AnyRef] = ???
+    override def addBreakEvent(eventName: String, value: AnyRef): Unit = ???
+    override def removeBreakEvent(eventName: String): Unit = ???
+
+    private def updateDisassemblyAddress(address: Int = -1): Unit = swing {
+      var adr = if address == -1 then svp.getRegister(cpu.svp.RegisterType.PC).get else address
+      for a <- 1 to 25 do
+        val dis = svp.disassemble(adr)
+        disassembledTableModel.add(dis)
+        adr += dis.wordSize
+      disassembledTableModel.update()
+    }
+
+    private def init(): Unit =
+      setLayout(new BorderLayout())
+      val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
+      northPanel.add(cpuEnabled)
+      add("North", northPanel)
+      val rightPanel = new JPanel(new BorderLayout())
+      // registers
+      val registerPanel = new JPanel(new GridLayout(0, 1))
+      // generic registers
+      val gentable = new JTable(generalRegisterTableModel)
+      gentable.getTableHeader.setReorderingAllowed(false)
+      gentable.setDefaultRenderer(classOf[String], new RegisterRenderer("%04X"))
+      var sp = new JScrollPane(gentable, ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER)
+      gentable.setPreferredScrollableViewportSize(gentable.getPreferredSize)
+      sp.setBorder(BorderFactory.createTitledBorder("Generic registers"))
+      registerPanel.add(sp)
+      // pmx registers
+      val pmxtable = new JTable(pmxRegisterTableModel)
+      pmxtable.getTableHeader.setReorderingAllowed(false)
+      pmxtable.setDefaultRenderer(classOf[String], new RegisterRenderer("%04X"))
+      sp = new JScrollPane(pmxtable, ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER)
+      pmxtable.setPreferredScrollableViewportSize(pmxtable.getPreferredSize)
+      sp.setBorder(BorderFactory.createTitledBorder("PMx registers"))
+      registerPanel.add(sp)
+      // pointer registers
+      val pointertable = new JTable(pointerRegisterTableModel)
+      pointertable.getTableHeader.setReorderingAllowed(false)
+      pointertable.setDefaultRenderer(classOf[String], new RegisterRenderer("%04X"))
+      sp = new JScrollPane(pointertable, ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER)
+      pointertable.setPreferredScrollableViewportSize(pointertable.getPreferredSize)
+      sp.setBorder(BorderFactory.createTitledBorder("PMx registers"))
+      registerPanel.add(sp)
+
+      rightPanel.add("Center", sp)
+      rightPanel.add("North", registerPanel)
+
+      // disassemble panel
+      distable.getTableHeader.setReorderingAllowed(false)
+      distable.setDefaultRenderer(classOf[String], new DisassembledCellRenderer)
+      sp = new JScrollPane(distable)
+      sp.setBorder(BorderFactory.createTitledBorder("Disassembler"))
+      val colModel = distable.getColumnModel
+      colModel.getColumn(0).setMinWidth(25)
+      colModel.getColumn(0).setMaxWidth(30)
+      colModel.getColumn(1).setMinWidth(70)
+      colModel.getColumn(1).setMaxWidth(80)
+      colModel.getColumn(2).setMinWidth(130)
+      colModel.getColumn(2).setMaxWidth(180)
+      colModel.getColumn(3).setMinWidth(160)
+      colModel.getColumn(3).setMaxWidth(200)
+      distable.addMouseListener(new MouseAdapter {
+        override def mouseClicked(e: MouseEvent): Unit =
+          if e.getClickCount == 2 then
+            val row = distable.rowAtPoint(e.getPoint)
+            val address = disassembledTableModel.getAddressAt(row)
+            if hasBreakAt(address) then
+              removeBreakAt(address)
+            else
+              addExecuteBreakAt(address)
+            disassembledTableModel.update()
+      })
+
+      val splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sp, rightPanel)
+      splitPane.setContinuousLayout(true)
+      splitPane.setOneTouchExpandable(true)
+      add("Center", splitPane)
+
+  end SVPDebugger
+
+
 
   private class Z80Debugger extends InternalDebugger with GenericDebugger with Z80.EventListener:
     private val registerTableModel = new Z80RegisterTableModel(z80.ctx)
@@ -283,6 +444,7 @@ class Debugger(m68k:M68000,
         disassembledTableModel.clear()
         updateDisassembly(z80,address)
         m68kDebugger.updateDisassembly()
+        if svpDebugger != null then svpDebugger.updateDisassembly()
         checkTracingState(true)
         updateModels()
         semaphore.acquire()
@@ -303,7 +465,7 @@ class Debugger(m68k:M68000,
       updateDisassembly(z80)
       updateModels()
 
-    private def updateDisassembly(z80:Z80,address:Int = -1): Unit =
+    private def updateDisassembly(z80:Z80,address:Int = -1): Unit = swing {
       var adr = if address == -1 then z80.ctx.PC else address
       for a <- 1 to 25 do
         val dis = z80.getDisassembledInfo(adr)
@@ -311,6 +473,8 @@ class Debugger(m68k:M68000,
           stepDisassemble = dis
         disassembledTableModel.add(dis)
         adr += dis.size
+      disassembledTableModel.update()
+    }
     override def interrupted(z80: Z80, mode: Int, isNMI: Boolean): Unit =
       log(s"Break on Z80 ${if isNMI then "NMI" else "INT"}")
       stepByStep = true
@@ -618,6 +782,7 @@ class Debugger(m68k:M68000,
           disassembledTableModel.clear()
           updateDisassembly(cpu,address)
           z80Debugger.updateDisassembly()
+          if svpDebugger != null then svpDebugger.updateDisassembly()
           updateModels()
           breakEpilogue(cpu)
         end if
@@ -637,6 +802,7 @@ class Debugger(m68k:M68000,
             stepDisassemble = dis
           disassembledTableModel.add(dis, false)
           adr += dis.size
+        disassembledTableModel.update()
       }
 
       private def checkStepOverOut(instruction: Instruction, address: Int): Unit =
@@ -697,10 +863,6 @@ class Debugger(m68k:M68000,
     init()
 
     private def init(): Unit =
-      frame.addWindowListener(new WindowAdapter:
-        override def windowClosing(e: WindowEvent): Unit =
-          windowCloseOperation()
-      )
       setLayout(new BorderLayout())
       val northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT))
       northPanel.add(cpuEnabled)
@@ -812,9 +974,22 @@ class Debugger(m68k:M68000,
   def enableSVP(enabled:Boolean,mapper:SVPMapper): Unit =
     if enabled then
       svpDRAMDumpItem.setEnabled(true)
+      svpRAMADumpItem.setEnabled(true)
+      svpRAMBDumpItem.setEnabled(true)
+      svpDisassemblerItem.setEnabled(true)
       svpDRAMDialog = new MemoryDumper(mapper.getDRAM, 0, "SVP DRAM", frame, () => svpDRAMDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = false, wordValues = true).dialog
+      svpRAMADialog = new MemoryDumper(mapper.getSVP.getRAM(0), 0, "SVP RAM A", frame, () => svpDRAMDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = false, wordValues = true).dialog
+      svpRAMBDialog = new MemoryDumper(mapper.getSVP.getRAM(1), 0, "SVP RAM B", frame, () => svpDRAMDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = false, wordValues = true).dialog
+      svpDebugger = new SVPDebugger(mapper.getSVP)
+      tabbedPane.addTab("SVP",svpDebugger)
     else
       svpDRAMDumpItem.setEnabled(false)
+      svpRAMADumpItem.setEnabled(false)
+      svpRAMBDumpItem.setEnabled(false)
+      svpDisassemblerItem.setEnabled(false)
+      svpDebugger = null
+      if tabbedPane.getTabCount == 3 then
+        tabbedPane.removeTabAt(2)
   def setMessageBoard(mb:MessageBoardListener): Unit =
     messageBoard = mb
   def setCart(cart:Cart): Unit =
@@ -837,6 +1012,10 @@ class Debugger(m68k:M68000,
     else f
 
   private def init(): Unit =
+    frame.addWindowListener(new WindowAdapter:
+      override def windowClosing(e: WindowEvent): Unit =
+        windowCloseOperation()
+    )
     frame.setIconImage(new ImageIcon(getClass.getResource("/resources/sonic_ring.png")).getImage)
     romDumpItem.setEnabled(false)
     val mainPanel = new JPanel(new BorderLayout())
@@ -962,10 +1141,13 @@ class Debugger(m68k:M68000,
       tabbedPane.getSelectedIndex match
         case 0 =>
           selectedDebugger = m68kDebugger
-          enableButtons(!z80Debugger.isTracing)
+          enableButtons(!(z80Debugger.isTracing || (svpDebugger != null && svpDebugger.isTracing)))
         case 1 =>
           selectedDebugger = z80Debugger
-          enableButtons(!m68kDebugger.isTracing)
+          enableButtons(!(m68kDebugger.isTracing || (svpDebugger != null && svpDebugger.isTracing)))
+        case 2 =>
+          selectedDebugger = svpDebugger
+          enableButtons(!(m68kDebugger.isTracing || z80Debugger.isTracing))
     })
     mainPanel.add("Center",tabbedPane)
 
@@ -982,6 +1164,9 @@ class Debugger(m68k:M68000,
     val breakMenu = new JMenu("Breaks")
 
     svpDRAMDumpItem.addActionListener(_ => svpDRAMDialog.setVisible(svpDRAMDumpItem.isSelected))
+    svpRAMADumpItem.addActionListener(_ => svpRAMADialog.setVisible(svpRAMADumpItem.isSelected))
+    svpRAMBDumpItem.addActionListener(_ => svpRAMBDialog.setVisible(svpRAMBDumpItem.isSelected))
+    svpDRAMDumpItem.addActionListener(_ => svpDRAMDialog.setVisible(svpDRAMDumpItem.isSelected))
     vramMemoryDumpItem.addActionListener(_ => vdpVRAMDialog.setVisible(vramMemoryDumpItem.isSelected) )
     cramMemoryDumpItem.addActionListener(_ => vdpCRAMDialog.setVisible(cramMemoryDumpItem.isSelected) )
     vsramMemoryDumpItem.addActionListener(_ => vdpVSRAMDialog.setVisible(vsramMemoryDumpItem.isSelected) )
@@ -995,6 +1180,8 @@ class Debugger(m68k:M68000,
     memoryMenu.add(m68kramMemoryDumpItem)
     memoryMenu.add(z80RamMemoryDumpItem)
     memoryMenu.add(svpDRAMDumpItem)
+    memoryMenu.add(svpRAMADumpItem)
+    memoryMenu.add(svpRAMBDumpItem)
     menu.add(memoryMenu)
 
     layerDumpItem.addActionListener(_ => patternLayersDialog.setVisible(layerDumpItem.isSelected) )
@@ -1031,8 +1218,10 @@ class Debugger(m68k:M68000,
 
     m68KDisassemblerItem.addActionListener(_ => m68kDisassemblerDialog.setVisible(m68KDisassemblerItem.isSelected))
     z80DisassemblerItem.addActionListener(_ => z80DisassemblerDialog.setVisible(z80DisassemblerItem.isSelected))
+    svpDisassemblerItem.addActionListener(_ => svpDisassemblerDialog.setVisible(svpDisassemblerItem.isSelected))
     disMenu.add(m68KDisassemblerItem)
     disMenu.add(z80DisassemblerItem)
+    disMenu.add(svpDisassemblerItem)
 
     menu.add(disMenu)
 
@@ -1061,6 +1250,7 @@ class Debugger(m68k:M68000,
       selectedDebugger = index match
         case 0 => m68kDebugger
         case 1 => z80Debugger
+        case 2 => svpDebugger
     }
 
   def showDebugger(show:Boolean): Unit =
@@ -1088,12 +1278,16 @@ class Debugger(m68k:M68000,
     selectedDebugger.stepOut()
 
   private def disassembleGUI(): Unit =
-    if tabbedPane.getSelectedIndex == 1 then
-      z80DisassemblerItem.setSelected(true)
-      z80DisassemblerDialog.setVisible(true)
-    else
-      m68KDisassemblerItem.setSelected(true)
-      m68kDisassemblerDialog.setVisible(true)
+    tabbedPane.getSelectedIndex match
+      case 0 =>
+        m68KDisassemblerItem.setSelected(true)
+        m68kDisassemblerDialog.setVisible(true)
+      case 1 =>
+        z80DisassemblerItem.setSelected(true)
+        z80DisassemblerDialog.setVisible(true)
+      case 2 =>
+        svpDisassemblerItem.setSelected(true)
+        svpDisassemblerDialog.setVisible(true)
 
   private def memoryGUI(): Unit =
     if tabbedPane.getSelectedIndex == 1 then
