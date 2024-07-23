@@ -124,6 +124,8 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     "3826f26" -> (Oversea,VideoType.NTSC)          // Titan 1
   )
 
+  private var showBorder = true
+
   override def onMessage(msg: MessageBus.Message): Unit =
     msg match
       case MessageBus.CartRemoved(_,cart) if cart != null =>
@@ -206,7 +208,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     // display
     val display = new Display(SCREEN_WIDTH, megaDrive.model.videoType.totalLines, frame.getTitle, frame, megaDrive.masterClock)
     display.setFocusable(true)
-    display.setClipArea(megaDrive.model.videoType.getClipArea(h40 = false).getTuple)
+    display.setClipArea(megaDrive.model.videoType.getClipArea(h40 = false,showBorder).getTuple)
     megaDrive.setDisplay(display)
     frame.getContentPane.add("Center",display)
     zoom(2)
@@ -552,7 +554,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
 
   private def applyNewModel(newModel:Model): Unit =
     megaDrive.display.setNewResolution(newModel.videoType.totalLines, SCREEN_WIDTH)
-    megaDrive.display.setPreferredSize(newModel.videoType.getClipArea(h40 = true).getPreferredSize(if zoom4CB.isSelected then 4 else 2))
+    megaDrive.display.setPreferredSize(newModel.videoType.getClipArea(h40 = true,showBorder).getPreferredSize(if zoom4CB.isSelected then 4 else 2))
     megaDrive.display.invalidate()
     frame.pack()
     MessageBus.send(MessageBus.ModelChanged(this, newModel))
@@ -651,6 +653,14 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     debuggerCB.addActionListener(_ => debugger.showDebugger(debuggerCB.isSelected))
     debuggerCB.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_D, java.awt.event.InputEvent.ALT_DOWN_MASK))
   private def buildToolsMenu(toolsMenu:JMenu): Unit =
+    val showBorderItem = new JCheckBoxMenuItem("VDP show border")
+    showBorderItem.setSelected(true)
+    showBorderItem.addActionListener(_ => setBorder(showBorderItem.isSelected))
+    toolsMenu.add(showBorderItem)
+    megaDrive.pref.add(Preferences.SHOW_BORDER, "show border",true) { show =>
+      showBorderItem.setSelected(show)
+      showBorder = show
+    }
     val regionMenu = new JMenu("Region")
     toolsMenu.add(regionMenu)
     val group = new ButtonGroup
@@ -835,6 +845,12 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     toolsMenu.add(fixchecksumItem)
   end buildToolsMenu
 
+  private def setBorder(show: Boolean): Unit =
+    showBorder = show
+    megaDrive.vdp.setShowBorder(showBorder)
+    zoom(if zoom4CB.isSelected then 4 else 2)
+    megaDrive.pref.updateWithoutNotify(Preferences.SHOW_BORDER,show)
+
   private def buildCartMenu(cartMenu:JMenu): Unit =
     val cartInfoItem = new JMenuItem("Cart info ...")
     cartMenu.add(cartInfoItem)
@@ -887,7 +903,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
   private def zoom(factor:Int): Unit =
     if factor == 4 then
       zoom4CB.setSelected(true)
-    megaDrive.display.setPreferredSize(megaDrive.model.videoType.getClipArea(h40 = true).getPreferredSize(factor))
+    megaDrive.display.setPreferredSize(megaDrive.model.videoType.getClipArea(h40 = true,showBorder).getPreferredSize(factor))
     megaDrive.display.invalidate()
     frame.pack()
   private def enableMouseCapture(enabled:Boolean): Unit =
@@ -1013,6 +1029,7 @@ class MegaDriveUI extends MessageBus.MessageListener with CheatManager:
     fullScreenMode.setEnabled(true)
     cartMenu.setEnabled(true)
     MouseHider.hideMouseOn(megaDrive.display)
+    megaDrive.vdp.setShowBorder(showBorder)
 
     if cheatList.nonEmpty then
       JOptionPane.showConfirmDialog(frame,s"Apply ${cheatList.size} configured cheats on this cartridge ?","Cheats confirm",JOptionPane.YES_NO_OPTION) match

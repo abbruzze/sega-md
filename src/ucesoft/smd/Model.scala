@@ -136,13 +136,29 @@ enum VideoType(val clockFrequency:Int,
   final def bottomBorderPos(v30:Boolean): Int =
     topBlankingPixels + topBorderPixels + (if v30 then 240 else 224)
 
-  final def getClipArea(h40:Boolean): DisplayClipArea =
+  final def getClipArea(h40:Boolean,keepBorder:Boolean): DisplayClipArea =
     if h40 then
       // remaining hsync = 4, left black = 32, left border = 13, display = 320, right border = 14
-      DisplayClipArea(32 + 4,topBlankingPixels,379 + 4,topBlankingPixels + topBorderPixels + maxActiveLines + bottomBorderPixels)
+      inline val hsync = 4
+      inline val leftBlack = 32
+      inline val leftBorder = 13
+      inline val displayWidth = 320
+      inline val rightBorder = 14
+      if keepBorder then
+        DisplayClipArea(leftBlack + hsync,topBlankingPixels,displayWidth + leftBlack + leftBorder + rightBorder + hsync,topBlankingPixels + topBorderPixels + maxActiveLines + bottomBorderPixels)
+      else
+        DisplayClipArea(leftBlack + hsync + leftBorder,topBlankingPixels + topBorderPixels,displayWidth + leftBlack + leftBorder + hsync,topBlankingPixels + topBorderPixels + maxActiveLines)
     else
       // remaining hsync = 10, left black = 24, left border = 13, display = 256, right border = 14
-      DisplayClipArea(24 + 10,topBlankingPixels,307 + 10,topBlankingPixels + topBorderPixels + maxActiveLines + bottomBorderPixels)
+      inline val hsync = 10
+      inline val leftBlack = 24
+      inline val leftBorder = 13
+      inline val displayWidth = 256
+      inline val rightBorder = 14
+      if keepBorder then
+        DisplayClipArea(leftBlack + hsync,topBlankingPixels,displayWidth + leftBlack + leftBorder + rightBorder + hsync,topBlankingPixels + topBorderPixels + maxActiveLines + bottomBorderPixels)
+      else
+        DisplayClipArea(leftBlack + hsync + leftBorder, topBlankingPixels + topBorderPixels, displayWidth + leftBlack + leftBorder + hsync, topBlankingPixels + topBorderPixels + maxActiveLines)
 
   case NTSC extends VideoType(clockFrequency = 53_693_175,
                               topBlankingPixels = 13,

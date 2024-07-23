@@ -878,7 +878,18 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
   private var lightgunProvider : LightgunProvider = scala.compiletime.uninitialized
 
   private var svpEnabled = false
+  
+  private var showBorder = true
   // =================================================================================
+  def setShowBorder(enabled:Boolean): Unit =
+    showBorder = enabled
+    if model != null then
+      val clip = model.videoType.getClipArea(h40 = !REG_H32, showBorder)
+      if interlaceModeEnabled then
+        display.setClipArea(clip.getInterlacedTuple)
+      else
+        display.setClipArea(clip.getTuple)
+
   def setSVPEnabled(enabled:Boolean): Unit =
     svpEnabled = enabled
   def enableLightgun(enabled:Boolean,lightgunProvider : LightgunProvider): Unit =
@@ -1293,11 +1304,11 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
               interlaceModeEnabled = true
               display.setInterlaceMode(true)
               videoPixels = display.displayMem
-              display.setClipArea(model.videoType.getClipArea(h40 = !h32).getInterlacedTuple)
+              display.setClipArea(model.videoType.getClipArea(h40 = !h32,showBorder).getInterlacedTuple)
               sendMessage("Interlace mode on")
             case _ =>
               display.setInterlaceMode(false)
-              display.setClipArea(model.videoType.getClipArea(h40 = !h32).getTuple)
+              display.setClipArea(model.videoType.getClipArea(h40 = !h32,showBorder).getTuple)
 
               videoPixels = display.displayMem
               interlaceModeEnabled = false
@@ -1310,7 +1321,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
           if enableInfoLogging then log.info("HMode set to %s", hmode)
           sendMessage(s"HMode set to $hmode")
 
-          val clip = model.videoType.getClipArea(h40 = !h32)
+          val clip = model.videoType.getClipArea(h40 = !h32,showBorder)
           if interlaceModeEnabled then
             display.setClipArea(clip.getInterlacedTuple)
           else

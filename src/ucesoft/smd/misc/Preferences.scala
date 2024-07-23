@@ -22,6 +22,7 @@ object Preferences {
   val INIT_VRAM_PREF = "init-vram"
   val EXTRA_RAM_DIR_PREF = "extra-ram-path"
   val LOAD_SAVE_EXTRA_RAM_PREF = "load-save-extra-ram"
+  val SHOW_BORDER = "vdp-show-border"
   
   class PreferenceIllegalArgumentException(msg:String) extends Exception(msg)
 
