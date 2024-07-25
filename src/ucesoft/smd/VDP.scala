@@ -116,10 +116,10 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         sb.r[Boolean]("vramFirstByteWritten")
       )
 
-  private class FifoEntry(var commandCode:Int,
-                          var address:Int,
-                          var data:Int,
-                          var vramFirstByteWritten:Boolean = false):
+  private case class FifoEntry(commandCode:Int,
+                               address:Int,
+                               data:Int,
+                               var vramFirstByteWritten:Boolean = false):
     def createState(): java.util.Map[String,AnyRef] =
       val map = new java.util.HashMap[String,AnyRef]
       map.put("commandCode",java.lang.Integer.valueOf(commandCode))
@@ -130,7 +130,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
 
   private class FIFO:
     private inline val MAX_SIZE = 4
-    private final val fifo = Array.fill[FifoEntry](MAX_SIZE)(FifoEntry(0,0,0))
+    private final val fifo = Array.ofDim[FifoEntry](MAX_SIZE)
     private var tail, head = -1
     private var size = 0
     private var lastWritten : FifoEntry = scala.compiletime.uninitialized
@@ -151,7 +151,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       tail = sb.r[Int]("tail")
       head = sb.r[Int]("head")
       size = sb.r[Int]("size")
-
+      for i <- fifo.indices do
+        fifo(i) = null
       var slot = head
       var sz = size
       while sz > 0 do
@@ -185,24 +186,24 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       else
         fifo(head)
 
-    final def enqueue(code:Int,address:Int,data:Int): Boolean =
-      if size < MAX_SIZE then
-        if tail == -1 then head = 0
+//    final def enqueue(code:Int,address:Int,data:Int): Boolean =
+//      if size < MAX_SIZE then
+//        if tail == -1 then head = 0
+//
+//        tail = (tail + 1) % MAX_SIZE
+//        fifo(tail).commandCode = code
+//        fifo(tail).address = address
+//        fifo(tail).data = data
+//        lastWritten = fifo(tail)
+//        size += 1
+//        if size == MAX_SIZE then
+//          statusRegister |= STATUS_FIFO_FULL_MASK
+//        statusRegister &= ~STATUS_FIFO_EMPTY_MASK
+//        true
+//      else
+//        false
 
-        tail = (tail + 1) % MAX_SIZE
-        fifo(tail).commandCode = code
-        fifo(tail).address = address
-        fifo(tail).data = data
-        lastWritten = fifo(tail)
-        size += 1
-        if size == MAX_SIZE then
-          statusRegister |= STATUS_FIFO_FULL_MASK
-        statusRegister &= ~STATUS_FIFO_EMPTY_MASK
-        true
-      else
-        false
-
-    private def enqueue(value: FifoEntry): Boolean =
+    final def enqueue(value: FifoEntry): Boolean =
       if size < MAX_SIZE then
         if tail == -1 then head = 0
 
@@ -1117,8 +1118,8 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
         //log.warning("writeDataPort: writing data when access mode is not writing: %d",mode)
         false
     if validWrite then
-      if !fifo.enqueue(codeRegister,adjustAddressRegister(addressRegister),value) then
-        val entry = FifoEntry(codeRegister,adjustAddressRegister(addressRegister),value)
+      val entry = FifoEntry(codeRegister,adjustAddressRegister(addressRegister),value)
+      if !fifo.enqueue(entry) then
         if writeOverflowFIFOEntry != null then // can happen when writeDataPort is called twice in a row for a long data write and there's no space to set dtack to false
           if writeOverflowFIFOEntry2 != null then
             log.error("writeOverflowFIFOEntry2 != null must never happen")
@@ -1662,7 +1663,7 @@ class VDP(busArbiter:BusArbiter) extends SMDComponent with Clock.Clockable with 
       busArbiter.vdpRequest68KBUS()
     val data = m68KMemory.read(REG_DMA_SOURCE_ADDRESS << 1,Size.Word,MMU.VDP_MEM_OPTION)
     //log.info("doDMAMemory: pushing codeRegister=%X address=%X data=%X",codeRegister,addressRegister,data)
-    if !fifo.enqueue(codeRegister,adjustAddressRegister(addressRegister),data) then
+    if !fifo.enqueue(FifoEntry(codeRegister,adjustAddressRegister(addressRegister),data)) then
       log.error("doDMAMemory: FIFO full")
     updateTargetAddress()
 
