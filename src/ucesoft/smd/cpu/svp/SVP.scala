@@ -117,8 +117,9 @@ class SVP(val mem:SVPMemory) extends SMDComponent with Clockable:
     super.setComponentEnabled(enabled)
     svpEnabled = enabled
   def addTracer(t:SVP.SVPTracer): Unit =
-    tracing = true
-    tracers ::= t
+    if !tracers.contains(t) then
+      tracing = true
+      tracers ::= t
   def removeTracer(t:SVP.SVPTracer): Unit =
     tracers = tracers.filterNot(tr => tr == t)
     tracing = tracers.nonEmpty

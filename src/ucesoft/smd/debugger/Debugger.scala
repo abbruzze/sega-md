@@ -4,7 +4,7 @@ import org.fife.ui.rsyntaxtextarea.{RSyntaxTextArea, SyntaxConstants}
 import org.fife.ui.rtextarea.RTextScrollPane
 import ucesoft.smd.cpu.m68k.*
 import ucesoft.smd.cpu.m68k.RegisterType.PC
-import ucesoft.smd.cpu.svp.{SVP, SVPDisassembler, SVPMapper}
+import ucesoft.smd.cpu.svp.{SVP, SVPMapper}
 import ucesoft.smd.cpu.z80.Z80
 import ucesoft.smd.debugger.DebuggerUI.*
 import ucesoft.smd.ui.MessageBoard
@@ -13,7 +13,6 @@ import ucesoft.smd.{Cart, Logger, VDP, cpu}
 
 import java.awt.event.{MouseAdapter, MouseEvent, WindowAdapter, WindowEvent}
 import java.awt.{BorderLayout, Dimension, FlowLayout, GridLayout}
-import java.util.concurrent.Semaphore
 import javax.swing.*
 import javax.swing.text.DefaultCaret
 import scala.compiletime.uninitialized
@@ -47,6 +46,7 @@ class Debugger(m68k:M68000,
                windowCloseOperation: () => Unit) extends VDP.VDPNewFrameListener:
   import Debugger.*
   private inline val MAX_LOG_LINES = 1000
+  private inline val DIS_LINES = 25
   private enum StepState:
     case NoStep, WaitReturn, WaitTarget
 
@@ -54,7 +54,7 @@ class Debugger(m68k:M68000,
     protected var stepOverPending, stepOutPending = StepState.NoStep
     protected var stepOverOutStopPending = false
     protected var stepOverTargetAddress = 0
-    protected val semaphore = new Semaphore(0)
+    protected val semaphore = new Object//new Semaphore(0)
     protected val cpuEnabled = {
       val item = new JCheckBox("CPU enabled")
       item.setSelected(true)
@@ -189,6 +189,9 @@ class Debugger(m68k:M68000,
     () => z80BreakItem.setSelected(false)
   ).dialog
 
+  private val svpBreakItem = new JCheckBoxMenuItem("z80 breaks")
+  private var svpBreakDialog : JDialog = uninitialized
+
 
   private var messageBoard: MessageBoardListener = scala.compiletime.uninitialized
 
@@ -219,17 +222,25 @@ class Debugger(m68k:M68000,
     override protected def onCPUEnabled(enabled:Boolean): Unit =
       svp.setComponentEnabled(enabled)
     override def enableTracing(enabled: Boolean): Unit =
+      if stepByStep != enabled then
+        if enabled then
+          svp.addTracer(this)
+          if !frame.isVisible then
+            frame.setVisible(true)
+        else
+          nextStep()
+          if breaks.isEmpty then
+            svp.removeTracer(this)
+
       stepByStep = enabled
-      if enabled then
-        svp.addTracer(this)
-      else
-        svp.removeTracer(this)
-        nextStep()
+
     override def stepIn(): Unit = nextStep()
     override def stepOver(): Unit = stepIn()
     override def stepOut(): Unit = stepIn()
     override def nextStep(): Unit =
-      semaphore.release()
+      semaphore.synchronized {
+        semaphore.notify()
+      }
     override def updateModels(): Unit = swing {
       generalRegisterTableModel.contentUpdated()
       pmxRegisterTableModel.contentUpdated()
@@ -242,26 +253,44 @@ class Debugger(m68k:M68000,
       updateModels()
     override def isTracing: Boolean = stepByStep
     override def trace(address: Int): Unit =
-      selectDebugger(2)
-      disassembledTableModel.clear()
-      updateDisassemblyAddress(address)
-      m68kDebugger.updateDisassembly()
-      z80Debugger.updateDisassembly()
-      checkTracingState(true)
-      updateModels()
-      semaphore.acquire()
+      breaks.get(address) match
+        case Some(break) if break.execute =>
+          log(s"Break $break on address ${address.toHexString}")
+          stepByStep = true
+        case _ =>
 
-    override def hasBreakAt(address: Int): Boolean = ???
-    override def addBreakAt(address: Int, read: Boolean, write: Boolean, execute: Boolean): Unit = ???
-    override def removeBreakAt(address: Int): Unit = ???
+      if stepByStep then
+        selectDebugger(2)
+        disassembledTableModel.clear()
+        updateDisassemblyAddress(address)
+        m68kDebugger.updateDisassembly()
+        z80Debugger.updateDisassembly()
+        checkTracingState(true)
+        updateModels()
+        semaphore.synchronized {
+          semaphore.wait()
+        }
+
+    override def hasBreakAt(address: Int): Boolean = breaks.contains(address)
+    override def addBreakAt(address: Int, read: Boolean, write: Boolean, execute: Boolean): Unit =
+      svp.addTracer(this)
+      breaks += address -> AddressBreakType(address, execute = execute, read = read, write = write)
+      notifyBreakAdded(AddressBreakType(address, read = read, write = write, execute = execute))
+      disassembledTableModel.update()
+    override def removeBreakAt(address: Int): Unit =
+      breaks -= address
+      notifyBreakRemoved(address)
+      disassembledTableModel.update()
+      if breaks.isEmpty then
+        svp.removeTracer(this)
     override def getBreakStringAt(address: Int): Option[String] = breaks.get(address).map(_.toString)
-    override def getBreakEvent(eventName: String): Option[AnyRef] = ???
-    override def addBreakEvent(eventName: String, value: AnyRef): Unit = ???
-    override def removeBreakEvent(eventName: String): Unit = ???
+    override def getBreakEvent(eventName: String): Option[AnyRef] = None
+    override def addBreakEvent(eventName: String, value: AnyRef): Unit = {}
+    override def removeBreakEvent(eventName: String): Unit = {}
 
     private def updateDisassemblyAddress(address: Int = -1): Unit = swing {
       var adr = if address == -1 then svp.getRegister(cpu.svp.RegisterType.PC).get else address
-      for a <- 1 to 25 do
+      for a <- 1 to DIS_LINES do
         val dis = svp.disassemble(adr)
         disassembledTableModel.add(dis)
         adr += dis.wordSize
@@ -398,7 +427,9 @@ class Debugger(m68k:M68000,
       breaks.nonEmpty || breakOnReset || breakOnInt || breakOnNMI || breakOnHalt
 
     override def nextStep(): Unit =
-      semaphore.release()
+      semaphore.synchronized {
+        semaphore.notify()
+      }
 
     override def hasBreakAt(address: Int): Boolean = breaks.contains(address)
 
@@ -427,7 +458,9 @@ class Debugger(m68k:M68000,
 
           checkTracingState(true)
           updateModels()
-          semaphore.acquire()
+          semaphore.synchronized {
+            semaphore.wait()
+          }
         case _ =>
 
     override def fetch(z80: Z80, address: Int, opcode: Int): Unit =
@@ -447,7 +480,9 @@ class Debugger(m68k:M68000,
         if svpDebugger != null then svpDebugger.updateDisassembly()
         checkTracingState(true)
         updateModels()
-        semaphore.acquire()
+        semaphore.synchronized {
+          semaphore.wait()
+        }
     end fetch
 
     override def isTracing: Boolean = stepByStep
@@ -467,7 +502,7 @@ class Debugger(m68k:M68000,
 
     private def updateDisassembly(z80:Z80,address:Int = -1): Unit = swing {
       var adr = if address == -1 then z80.ctx.PC else address
-      for a <- 1 to 25 do
+      for a <- 1 to DIS_LINES do
         val dis = z80.getDisassembledInfo(adr)
         if a == 1 then
           stepDisassemble = dis
@@ -483,7 +518,9 @@ class Debugger(m68k:M68000,
       checkTracingState(true)
       updateDisassembly(z80)
       updateModels()
-      semaphore.acquire()
+      semaphore.synchronized {
+        semaphore.wait()
+      }
     override def reset(z80: Z80): Unit =
       log(s"Break on Z80 RESET")
       stepByStep = true
@@ -492,7 +529,9 @@ class Debugger(m68k:M68000,
       checkTracingState(true)
       updateDisassembly(z80)
       updateModels()
-      semaphore.acquire()
+      semaphore.synchronized {
+        semaphore.wait()
+      }
     override def halt(z80: Z80, isHalted: Boolean): Unit =
       log(s"Break on Z80 HALT")
       stepByStep = true
@@ -501,7 +540,9 @@ class Debugger(m68k:M68000,
       checkTracingState(true)
       updateDisassembly(z80)
       updateModels()
-      semaphore.acquire()
+      semaphore.synchronized {
+        semaphore.wait()
+      }
 
     override def enableTracing(enabled: Boolean): Unit = {
       if stepByStep != enabled then
@@ -688,11 +729,16 @@ class Debugger(m68k:M68000,
       override def getBreakStringAt(address: Int): Option[String] = m68kAddressBreaks.get(address).map(_.breakType.toString)
 
       override def nextStep(): Unit =
-        semaphore.release()
+        //semaphore.release()
+        semaphore.synchronized {
+          semaphore.notify()
+        }
 
       override def isTracing: Boolean = isStepByStep
 
-      override def breakEpilogue(cpu: M6800X0): Unit = semaphore.acquire()
+      override def breakEpilogue(cpu: M6800X0): Unit = semaphore.synchronized {
+        semaphore.wait()
+      }//semaphore.acquire()
 
       override def onStepByStepChange(stepByStepEnabled: Boolean): Unit =
         if stepByStepEnabled then
@@ -793,17 +839,19 @@ class Debugger(m68k:M68000,
         updateDisassembly(m68k)
         updateModels()
 
-      private def updateDisassembly(cpu: M6800X0,address:Int = -1): Unit = swing {
+      private def updateDisassembly(cpu: M6800X0,address:Int = -1): Unit =
         disassembledTableModel.clear()
-        var adr = if address == -1 then cpu.getRegister(PC).get() else address
-        for a <- 1 to 25 do
-          val dis = cpu.disassemble(adr)
-          if a == 1 then
-            stepDisassemble = dis
-          disassembledTableModel.add(dis, false)
-          adr += dis.size
-        disassembledTableModel.update()
-      }
+        val startAddress = if address == -1 then cpu.getRegister(PC).get() else address
+        swing {
+          var adr = startAddress
+          for a <- 1 to DIS_LINES do
+            val dis = cpu.disassemble(adr)
+            if a == 1 then
+              stepDisassemble = dis
+            disassembledTableModel.add(dis, false)
+            adr += dis.size
+          disassembledTableModel.update()
+        }
 
       private def checkStepOverOut(instruction: Instruction, address: Int): Unit =
         import InstructionType.*
@@ -977,16 +1025,29 @@ class Debugger(m68k:M68000,
       svpRAMADumpItem.setEnabled(true)
       svpRAMBDumpItem.setEnabled(true)
       svpDisassemblerItem.setEnabled(true)
+      svpBreakItem.setEnabled(true)
       svpDRAMDialog = new MemoryDumper(mapper.getDRAM, 0, "SVP DRAM", frame, () => svpDRAMDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = false, wordValues = true).dialog
       svpRAMADialog = new MemoryDumper(mapper.getSVP.getRAM(0), 0, "SVP RAM A", frame, () => svpDRAMDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = false, wordValues = true).dialog
       svpRAMBDialog = new MemoryDumper(mapper.getSVP.getRAM(1), 0, "SVP RAM B", frame, () => svpDRAMDumpItem.setSelected(false), setPreferredScrollableViewportSize = false, showASCII = false, wordValues = true).dialog
       svpDebugger = new SVPDebugger(mapper.getSVP)
       tabbedPane.addTab("SVP",svpDebugger)
+      svpBreakDialog = new BreakMasterPanel(
+        "SVP",
+        frame,
+        4,
+        break => svpDebugger.removeBreakAt(break.address),
+        break => svpDebugger.addBreakAt(break.address, read = break.read, write = break.write, execute = break.execute),
+        new JPanel,
+        svpDebugger,
+        () => svpBreakItem.setSelected(false)
+      ).dialog
     else
       svpDRAMDumpItem.setEnabled(false)
       svpRAMADumpItem.setEnabled(false)
       svpRAMBDumpItem.setEnabled(false)
       svpDisassemblerItem.setEnabled(false)
+      svpBreakItem.setEnabled(false)
+      svpBreakDialog = null
       svpDebugger = null
       if tabbedPane.getTabCount == 3 then
         tabbedPane.removeTabAt(2)
@@ -1227,8 +1288,11 @@ class Debugger(m68k:M68000,
 
     m68kBreakItem.addActionListener(_ => m68kBreakDialog.setVisible(m68kBreakItem.isSelected))
     z80BreakItem.addActionListener(_ => z80BreakDialog.setVisible(z80BreakItem.isSelected))
+    svpBreakItem.addActionListener(_ => svpBreakDialog.setVisible(svpBreakItem.isSelected))
+
     breakMenu.add(m68kBreakItem)
     breakMenu.add(z80BreakItem)
+    breakMenu.add(svpBreakItem)
 
     menu.add(breakMenu)
 
@@ -1259,7 +1323,8 @@ class Debugger(m68k:M68000,
   private def checkTracingState(enabled: Boolean): Unit =
     if enabled then
       onOffButton.setToolTipText("Disable tracing")
-      frame.setVisible(true)
+      if !frame.isVisible then
+        frame.setVisible(true)
     else
       onOffButton.setToolTipText("Enable tracing")
       m68kDebugger.enableTracing(false)
@@ -1338,12 +1403,16 @@ class Debugger(m68k:M68000,
       messageBoard.addMessage(MessageBoard.builder.message(s"$frameCount  ").ytop().xright().delay(500).fadingMilliseconds(100).adminLevel().build())
 
   private def breakGUI(): Unit =
-    if tabbedPane.getSelectedIndex == 1 then
-      z80BreakItem.setSelected(true)
-      z80BreakDialog.setVisible(true)
-    else
-      m68kBreakItem.setSelected(true)
-      m68kBreakDialog.setVisible(true)
+    tabbedPane.getSelectedIndex match
+      case 0 =>
+        m68kBreakItem.setSelected(true)
+        m68kBreakDialog.setVisible(true)
+      case 1 =>
+        z80BreakItem.setSelected(true)
+        z80BreakDialog.setVisible(true)
+      case 2 =>
+        svpBreakItem.setSelected(true)
+        svpBreakDialog.setVisible(true)
 
   private def saveTraceUI(): Unit =
     val std = new SaveTraceDialog(frame,tl => selectedDebugger.startTracingOnFile(tl),() => selectedDebugger.stopTracingOnFile())
